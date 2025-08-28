@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
 import plotly.express as px
 from auth import show_login_form, logout
 from datetime import datetime, timedelta
+from sqlalchemy import text
 
 # --- Configuração inicial da página e do estado da sessão ---
 st.set_page_config(page_title="AssetFlow", layout="wide")
@@ -99,80 +99,90 @@ else:
             unsafe_allow_html=True
         )
 
-    # --- Funções do Banco de Dados para o Dashboard ---
+    # --- Funções do Banco de Dados para o Dashboard (MODIFICADAS PARA POSTGRESQL) ---
     def get_db_connection():
-        conn = sqlite3.connect('inventario.db')
-        conn.row_factory = sqlite3.Row
-        return conn
+        """Retorna uma conexão ao banco de dados Supabase."""
+        return st.connection("supabase", type="sql")
 
     @st.cache_data(ttl=600) # O cache otimiza o desempenho
     def carregar_dados_dashboard():
         conn = get_db_connection()
         
         # KPIs - Aparelhos Ativos (Excluindo Baixados/Inutilizados)
-        kpis_ativos = conn.execute("""
-            SELECT COUNT(a.id), SUM(a.valor)
+        kpis_ativos_df = conn.query("""
+            SELECT COUNT(a.id) as total, COALESCE(SUM(a.valor), 0) as valor
             FROM aparelhos a
             JOIN status s ON a.status_id = s.id
-            WHERE s.nome_status != 'Baixado/Inutilizado'
-        """).fetchone()
-        total_aparelhos = kpis_ativos[0] or 0
-        valor_total = kpis_ativos[1] or 0
+            WHERE s.nome_status != 'Baixado/Inutilizado';
+        """)
+        total_aparelhos = kpis_ativos_df['total'].iloc[0] if not kpis_ativos_df.empty else 0
+        valor_total = kpis_ativos_df['valor'].iloc[0] if not kpis_ativos_df.empty else 0
         
-        total_colaboradores = conn.execute("SELECT COUNT(id) FROM colaboradores").fetchone()[0] or 0
+        total_colaboradores_df = conn.query("SELECT COUNT(id) as total FROM colaboradores;")
+        total_colaboradores = total_colaboradores_df['total'].iloc[0] if not total_colaboradores_df.empty else 0
         
-        kpis_manutencao = conn.execute("""
-            SELECT COUNT(a.id), SUM(a.valor) 
+        kpis_manutencao_df = conn.query("""
+            SELECT COUNT(a.id) as total, COALESCE(SUM(a.valor), 0) as valor 
             FROM aparelhos a JOIN status s ON a.status_id = s.id 
-            WHERE s.nome_status = 'Em manutenção'
-        """).fetchone()
-        aparelhos_manutencao = kpis_manutencao[0] or 0
-        valor_manutencao = kpis_manutencao[1] or 0
+            WHERE s.nome_status = 'Em manutenção';
+        """)
+        aparelhos_manutencao = kpis_manutencao_df['total'].iloc[0] if not kpis_manutencao_df.empty else 0
+        valor_manutencao = kpis_manutencao_df['valor'].iloc[0] if not kpis_manutencao_df.empty else 0
         
-        aparelhos_estoque = conn.execute("""
-            SELECT COUNT(a.id) FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status = 'Em estoque'
-        """).fetchone()[0] or 0
+        aparelhos_estoque_df = conn.query("""
+            SELECT COUNT(a.id) as total FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status = 'Em estoque';
+        """)
+        aparelhos_estoque = aparelhos_estoque_df['total'].iloc[0] if not aparelhos_estoque_df.empty else 0
 
         # Gráficos (Excluindo Baixados/Inutilizados)
-        df_status = pd.read_sql_query("""
+        df_status = conn.query("""
             SELECT s.nome_status, 
             COUNT(a.id) as quantidade 
             FROM aparelhos a 
             JOIN status s ON a.status_id = s.id 
-            GROUP BY s.nome_status
-        """, conn)
+            GROUP BY s.nome_status;
+        """)
         
-        df_setor = pd.read_sql_query("""
-            SELECT s.nome_setor, COUNT(a.id) as quantidade
+        df_setor = conn.query("""
+            WITH UltimaMovimentacao AS (
+                SELECT 
+                    aparelho_id,
+                    colaborador_id,
+                    ROW_NUMBER() OVER(PARTITION BY aparelho_id ORDER BY data_movimentacao DESC) as rn
+                FROM historico_movimentacoes
+                WHERE colaborador_id IS NOT NULL
+            )
+            SELECT 
+                se.nome_setor, 
+                COUNT(DISTINCT a.id) as quantidade
             FROM aparelhos a
-            JOIN historico_movimentacoes h ON a.id = h.aparelho_id
-            JOIN (SELECT aparelho_id, MAX(data_movimentacao) as max_data FROM historico_movimentacoes GROUP BY aparelho_id) hm ON h.aparelho_id = hm.aparelho_id AND h.data_movimentacao = hm.max_data
-            JOIN colaboradores c ON h.colaborador_id = c.id
-            JOIN setores s ON c.setor_id = s.id
-            WHERE a.status_id = (SELECT id FROM status WHERE nome_status = 'Em uso')
-            GROUP BY s.nome_setor
-        """, conn)
+            JOIN UltimaMovimentacao um ON a.id = um.aparelho_id AND um.rn = 1
+            JOIN colaboradores c ON um.colaborador_id = c.id
+            JOIN setores se ON c.setor_id = se.id
+            JOIN status s ON a.status_id = s.id
+            WHERE s.nome_status = 'Em uso'
+            GROUP BY se.nome_setor;
+        """)
 
         # Painel de Ação Rápida
-        data_limite = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
-        df_manut_atrasadas = pd.read_sql_query(f"""
+        data_limite = datetime.now() - timedelta(days=5)
+        df_manut_atrasadas = conn.query(f"""
             SELECT a.numero_serie, mo.nome_modelo, m.fornecedor, m.data_envio
             FROM manutencoes m
             JOIN aparelhos a ON m.aparelho_id = a.id
             JOIN modelos mo ON a.modelo_id = mo.id
-            WHERE m.status_manutencao = 'Em Andamento' AND m.data_envio < '{data_limite}'
-        """, conn)
+            WHERE m.status_manutencao = 'Em Andamento' AND m.data_envio < :data_limite;
+        """, params={"data_limite": data_limite})
 
-        df_ultimas_mov = pd.read_sql_query("""
+        df_ultimas_mov = conn.query("""
             SELECT h.data_movimentacao, c.nome_completo, s.nome_status, a.numero_serie
             FROM historico_movimentacoes h
             LEFT JOIN colaboradores c ON h.colaborador_id = c.id
             JOIN status s ON h.status_id = s.id
             JOIN aparelhos a ON h.aparelho_id = a.id
-            ORDER BY h.data_movimentacao DESC LIMIT 5
-        """, conn)
+            ORDER BY h.data_movimentacao DESC LIMIT 5;
+        """)
 
-        conn.close()
         return {
             "kpis": {
                 "total_aparelhos": total_aparelhos, "valor_total": valor_total,
@@ -184,64 +194,79 @@ else:
         }
 
     # --- Conteúdo do Dashboard ---
+    try:
+        # Título e Botão de Atualização
+        col_titulo, col_botao = st.columns([3, 1])
+        with col_titulo:
+            st.title("Dashboard Gerencial")
+        with col_botao:
+            st.write("") # Espaçador
+            st.write("") # Espaçador
+            if st.button("Atualizar Dados", use_container_width=True):
+                st.cache_data.clear() # Limpa o cache para buscar novos dados
+                st.rerun()
+
+        st.markdown("---")
+
+        dados = carregar_dados_dashboard()
+        kpis = dados['kpis']
+        graficos = dados['graficos']
+        acao_rapida = dados['acao_rapida']
+
+        # 1. Visão Geral
+        st.subheader("Visão Geral (Aparelhos Ativos)")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total de Aparelhos Ativos", f"{kpis['total_aparelhos']:,}".replace(",", "."))
+        col2.metric("Valor do Inventário Ativo", f"R$ {kpis['valor_total']:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
+        col3.metric("Total de Colaboradores", f"{kpis['total_colaboradores']:,}".replace(",", "."))
+        
+        col4, col5, col6 = st.columns(3)
+        col4.metric("Aparelhos em Manutenção", f"{kpis['aparelhos_manutencao']:,}".replace(",", "."))
+        col5.metric("Valor em Manutenção", f"R$ {kpis['valor_manutencao']:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
+        col6.metric("Aparelhos em Estoque", f"{kpis['aparelhos_estoque']:,}".replace(",", "."))
+
+        st.markdown("---")
+
+        # 2. Análise Operacional
+        st.subheader("Análise Operacional")
+        gcol1, gcol2 = st.columns(2)
+        with gcol1:
+            st.markdown("###### Aparelhos por Status (Excluindo Baixados)")
+            df_status_filtrado = graficos['status'][graficos['status']['nome_status'] != 'Baixado/Inutilizado']
+            if not df_status_filtrado.empty:
+                fig = px.pie(df_status_filtrado, names='nome_status', values='quantidade', hole=.4)
+                fig.update_traces(textposition='inside', textinfo='percent+label')
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Não há dados de status para exibir.")
+        with gcol2:
+            st.markdown("###### Distribuição de Aparelhos por Setor")
+            if not graficos['setor'].empty:
+                fig2 = px.bar(graficos['setor'], x='nome_setor', y='quantidade', text_auto=True)
+                st.plotly_chart(fig2, use_container_width=True)
+            else:
+                st.info("Não há aparelhos 'Em uso' para exibir a distribuição por setor.")
+
+        st.markdown("---")
+
+        # 3. Painel de Ação Rápida
+        st.subheader("Painel de Ação Rápida")
+        acol1, acol2 = st.columns(2)
+        with acol1:
+            st.markdown("###### Alerta: Manutenções Atrasadas (> 5 dias)")
+            st.dataframe(acao_rapida['manut_atrasadas'], hide_index=True, use_container_width=True,
+                         column_config={
+                             "data_envio": st.column_config.DateColumn("Data de Envio", format="DD/MM/YYYY")
+                         })
+        with acol2:
+            st.markdown("###### Últimas 5 Movimentações")
+            st.dataframe(acao_rapida['ultimas_mov'], hide_index=True, use_container_width=True,
+                         column_config={
+                             "data_movimentacao": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY HH:mm")
+                         })
     
-    # Título e Botão de Atualização
-    col_titulo, col_botao = st.columns([3, 1])
-    with col_titulo:
-        st.title("Dashboard Gerencial")
-    with col_botao:
-        if st.button("Atualizar Dados"):
-            st.cache_data.clear() # Limpa o cache para buscar novos dados
-            st.rerun()
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao conectar ou consultar o banco de dados: {e}")
+        st.warning("O banco de dados parece estar vazio ou inacessível.")
+        st.info("Se esta é a primeira configuração, por favor, vá até a página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
 
-    st.markdown("---")
-
-    dados = carregar_dados_dashboard()
-    kpis = dados['kpis']
-    graficos = dados['graficos']
-    acao_rapida = dados['acao_rapida']
-
-    # 1. Visão Geral
-    st.subheader("Visão Geral (Aparelhos Ativos)")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total de Aparelhos Ativos", f"{kpis['total_aparelhos']:,}".replace(",", "."))
-    col2.metric("Valor do Inventário Ativo", f"R$ {kpis['valor_total']:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
-    col3.metric("Total de Colaboradores", f"{kpis['total_colaboradores']:,}".replace(",", "."))
-    
-    col4, col5, col6 = st.columns(3)
-    col4.metric("Aparelhos em Manutenção", f"{kpis['aparelhos_manutencao']:,}".replace(",", "."))
-    col5.metric("Valor em Manutenção", f"R$ {kpis['valor_manutencao']:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
-    col6.metric("Aparelhos em Estoque", f"{kpis['aparelhos_estoque']:,}".replace(",", "."))
-
-    st.markdown("---")
-
-    # 2. Análise Operacional
-    st.subheader("Análise Operacional")
-    gcol1, gcol2 = st.columns(2)
-    with gcol1:
-        st.markdown("###### Aparelhos por Status (Excluindo Baixados)")
-        if not graficos['status'].empty:
-            fig = px.pie(graficos['status'], names='nome_status', values='quantidade', hole=.4)
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Não há dados de status para exibir.")
-    with gcol2:
-        st.markdown("###### Distribuição de Aparelhos por Setor")
-        if not graficos['setor'].empty:
-            fig2 = px.bar(graficos['setor'], x='nome_setor', y='quantidade', text_auto=True)
-            st.plotly_chart(fig2, use_container_width=True)
-        else:
-            st.info("Não há aparelhos 'Em uso' para exibir a distribuição por setor.")
-
-    st.markdown("---")
-
-    # 3. Painel de Ação Rápida
-    st.subheader("Painel de Ação Rápida")
-    acol1, acol2 = st.columns(2)
-    with acol1:
-        st.markdown("###### Alerta: Manutenções Atrasadas (> 5 dias)")
-        st.dataframe(acao_rapida['manut_atrasadas'], hide_index=True, use_container_width=True)
-    with acol2:
-        st.markdown("###### Últimas 5 Movimentações")
-        st.dataframe(acao_rapida['ultimas_mov'], hide_index=True, use_container_width=True)

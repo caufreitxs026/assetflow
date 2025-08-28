@@ -1,32 +1,37 @@
 import streamlit as st
-import sqlite3
 import hashlib
+from sqlalchemy import text # Importante para queries seguras
+
+def get_db_connection():
+    """Retorna uma conexão ao banco de dados Supabase."""
+    return st.connection("supabase", type="sql")
 
 def hash_password(password):
     """Gera um hash seguro para a senha."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def check_login(username, password):
-    """Verifica as credenciais do utilizador no banco de dados."""
-    conn = sqlite3.connect('inventario.db')
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    
+    """Verifica as credenciais do utilizador no banco de dados PostgreSQL."""
+    conn = get_db_connection()
     hashed_password = hash_password(password)
     
-    cursor.execute(
-        "SELECT * FROM usuarios WHERE login = ? AND senha = ?",
-        (username, hashed_password)
-    )
-    user = cursor.fetchone()
-    conn.close()
+    # A query agora usa placeholders nomeados (ex: :login) para segurança
+    query = "SELECT * FROM usuarios WHERE login = :login AND senha = :senha"
     
-    if user:
+    # conn.query() executa a consulta e retorna um DataFrame do Pandas
+    user_df = conn.query(query, params={"login": username, "senha": hashed_password})
+    
+    # Se o DataFrame não estiver vazio, o utilizador foi encontrado
+    if not user_df.empty:
+        # Pega a primeira (e única) linha de resultados como um dicionário
+        user = user_df.iloc[0].to_dict()
+        
         st.session_state['logged_in'] = True
         st.session_state['username'] = user['login']
         st.session_state['user_role'] = user['cargo']
         st.session_state['user_name'] = user['nome']
         return True
+        
     return False
 
 def show_login_form():
@@ -103,7 +108,7 @@ def show_login_form():
                 else:
                     st.error("Utilizador ou senha inválidos.")
 
-    # Footer com ícones (Instagram trocado por LinkedIn)
+    # Footer com ícones
     st.markdown(
         f"""
         <div class="login-footer">
@@ -125,5 +130,3 @@ def logout():
     st.session_state.pop('user_role', None)
     st.session_state.pop('user_name', None)
     st.rerun()
-
-

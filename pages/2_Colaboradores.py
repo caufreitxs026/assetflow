@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
 from datetime import date
 from auth import show_login_form
+from sqlalchemy import text
 
 # --- Autenticação ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -18,43 +18,20 @@ st.markdown("""
         font-weight: bold;
         padding-top: 20px;
     }
-    /* Cor para o tema claro (padrão) */
     .logo-asset { color: #003366; }
     .logo-flow { color: #E30613; }
-
-    /* Cor para o tema escuro (usando media query) */
     @media (prefers-color-scheme: dark) {
         .logo-asset { color: #FFFFFF; }
         .logo-flow { color: #FF4B4B; }
     }
-
     /* Estilos para o footer na barra lateral */
-    .sidebar-footer {
-        text-align: center;
-        padding-top: 20px;
-        padding-bottom: 20px;
-    }
-    .sidebar-footer a {
-        margin-right: 15px;
-        text-decoration: none;
-    }
-    .sidebar-footer img {
-        width: 25px;
-        height: 25px;
-        filter: grayscale(1) opacity(0.5);
-        transition: filter 0.3s;
-    }
-    .sidebar-footer img:hover {
-        filter: grayscale(0) opacity(1);
-    }
-    
+    .sidebar-footer { text-align: center; padding-top: 20px; padding-bottom: 20px; }
+    .sidebar-footer a { margin-right: 15px; text-decoration: none; }
+    .sidebar-footer img { width: 25px; height: 25px; filter: grayscale(1) opacity(0.5); transition: filter 0.3s; }
+    .sidebar-footer img:hover { filter: grayscale(0) opacity(1); }
     @media (prefers-color-scheme: dark) {
-        .sidebar-footer img {
-            filter: grayscale(1) opacity(0.6) invert(1);
-        }
-        .sidebar-footer img:hover {
-            filter: opacity(1) invert(1);
-        }
+        .sidebar-footer img { filter: grayscale(1) opacity(0.6) invert(1); }
+        .sidebar-footer img:hover { filter: opacity(1) invert(1); }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -69,42 +46,34 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --- Barra Lateral (Agora contém informações e o footer) ---
+# --- Barra Lateral ---
 with st.sidebar:
     st.write(f"Bem-vindo, **{st.session_state['user_name']}**!")
     st.write(f"Cargo: **{st.session_state['user_role']}**")
     if st.button("Logout"):
         from auth import logout
         logout()
-
-    # Footer (Ícones agora no fundo da barra lateral)
     st.markdown("---")
     st.markdown(
         f"""
         <div class="sidebar-footer">
-            <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub">
-                <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg">
-            </a>
-            <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn">
-                <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg">
-            </a>
+            <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg"></a>
+            <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg"></a>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-
-# --- Funções do DB ---
+# --- Funções do DB (MODIFICADAS PARA POSTGRESQL) ---
 def get_db_connection():
-    conn = sqlite3.connect('inventario.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Retorna uma conexão ao banco de dados Supabase."""
+    return st.connection("supabase", type="sql")
 
+@st.cache_data(ttl=30)
 def carregar_setores():
     conn = get_db_connection()
-    setores = conn.execute("SELECT id, nome_setor FROM setores ORDER BY nome_setor").fetchall()
-    conn.close()
-    return setores
+    setores_df = conn.query("SELECT id, nome_setor FROM setores ORDER BY nome_setor;")
+    return setores_df.to_dict('records') # Retorna como lista de dicionários
 
 def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
     if not nome or not cpf or not codigo:
@@ -112,153 +81,182 @@ def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
         return
     try:
         conn = get_db_connection()
-        data_hoje = date.today()
-        conn.execute(
-            "INSERT INTO colaboradores (nome_completo, cpf, gmail, setor_id, data_cadastro, codigo) VALUES (?, ?, ?, ?, ?, ?)",
-            (nome, cpf, gmail, setor_id, data_hoje, codigo)
-        )
-        conn.commit()
-        conn.close()
-        st.success(f"Colaborador '{nome}' adicionado com sucesso!")
-    except sqlite3.IntegrityError:
-        st.warning("Um colaborador com este CPF ou Código já existe.")
-    except Exception as e:
-        st.error(f"Erro ao adicionar colaborador: {e}")
+        with conn.session as s:
+            # Verifica se CPF ou Código já existem
+            query_check = text("SELECT 1 FROM colaboradores WHERE cpf = :cpf OR codigo = :codigo")
+            existe = s.execute(query_check, {"cpf": cpf, "codigo": codigo}).fetchone()
+            if existe:
+                st.warning("Um colaborador com este CPF ou Código já existe.")
+                return
 
+            query_insert = text("""
+                INSERT INTO colaboradores (nome_completo, cpf, gmail, setor_id, data_cadastro, codigo) 
+                VALUES (:nome, :cpf, :gmail, :setor_id, :data, :codigo)
+            """)
+            s.execute(query_insert, {
+                "nome": nome, "cpf": cpf, "gmail": gmail, 
+                "setor_id": setor_id, "data": date.today(), "codigo": codigo
+            })
+            s.commit()
+        st.success(f"Colaborador '{nome}' adicionado com sucesso!")
+        st.cache_data.clear() # Limpa o cache para atualizar as listas
+    except Exception as e:
+        # Verifica se o erro é de chave única (unique constraint)
+        if 'unique constraint' in str(e).lower():
+             st.warning("Um colaborador com este CPF ou Código já existe.")
+        else:
+            st.error(f"Erro ao adicionar colaborador: {e}")
+
+@st.cache_data(ttl=30)
 def carregar_colaboradores(order_by="c.nome_completo ASC"):
-    """Carrega os colaboradores, permitindo a ordenação dinâmica e tratando erros."""
+    """Carrega os colaboradores, permitindo a ordenação dinâmica."""
     conn = get_db_connection()
+    # A ordenação por código precisa de um tratamento especial para texto
+    # Usamos LPAD para alinhar os textos e ordenar numericamente de forma correta
+    if "codigo" in order_by:
+        order_clause = "ORDER BY LPAD(c.codigo, 10, '0')"
+        if "DESC" in order_by:
+            order_clause += " DESC"
+    else:
+        order_clause = f"ORDER BY {order_by}"
+
     query = f"""
         SELECT c.id, c.codigo, c.nome_completo, c.cpf, c.gmail, s.nome_setor
         FROM colaboradores c
         LEFT JOIN setores s ON c.setor_id = s.id
-        ORDER BY {order_by}
+        {order_clause}
     """
-    try:
-        df = pd.read_sql_query(query, conn)
-        conn.close()
-        return df
-    except sqlite3.OperationalError as e:
-        st.error(f"Erro ao ordenar os dados: {e}. Verifique se todos os 'Códigos' são numéricos para usar essa ordenação.")
-        # Fallback para a ordenação padrão em caso de erro
-        conn_fallback = get_db_connection()
-        fallback_query = """
-            SELECT c.id, c.codigo, c.nome_completo, c.cpf, c.gmail, s.nome_setor
-            FROM colaboradores c
-            LEFT JOIN setores s ON c.setor_id = s.id
-            ORDER BY c.nome_completo ASC
-        """
-        df_fallback = pd.read_sql_query(fallback_query, conn_fallback)
-        conn_fallback.close()
-        return df_fallback
-
+    df = conn.query(query)
+    return df
 
 def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id):
     try:
         conn = get_db_connection()
-        conn.execute(
-            "UPDATE colaboradores SET codigo = ?, nome_completo = ?, cpf = ?, gmail = ?, setor_id = ? WHERE id = ?",
-            (codigo, nome, cpf, gmail, setor_id, col_id)
-        )
-        conn.commit()
-        conn.close()
+        with conn.session as s:
+            query = text("""
+                UPDATE colaboradores SET codigo = :codigo, nome_completo = :nome, 
+                cpf = :cpf, gmail = :gmail, setor_id = :setor_id 
+                WHERE id = :id
+            """)
+            s.execute(query, {
+                "codigo": codigo, "nome": nome, "cpf": cpf, 
+                "gmail": gmail, "setor_id": setor_id, "id": col_id
+            })
+            s.commit()
+        st.cache_data.clear()
         return True
-    except sqlite3.IntegrityError:
-        st.error(f"Erro: O CPF '{cpf}' já pertence a outro colaborador.")
-        return False
     except Exception as e:
-        st.error(f"Erro ao atualizar o colaborador ID {col_id}: {e}")
+        if 'unique constraint' in str(e).lower() and 'cpf' in str(e).lower():
+            st.error(f"Erro: O CPF '{cpf}' já pertence a outro colaborador.")
+        else:
+            st.error(f"Erro ao atualizar o colaborador ID {col_id}: {e}")
         return False
 
 def excluir_colaborador(col_id):
     try:
         conn = get_db_connection()
-        conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute("DELETE FROM colaboradores WHERE id = ?", (col_id,))
-        conn.commit()
-        conn.close()
+        with conn.session as s:
+            query = text("DELETE FROM colaboradores WHERE id = :id")
+            s.execute(query, {"id": col_id})
+            s.commit()
+        st.cache_data.clear()
         return True
-    except sqlite3.IntegrityError:
-        st.error(f"Erro: Não é possível excluir o colaborador ID {col_id}, pois ele possui aparelhos ou outros registos associados.")
-        return False
     except Exception as e:
-        st.error(f"Erro ao excluir o colaborador ID {col_id}: {e}")
+        if 'foreign key constraint' in str(e).lower():
+            st.error(f"Erro: Não é possível excluir o colaborador ID {col_id}, pois ele possui aparelhos ou outros registos associados.")
+        else:
+            st.error(f"Erro ao excluir o colaborador ID {col_id}: {e}")
         return False
 
 # --- UI ---
 st.title("Gestão de Colaboradores")
 st.markdown("---")
 
-setores_list = carregar_setores()
-setores_dict = {s['nome_setor']: s['id'] for s in setores_list}
+try:
+    setores_list = carregar_setores()
+    setores_dict = {s['nome_setor']: s['id'] for s in setores_list}
 
-col1, col2 = st.columns([1, 2])
+    col1, col2 = st.columns([1, 2])
 
-with col1:
-    st.subheader("Adicionar Novo Colaborador")
-    with st.form("form_novo_colaborador", clear_on_submit=True):
-        novo_codigo = st.text_input("Código*")
-        novo_nome = st.text_input("Nome Completo*")
-        novo_cpf = st.text_input("CPF*")
-        novo_gmail = st.text_input("Gmail")
-        setor_selecionado_nome = st.selectbox("Setor", options=setores_dict.keys())
+    with col1:
+        st.subheader("Adicionar Novo Colaborador")
+        with st.form("form_novo_colaborador", clear_on_submit=True):
+            novo_codigo = st.text_input("Código*")
+            novo_nome = st.text_input("Nome Completo*")
+            novo_cpf = st.text_input("CPF*")
+            novo_gmail = st.text_input("Gmail")
+            setor_selecionado_nome = st.selectbox("Setor", options=setores_dict.keys(), index=None, placeholder="Selecione...")
 
-        if st.form_submit_button("Adicionar Colaborador"):
-            setor_id = setores_dict.get(setor_selecionado_nome)
-            adicionar_colaborador(novo_nome, novo_cpf, novo_gmail, setor_id, novo_codigo)
+            if st.form_submit_button("Adicionar Colaborador", use_container_width=True):
+                if setor_selecionado_nome:
+                    setor_id = setores_dict.get(setor_selecionado_nome)
+                    adicionar_colaborador(novo_nome, novo_cpf, novo_gmail, setor_id, novo_codigo)
+                    st.rerun()
+                else:
+                    st.warning("Por favor, selecione um setor.")
 
-with col2:
-    with st.expander("Ver, Editar e Excluir Colaboradores", expanded=True):
-        
-        # Caixa de seleção para ordenação
-        sort_options = {
-            "Nome (A-Z)": "c.nome_completo ASC",
-            "Código (Crescente)": "CAST(c.codigo AS INTEGER) ASC",
-            "Setor (A-Z)": "s.nome_setor ASC"
-        }
-        sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
+    with col2:
+        with st.expander("Ver, Editar e Excluir Colaboradores", expanded=True):
+            
+            # Caixa de seleção para ordenação
+            sort_options = {
+                "Nome (A-Z)": "c.nome_completo ASC",
+                "Código (Crescente)": "codigo ASC", # Simplificado, a função trata a lógica
+                "Setor (A-Z)": "s.nome_setor ASC"
+            }
+            sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
 
-        # Carrega os dados com a ordenação selecionada
-        colaboradores_df = carregar_colaboradores(order_by=sort_options[sort_selection])
-        
-        setores_options = list(setores_dict.keys())
+            colaboradores_df = carregar_colaboradores(order_by=sort_options[sort_selection])
+            
+            setores_options = list(setores_dict.keys())
 
-        edited_df = st.data_editor(
-            colaboradores_df,
-            column_config={
-                "id": st.column_config.NumberColumn("ID", disabled=True),
-                "codigo": st.column_config.TextColumn("Código", required=True),
-                "nome_completo": st.column_config.TextColumn("Nome Completo", required=True),
-                "cpf": st.column_config.TextColumn("CPF", required=True),
-                "gmail": st.column_config.TextColumn("Gmail"),
-                "nome_setor": st.column_config.SelectboxColumn(
-                    "Setor", options=setores_options, required=True
-                ),
-            },
-            hide_index=True,
-            num_rows="dynamic", # Permite adicionar e excluir linhas
-            key="colaboradores_editor"
-        )
-        
-        if st.button("Salvar Alterações"):
-            # Lógica para Exclusão
-            deleted_ids = set(colaboradores_df['id']) - set(edited_df['id'])
-            for col_id in deleted_ids:
-                if excluir_colaborador(col_id):
-                    st.toast(f"Colaborador ID {col_id} excluído!", icon="🗑️")
+            # Usamos o estado da sessão para detetar mudanças
+            if 'colaboradores_editor_state' not in st.session_state:
+                st.session_state.colaboradores_editor_state = None
 
-            # Lógica para Atualização
-            for index, row in edited_df.iterrows():
-                if index < len(colaboradores_df): # Apenas verifica linhas existentes
-                    original_row = colaboradores_df.loc[index]
-                    if not row.equals(original_row):
-                        col_id = row['id']
-                        novo_codigo = row['codigo']
-                        novo_nome = row['nome_completo']
-                        novo_cpf = row['cpf']
-                        novo_gmail = row['gmail']
-                        novo_setor_id = setores_dict.get(row['nome_setor'])
-                        
-                        if atualizar_colaborador(col_id, novo_codigo, novo_nome, novo_cpf, novo_gmail, novo_setor_id):
-                            st.toast(f"Colaborador '{novo_nome}' atualizado!", icon="✅")
-            st.rerun()
+            edited_df = st.data_editor(
+                colaboradores_df,
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", disabled=True),
+                    "codigo": st.column_config.TextColumn("Código", required=True),
+                    "nome_completo": st.column_config.TextColumn("Nome Completo", required=True),
+                    "cpf": st.column_config.TextColumn("CPF", required=True),
+                    "gmail": st.column_config.TextColumn("Gmail"),
+                    "nome_setor": st.column_config.SelectboxColumn(
+                        "Setor", options=setores_options, required=True
+                    ),
+                },
+                hide_index=True,
+                num_rows="dynamic", # Permite adicionar e excluir linhas
+                key="colaboradores_editor"
+            )
+            
+            if st.button("Salvar Alterações", use_container_width=True):
+                # Lógica para Exclusão
+                deleted_ids = set(colaboradores_df['id']) - set(edited_df['id'])
+                for col_id in deleted_ids:
+                    if excluir_colaborador(col_id):
+                        st.toast(f"Colaborador ID {col_id} excluído!", icon="🗑️")
+
+                # Lógica para Atualização
+                # Compara o dataframe editado com o original
+                if not edited_df.equals(colaboradores_df.loc[edited_df.index]):
+                    # Encontra as diferenças
+                    diff_df = pd.concat([edited_df, colaboradores_df]).drop_duplicates(keep=False)
+                    for index, row in diff_df.iterrows():
+                        if row['id'] in edited_df['id'].values: # Garante que é uma linha atualizada
+                            col_id = row['id']
+                            novo_codigo = row['codigo']
+                            novo_nome = row['nome_completo']
+                            novo_cpf = row['cpf']
+                            novo_gmail = row['gmail']
+                            novo_setor_id = setores_dict.get(row['nome_setor'])
+                            
+                            if atualizar_colaborador(col_id, novo_codigo, novo_nome, novo_cpf, novo_gmail, novo_setor_id):
+                                st.toast(f"Colaborador '{novo_nome}' atualizado!", icon="✅")
+                st.rerun()
+
+except Exception as e:
+    st.error(f"Ocorreu um erro ao carregar a página de colaboradores: {e}")
+    st.info("Se esta é a primeira configuração, por favor, vá até a página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
+

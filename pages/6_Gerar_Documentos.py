@@ -1,10 +1,9 @@
 import streamlit as st
-import sqlite3
+import pandas as pd
 from datetime import datetime
 from auth import show_login_form
-from fpdf import FPDF
-import io
-import os
+from sqlalchemy import text
+from weasyprint import HTML
 
 # --- Autenticação ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -52,7 +51,7 @@ st.markdown(
 with st.sidebar:
     st.write(f"Bem-vindo, **{st.session_state['user_name']}**!")
     st.write(f"Cargo: **{st.session_state['user_role']}**")
-    if st.button("Logout"):
+    if st.button("Logout", key="sidebar_logout_button"):
         from auth import logout
         logout()
     st.markdown("---")
@@ -66,182 +65,272 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-# --- Classe para gerar o PDF ---
-class PDF(FPDF):
-    def header(self):
-        # Título do Documento
-        self.set_y(self.get_y() + 5) # Move o cursor para baixo
-        self.set_font('Arial', 'B', 16)
-        self.set_text_color(0, 51, 102) # Azul Mirasol
-        self.cell(0, 10, 'TERMO DE RESPONSABILIDADE', 0, 1, 'C')
-        self.set_font('Arial', 'I', 10)
-        self.set_text_color(227, 6, 19) # Vermelho Mirasol
-        self.cell(0, 5, 'PROTOCOLO DE RECEBIMENTO E DEVOLUÇÃO', 0, 1, 'C')
-        self.ln(10)
-
-    def footer(self):
-        self.set_y(-15)
-        self.set_font('Arial', 'I', 8)
-        self.set_text_color(128, 128, 128)
-        self.cell(0, 10, f'Página {self.page_no()}', 0, 0, 'C')
-
-    def section_title(self, title):
-        self.set_font('Arial', 'B', 12)
-        self.set_fill_color(0, 51, 102)
-        self.set_text_color(255, 255, 255)
-        self.cell(0, 8, title, 0, 1, 'L', fill=True)
-        self.ln(2)
-        self.set_text_color(0, 0, 0)
-
-    def info_line(self, label, value):
-        self.set_font('Arial', 'B', 10)
-        self.cell(30, 7, f" {label}:", 0, 0)
-        self.set_font('Arial', '', 10)
-        self.cell(0, 7, f" {value}", 0, 1)
-
 # --- Funções do DB ---
 def get_db_connection():
-    conn = sqlite3.connect('inventario.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+    return st.connection("supabase", type="sql")
 
+@st.cache_data(ttl=30)
 def carregar_movimentacoes_entrega():
     conn = get_db_connection()
-    movs = conn.execute("""
-        SELECT h.id, h.data_movimentacao, a.numero_serie, c.nome_completo
-        FROM historico_movimentacoes h
-        JOIN aparelhos a ON h.aparelho_id = a.id
-        JOIN colaboradores c ON h.colaborador_id = c.id
-        WHERE h.status_id = (SELECT id FROM status WHERE nome_status = 'Em uso')
-        ORDER BY h.data_movimentacao DESC
-    """).fetchall()
-    conn.close()
-    return movs
+    # CORREÇÃO: Esta query agora busca a ÚLTIMA movimentação de cada aparelho
+    # e SÓ inclui na lista se o STATUS ATUAL do aparelho for 'Em uso'.
+    query = """
+        WITH LatestMovements AS (
+            SELECT
+                aparelho_id,
+                MAX(data_movimentacao) as last_move_date
+            FROM
+                historico_movimentacoes
+            GROUP BY
+                aparelho_id
+        )
+        SELECT
+            h.id,
+            h.data_movimentacao,
+            a.numero_serie,
+            c.nome_completo
+        FROM
+            historico_movimentacoes h
+        JOIN
+            LatestMovements lm ON h.aparelho_id = lm.aparelho_id AND h.data_movimentacao = lm.last_move_date
+        JOIN
+            aparelhos a ON h.aparelho_id = a.id
+        JOIN
+            status s ON a.status_id = s.id -- Junção com o status ATUAL do aparelho
+        LEFT JOIN
+            colaboradores c ON h.colaborador_id = c.id
+        WHERE
+            s.nome_status = 'Em uso' -- Filtra pelo status ATUAL do aparelho
+            AND c.id IS NOT NULL
+        ORDER BY
+            h.data_movimentacao DESC;
+    """
+    df = conn.query(query)
+    return df.to_dict('records')
 
+@st.cache_data(ttl=30)
 def buscar_dados_termo(mov_id):
     conn = get_db_connection()
-    dados = conn.execute("""
+    query = """
         SELECT
             c.nome_completo, c.cpf, s.nome_setor, c.gmail, c.codigo as codigo_colaborador,
-            m.nome_marca, mo.nome_modelo, a.imei1, a.imei2,
+            ma.nome_marca, mo.nome_modelo, a.imei1, a.imei2, a.numero_serie,
             h.id as protocolo, h.data_movimentacao
         FROM historico_movimentacoes h
         JOIN colaboradores c ON h.colaborador_id = c.id
         JOIN setores s ON c.setor_id = s.id
         JOIN aparelhos a ON h.aparelho_id = a.id
         JOIN modelos mo ON a.modelo_id = mo.id
-        JOIN marcas m ON mo.marca_id = m.id
-        WHERE h.id = ?
-    """, (mov_id,)).fetchone()
-    conn.close()
-    return dict(dados) if dados else None
+        JOIN marcas ma ON mo.marca_id = ma.id
+        WHERE h.id = :mov_id;
+    """
+    result_df = conn.query(query, params={"mov_id": mov_id})
+    return result_df.to_dict('records')[0] if not result_df.empty else None
+
+@st.cache_data(ttl=60)
+def carregar_setores_nomes():
+    conn = get_db_connection()
+    df = conn.query("SELECT nome_setor FROM setores ORDER BY nome_setor;")
+    return df['nome_setor'].tolist()
+
 
 def gerar_pdf_termo(dados, checklist_data):
-    pdf = PDF()
-    pdf.set_auto_page_break(auto=False)
-    pdf.add_page()
+    """Gera o PDF a partir de um template HTML usando WeasyPrint."""
     
-    pdf.set_font('Arial', 'B', 10)
-    pdf.cell(95, 7, f"CÓDIGO: {dados['protocolo']}", 1, 0, 'C')
-    pdf.cell(95, 7, f"DATA: {dados['data_movimentacao']}", 1, 1, 'C')
-    pdf.ln(5)
+    data_mov = dados.get('data_movimentacao')
+    if isinstance(data_mov, str):
+        try:
+            data_formatada = datetime.strptime(data_mov, '%d/%m/%Y %H:%M').strftime('%d/%m/%Y %H:%M')
+        except ValueError:
+            data_formatada = data_mov 
+    elif isinstance(data_mov, datetime):
+        data_formatada = data_mov.strftime('%d/%m/%Y %H:%M')
+    else:
+        data_formatada = "N/A"
+    
+    dados['data_movimentacao_formatada'] = data_formatada
 
-    pdf.section_title('DADOS DO COLABORADOR')
-    pdf.info_line('NOME', dados['nome_completo'])
-    pdf.info_line('CPF', dados['cpf'])
-    pdf.info_line('SETOR', dados['nome_setor'])
-    pdf.info_line('EMAIL', dados['gmail'])
-    pdf.ln(5)
-
-    pdf.section_title('DADOS DO SMARTPHONE')
-    pdf.info_line('MARCA', dados['nome_marca'])
-    pdf.info_line('MODELO', dados['nome_modelo'])
-    pdf.info_line('IMEI 1', dados['imei1'])
-    pdf.info_line('IMEI 2', dados['imei2'])
-    pdf.ln(5)
-
-    pdf.section_title('DOCUMENTAÇÃO')
-    pdf.set_font('Arial', '', 8)
-    texto_doc = "Declaro para os devidos fins que os materiais registados nesta ficha encontram-se em meu poder para uso em minhas atividades, cabendo-me a responsabilidade por sua guarda e conservação... (Art. 462 CLT). Declaro estar ciente e de acordo com a utilização de meus dados pessoais neste documento, para fins de controle."
-    pdf.multi_cell(0, 4, texto_doc, 0, 'J')
-    pdf.ln(5)
-
-    pdf.section_title('CHECKLIST DE RECEBIMENTO')
-    pdf.set_font('Arial', 'B', 10)
-    pdf.cell(95, 6, 'ITEM', 'B', 0, 'L')
-    pdf.cell(47.5, 6, 'ENTREGA', 'B', 0, 'C')
-    pdf.cell(47.5, 6, 'ESTADO', 'B', 1, 'C')
-    pdf.set_font('Arial', '', 10)
+    # Constrói a parte do checklist da tabela HTML
+    checklist_html = ""
     for item, detalhes in checklist_data.items():
-        pdf.cell(95, 6, item, 'B', 0)
-        pdf.cell(47.5, 6, 'SIM' if detalhes['entregue'] else 'NÃO', 'B', 0, 'C')
-        pdf.cell(47.5, 6, detalhes['estado'], 'B', 1, 'C')
-    pdf.ln(20)
+        entregue_str = 'SIM' if detalhes['entregue'] else 'NÃO'
+        estado_str = detalhes['estado']
+        checklist_html += f"<tr><td>{item}</td><td>{entregue_str}</td><td>{estado_str}</td></tr>"
 
-    pdf.cell(0, 10, '_________________________________________', 0, 1, 'C')
-    pdf.cell(0, 5, dados['nome_completo'], 0, 1, 'C')
+    texto_termos_resumido = """
+    Declaro receber o equipamento descrito para uso profissional, sendo responsável pela sua guarda e conservação. 
+    Comprometo-me a devolvê-lo nas mesmas condições em que o recebi. Danos por mau uso serão de minha responsabilidade 
+    (Art. 462, § 1º da CLT). Autorizo o uso dos meus dados para este fim, de acordo com a LGPD.
+    """
+
+    html_string = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            @page {{ size: A4; margin: 1.5cm; }}
+            body {{ font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.3; color: #333; }}
+            
+            .header {{ text-align: center; margin-bottom: 15px; border-bottom: 2px solid #003366; padding-bottom: 8px; }}
+            h1 {{ color: #003366; font-size: 18pt; margin: 0; }}
+            
+            .section {{ margin-bottom: 10px; }}
+            .section-title {{ background-color: #003366; color: white; padding: 4px 8px; font-weight: bold; font-size: 11pt; border-radius: 4px;}}
+            
+            .info-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; }}
+            .info-table td {{ padding: 4px; border: none; }}
+            .info-table td:first-child {{ font-weight: bold; width: 25%; }}
+            
+            .checklist-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; }}
+            .checklist-table th, .checklist-table td {{ border-bottom: 1px solid #ddd; padding: 4px; text-align: left; }}
+            .checklist-table th {{ background-color: #f2f2f2; text-align: center; border-bottom: 2px solid #ccc;}}
+            .checklist-table td:nth-child(2), .checklist-table td:nth-child(3) {{ text-align: center; }}
+            
+            .disclaimer {{ font-size: 8pt; text-align: justify; margin-top: 8px; padding: 0 5px; }}
+            
+            .signature {{ margin-top: 30px; text-align: center; }} 
+            .signature-line {{ border-top: 1px solid #000; width: 350px; margin: 0 auto; padding-top: 5px; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>TERMO DE RESPONSABILIDADE</h1>
+        </div>
+        <div class="section">
+            <div class="section-title">DADOS DA MOVIMENTAÇÃO</div>
+            <table class="info-table">
+                <tr><td>PROTOCOLO:</td><td>{dados.get('protocolo', '')}</td></tr>
+                <tr><td>DATA:</td><td>{dados.get('data_movimentacao_formatada', '')}</td></tr>
+            </table>
+        </div>
+        <div class="section">
+            <div class="section-title">DADOS DO COLABORADOR</div>
+            <table class="info-table">
+                <tr><td>NOME:</td><td>{dados.get('nome_completo', '')}</td></tr>
+                <tr><td>CPF:</td><td>{dados.get('cpf', '')}</td></tr>
+                <tr><td>SETOR:</td><td>{dados.get('nome_setor', '')}</td></tr>
+            </table>
+        </div>
+        <div class="section">
+            <div class="section-title">DADOS DO EQUIPAMENTO</div>
+            <table class="info-table">
+                <tr><td>TIPO:</td><td>SMARTPHONE</td></tr>
+                <tr><td>MARCA:</td><td>{dados.get('nome_marca', '')}</td></tr>
+                <tr><td>MODELO:</td><td>{dados.get('nome_modelo', '')}</td></tr>
+                <tr><td>NÚMERO DE SÉRIE:</td><td>{dados.get('numero_serie', '')}</td></tr>
+                <tr><td>IMEI 1:</td><td>{dados.get('imei1', '')}</td></tr>
+                <tr><td>IMEI 2:</td><td>{dados.get('imei2', '')}</td></tr>
+            </table>
+        </div>
+        <div class="section">
+            <div class="section-title">CHECKLIST DE ITENS ENTREGUES</div>
+            <table class="checklist-table">
+                <thead><tr><th>ITEM</th><th>ENTREGUE</th><th>ESTADO</th></tr></thead>
+                <tbody>{checklist_html}</tbody>
+            </table>
+        </div>
+        <div class="section">
+            <div class="section-title">TERMOS E CONDIÇÕES</div>
+            <p class="disclaimer">{texto_termos_resumido}</p>
+        </div>
+        <div class="signature">
+            <br>
+            <div class="signature-line">{dados.get('nome_completo', '')}</div>
+        </div>
+    </body>
+    </html>
+    """
     
-    return bytes(pdf.output())
+    pdf_bytes = HTML(string=html_string).write_pdf()
+    return pdf_bytes
 
 # --- UI ---
 st.title("Gerar Termo de Responsabilidade")
-movimentacoes = carregar_movimentacoes_entrega()
 
-if not movimentacoes:
-    st.info("Nenhuma movimentação de entrega encontrada para gerar termos.")
-else:
-    mov_dict = {f"{datetime.fromisoformat(m['data_movimentacao']).strftime('%d/%m/%Y')} - {m['nome_completo']} (S/N: {m['numero_serie']})": m['id'] for m in movimentacoes}
-    mov_selecionada_str = st.selectbox("1. Selecione a entrega para gerar o termo:", options=mov_dict.keys())
-    
-    dados_termo = buscar_dados_termo(mov_dict[mov_selecionada_str])
+try:
+    movimentacoes = carregar_movimentacoes_entrega()
 
-    if dados_termo:
-        st.markdown("---")
-        st.subheader("2. Confira e Edite as Informações (Checkout)")
+    if not movimentacoes:
+        st.info("Nenhuma movimentação de 'Em uso' encontrada para gerar termos.")
+    else:
+        mov_dict = {f"{m['data_movimentacao'].strftime('%d/%m/%Y %H:%M')} - {m['nome_completo']} (S/N: {m['numero_serie']})": m['id'] for m in movimentacoes}
         
-        with st.form("checkout_form"):
-            dados_termo['protocolo'] = st.text_input("Código do Termo", value=dados_termo['protocolo'])
-            dados_termo['data_movimentacao'] = st.text_input("Data", value=datetime.fromisoformat(dados_termo['data_movimentacao']).strftime('%d/%m/%Y'))
-            
-            st.markdown("##### Dados do Colaborador")
-            dados_termo['nome_completo'] = st.text_input("Nome", value=dados_termo['nome_completo'])
-            dados_termo['cpf'] = st.text_input("CPF", value=dados_termo['cpf'])
-            
-            setores_options = [s['nome_setor'] for s in get_db_connection().execute("SELECT nome_setor FROM setores").fetchall()]
-            current_sector_index = setores_options.index(dados_termo['nome_setor']) if dados_termo['nome_setor'] in setores_options else 0
-            dados_termo['nome_setor'] = st.selectbox("Setor", options=setores_options, index=current_sector_index)
-            
-            dados_termo['gmail'] = st.text_input("Email", value=dados_termo['gmail'])
+        st.subheader("1. Selecione a Movimentação")
+        mov_selecionada_str = st.selectbox(
+            "Selecione a entrega para gerar o termo:", 
+            options=list(mov_dict.keys()), 
+            index=None, 
+            placeholder="Selecione uma movimentação..."
+        )
+        
+        if mov_selecionada_str:
+            mov_id = mov_dict[mov_selecionada_str]
+            dados_termo_original = buscar_dados_termo(mov_id)
 
-            st.markdown("##### Dados do Smartphone")
-            dados_termo['imei1'] = st.text_input("IMEI 1", value=dados_termo['imei1'])
-            dados_termo['imei2'] = st.text_input("IMEI 2", value=dados_termo['imei2'])
-            
-            st.markdown("---")
-            st.subheader("3. Preencha o Checklist de Entrega")
-            
-            checklist_data = {}
-            itens_checklist = ["Tela", "Carcaça", "Bateria", "Botões", "USB", "Chip", "Carregador", "Cabo USB", "Capa", "Película"]
-            opcoes_estado = ["NOVO NA CAIXA", "BOM", "REGULAR", "AVARIADO"]
-            
-            for item in itens_checklist:
-                col1, col2 = st.columns(2)
-                entregue = col1.checkbox(f"{item}", value=True, key=f"entregue_{item}")
-                estado = col2.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}")
-                checklist_data[item] = {'entregue': entregue, 'estado': estado}
+            if dados_termo_original:
+                st.markdown("---")
+                st.subheader("2. Confira e Edite as Informações (Checkout)")
 
-            submitted = st.form_submit_button("Gerar e Baixar PDF")
-            if submitted:
-                pdf_bytes = gerar_pdf_termo(dados_termo, checklist_data)
-                st.session_state['pdf_gerado'] = pdf_bytes
-                st.session_state['pdf_filename'] = f"Termo_{dados_termo['nome_completo'].replace(' ', '_')}.pdf"
+                with st.form("checkout_form"):
+                    dados_termo_editaveis = dados_termo_original.copy()
 
-if 'pdf_gerado' in st.session_state and st.session_state['pdf_gerado']:
-    st.download_button(
-        label="Baixar Termo em PDF",
-        data=st.session_state['pdf_gerado'],
-        file_name=st.session_state['pdf_filename'],
-        mime="application/pdf"
-    )
-    st.session_state['pdf_gerado'] = None
+                    dados_termo_editaveis['protocolo'] = st.text_input("Protocolo", value=dados_termo_original['protocolo'])
+                    data_str = dados_termo_original['data_movimentacao'].strftime('%d/%m/%Y %H:%M')
+                    dados_termo_editaveis['data_movimentacao'] = st.text_input("Data", value=data_str)
+                    
+                    st.markdown("##### Dados do Colaborador")
+                    dados_termo_editaveis['nome_completo'] = st.text_input("Nome", value=dados_termo_original['nome_completo'])
+                    dados_termo_editaveis['cpf'] = st.text_input("CPF", value=dados_termo_original['cpf'])
+                    
+                    setores_options = carregar_setores_nomes()
+                    try:
+                        current_sector_index = setores_options.index(dados_termo_original['nome_setor'])
+                    except (ValueError, IndexError):
+                        current_sector_index = 0
+                    dados_termo_editaveis['nome_setor'] = st.selectbox("Setor", options=setores_options, index=current_sector_index)
+                    
+                    dados_termo_editaveis['gmail'] = st.text_input("Email", value=dados_termo_original.get('gmail', ''))
 
+                    st.markdown("##### Dados do Smartphone")
+                    dados_termo_editaveis['numero_serie'] = st.text_input("N/S", value=dados_termo_original.get('numero_serie', ''))
+                    dados_termo_editaveis['imei1'] = st.text_input("IMEI 1", value=dados_termo_original.get('imei1', ''))
+                    dados_termo_editaveis['imei2'] = st.text_input("IMEI 2", value=dados_termo_original.get('imei2', ''))
+                    
+                    st.markdown("---")
+                    st.subheader("3. Preencha o Checklist")
+                    
+                    checklist_data = {}
+                    itens_checklist = ["Tela", "Carcaça", "Bateria", "Botões", "USB", "Chip", "Carregador", "Cabo USB", "Capa", "Película"]
+                    opcoes_estado = ["NOVO", "BOM", "REGULAR", "AVARIADO"]
+                    
+                    cols = st.columns(2)
+                    for i, item in enumerate(itens_checklist):
+                        with cols[i % 2]:
+                            entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{mov_id}")
+                            estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}_{mov_id}")
+                            checklist_data[item] = {'entregue': entregue, 'estado': estado}
+
+                    submitted = st.form_submit_button("Gerar PDF", use_container_width=True, type="primary")
+                    if submitted:
+                        pdf_bytes = gerar_pdf_termo(dados_termo_editaveis, checklist_data)
+                        
+                        safe_name = "".join(c for c in dados_termo_editaveis.get('nome_completo', 'termo') if c.isalnum() or c in " ").rstrip()
+                        pdf_filename = f"Termo_{safe_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                        
+                        st.session_state['pdf_para_download'] = {"data": pdf_bytes, "filename": pdf_filename}
+                        st.rerun()
+    
+    if 'pdf_para_download' in st.session_state and st.session_state['pdf_para_download']:
+        pdf_info = st.session_state.pop('pdf_para_download')
+        st.download_button(
+            label="PDF Gerado! Clique para Baixar",
+            data=pdf_info['data'],
+            file_name=pdf_info['filename'],
+            mime="application/pdf",
+            use_container_width=True
+        )
+
+except Exception as e:
+    st.error(f"Ocorreu um erro ao carregar a página: {e}")
+    st.info("Verifique se o banco de dados está inicializado e se há movimentações do tipo 'Em uso' registadas.")
