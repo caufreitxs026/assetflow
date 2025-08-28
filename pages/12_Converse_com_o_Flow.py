@@ -11,8 +11,6 @@ from sqlalchemy import text
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
     st.switch_page("app.py")
 
-st.set_page_config(page_title="Converse com o Flow", layout="wide")
-
 # --- Configuração de Layout (Header, Footer e CSS) ---
 st.markdown("""
 <style>
@@ -330,7 +328,8 @@ async def get_flow_response(prompt, user_name, current_action=None):
     except KeyError:
         return {"acao": "desconhecido", "dados": {"erro": "Chave de API não configurada."}}
 
-    apiUrl = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-1.5-pro-latest:generateContent?key={apiKey}"
+    # CORREÇÃO: O nome do modelo foi corrigido para 'gemini-1.5-flash-latest'
+    apiUrl = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={apiKey}"
     
     try:
         async with httpx.AsyncClient() as client:
@@ -343,6 +342,9 @@ async def get_flow_response(prompt, user_name, current_action=None):
             return json.loads(json_text)
         else:
             return {"acao": "desconhecido", "dados": {"erro": f"Não consegui entender o pedido. Resposta da API: {result}"}}
+    except httpx.HTTPStatusError as e:
+        # Captura erros HTTP específicos como 404
+        return {"acao": "desconhecido", "dados": {"erro": f"Erro na API ({e.response.status_code}). Verifique o nome do modelo e a chave da API."}}
     except Exception as e:
         return {"acao": "desconhecido", "dados": {"erro": f"Ocorreu um erro de comunicação: {e}"}}
 
@@ -584,3 +586,4 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro crítico na página do assistente: {e}")
     st.info("Se o problema persistir, verifique a configuração do banco de dados na página '⚙️ Configurações'.")
+
