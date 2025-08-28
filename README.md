@@ -1,75 +1,99 @@
-# AssetFlow v3.0
+# AssetFlow v4.0 - Gestão de Ativos com IA e Banco de Dados na Nuvem
 
-Uma aplicação web completa e robusta construída com Python e Streamlit para gerir todo o ciclo de vida de ativos de TI. A versão 3.0 introduz o **Flow**, um assistente de IA conversacional que revoluciona a forma como os dados são geridos.
+Uma aplicação web completa e robusta construída com Python e Streamlit para gerir todo o ciclo de vida de ativos de TI. A versão 4.0 representa uma evolução crucial, migrando de um banco de dados local para uma solução **PostgreSQL na nuvem (Supabase)**, garantindo persistência, segurança e escalabilidade dos dados.
+
+Esta versão mantém o **Flow**, o assistente de IA conversacional, agora operando sobre uma base de dados fiável e permanente.
 
 ## Funcionalidades Principais
 
-- **Dashboard Gerencial:** Visualização rápida dos principais indicadores (KPIs) do inventário.
-- **Sistema de Login Seguro:** Acesso protegido com hashing de senhas e diferentes níveis de permissão.
-- **Gestão de Utilizadores:** Painel administrativo para criar e gerir os acessos ao sistema.
-- **Interface Profissional e Consistente:**
-    - **Identidade Visual:** Logo da aplicação e links de contacto profissionalmente integrados na interface.
-    - **Layout Otimizado:** Uso de secções que podem ser minimizadas e um design limpo em todas as páginas.
-    - **Usabilidade Aprimorada:** Listas suspensas com pesquisa integrada para encontrar rapidamente registos em formulários com muitos dados.
-- **Edição Direta na Tabela:** A maioria das tabelas de gestão permite a edição direta e a exclusão de dados, tornando as atualizações rápidas e intuitivas.
+-   **Banco de Dados Persistente na Nuvem:** Todos os dados são armazenados de forma segura num banco de dados PostgreSQL, eliminando o risco de perda de informação a cada reinicialização da aplicação.
+-   **Dashboard Gerencial:** Visualização em tempo real dos principais indicadores (KPIs) do inventário.
+-   **Sistema de Login Seguro:** Acesso protegido com hashing de senhas e diferentes níveis de permissão (Administrador, Editor, Leitor).
+-   **Gestão de Utilizadores:** Painel administrativo para criar e gerir os acessos ao sistema.
+-   **Interface Profissional e Consistente:**
+    -   **Identidade Visual:** Logo da aplicação e links de contacto profissionalmente integrados na interface.
+    -   **Layout Otimizado:** Uso de secções expansíveis e um design limpo em todas as páginas.
+    -   **Usabilidade Aprimorada:** Listas suspensas com pesquisa integrada para encontrar rapidamente registos.
+-   **Edição Direta na Tabela:** A maioria das tabelas de gestão permite a edição direta, adição e exclusão de dados, tornando as atualizações rápidas e intuitivas.
 
 ---
 
 ### Módulos e Fluxos de Trabalho Inteligentes
 
-#### **Novo!** Converse com o Flow (Assistente de IA)
-- **Interface Conversacional:** Uma nova página de chat permite aos utilizadores interagir com o sistema usando linguagem natural.
-- **Criação de Registos:** Peça ao Flow para criar novos colaboradores, aparelhos ou contas Gmail. Ele guia o utilizador sobre os dados necessários e pede confirmação antes de executar a ação.
-- **Pesquisas Inteligentes:** Faça perguntas como "Quais aparelhos estão com o Cauã Freitas?" ou "Mostre o histórico do aparelho com n/s X". O Flow consulta a base de dados e apresenta os resultados diretamente no chat.
-- **Gestão do Chat:** Comandos simples como `#info`, `limpar chat` e `logout` para uma experiência de utilizador completa.
+#### **Converse com o Flow (Assistente de IA)**
+
+-   **Interface Conversacional:** Interaja com o sistema usando linguagem natural.
+-   **Criação de Registos:** Peça ao Flow para criar novos colaboradores, aparelhos ou contas Gmail. Ele guia o utilizador passo a passo.
+-   **Pesquisas Inteligentes:** Faça perguntas como "Quais aparelhos estão com o Cauã Freitas?" ou "Mostre o histórico do aparelho com n/s X".
 
 #### Gestão de Cadastros
-- **Controlo Total:** Gestão completa de Aparelhos, Colaboradores, Marcas, Modelos, Setores e Contas Gmail.
+
+-   **Controlo Total:** Gestão completa de Aparelhos, Colaboradores, Marcas, Modelos, Setores e Contas Gmail.
 
 #### Fluxo de Devolução e Triagem
-- **Processo Guiado:** Uma página dedicada para registar a devolução de um aparelho, com checklist de inspeção e decisão de destino (Estoque, Manutenção ou Baixa).
-- **Integração Inteligente:** Mantém o vínculo do aparelho com o colaborador durante a manutenção para controlo de custos.
+
+-   **Processo Guiado:** Uma página dedicada para registar a devolução de um aparelho, com checklist de inspeção e decisão de destino (Estoque, Manutenção ou Baixa).
 
 #### Fluxo de Manutenção Completo
-- **Controlo de O.S.:** Abertura, acompanhamento e fecho de Ordens de Serviço, com registo de fornecedores, custos e soluções.
+
+-   **Controlo de O.S.:** Abertura, acompanhamento e fecho de Ordens de Serviço, com registo de fornecedores, custos e soluções.
 
 #### Geração de Documentos Profissionais em PDF
-- **Termo de Responsabilidade:** Criação de termos de entrega com design profissional, logo da empresa e um fluxo de "checkout" para edição antes de gerar o PDF.
 
-#### Importação de Dados em Lote
-- **Página Dedicada:** Uma nova secção para importar dados em massa a partir de planilhas Excel (.xlsx).
-- **Download de Modelos:** Para cada tipo de registo, o sistema oferece um modelo de planilha com exemplos.
-- **Validação Inteligente:** O sistema valida os dados durante o upload, reportando sucessos e erros linha a linha.
+-   **Termo de Responsabilidade:** Geração de termos de entrega em PDF com um design limpo, a partir de um "molde" HTML, garantindo consistência e profissionalismo.
 
-#### Backup e Restauração
-- **Painel Administrativo:** Uma página segura para criar e restaurar backups completos do sistema com um clique.
-- **Restauração Segura:** Faça o upload de um ficheiro de backup para restaurar o sistema a um ponto anterior, com múltiplas confirmações para evitar a perda acidental de dados.
+#### Importação e Exportação de Dados
 
----
+-   **Importação em Lote:** Secção para importar dados em massa a partir de planilhas Excel (.xlsx), com download de modelos e validação inteligente.
+-   **Exportação de Relatórios:** Exporte o inventário completo ou o histórico de movimentações para Excel com um único clique.
 
-## Como Executar Localmente
+## Como Executar Localmente ou Fazer o Deploy
 
 1.  **Clone o repositório:**
     ```bash
-    git clone [URL_DO_SEU_REPOSITORIO_AQUI]
+    git clone [https://github.com/caufreitxs026/AssetFl0w.git](https://github.com/caufreitxs026/AssetFl0w.git)
+    cd AssetFl0w
     ```
+
 2.  **Instale as dependências:**
     ```bash
     pip install -r requirements.txt
     ```
-3.  **Configure os Segredos:** Crie um ficheiro `.streamlit/secrets.toml` e adicione a sua chave da API Gemini:
-    ```toml
-    GEMINI_API_KEY = "SUA_CHAVE_API_AQUI"
+    Se estiver a fazer o deploy no Streamlit Cloud, crie também um ficheiro `packages.txt` e adicione a seguinte linha:
     ```
-4.  **Execute a aplicação:**
+    libpangocairo-1.0-0
+    ```
+
+3.  **Configure o Banco de Dados (Supabase):**
+    -   Crie um projeto gratuito no [Supabase](https://supabase.com/).
+    -   No seu projeto Supabase, vá a **SQL Editor** -> **+ New query**.
+    -   Copie todo o conteúdo do ficheiro `schema.sql` deste repositório, cole no editor e clique em **RUN**.
+    -   Vá a **Settings** -> **Database**.
+    -   Em **Connection string**, copie o URI do **Transaction pooler**.
+
+4.  **Configure os Segredos do Streamlit:**
+    -   Crie um ficheiro `.streamlit/secrets.toml` no seu projeto.
+    -   Adicione a sua chave da API Gemini e a connection string do Supabase:
+    ```toml
+    # Chave da API para o assistente Flow
+    GEMINI_API_KEY = "SUA_CHAVE_API_AQUI"
+
+    # Conexão com o banco de dados Supabase PostgreSQL
+    [connections.supabase]
+    url = "SUA_CONNECTION_STRING_DO_SUPABASE_AQUI"
+    ```
+    *Lembre-se de substituir `[YOUR-PASSWORD]` na connection string pela sua senha real do banco de dados.*
+
+5.  **Execute a aplicação:**
     ```bash
     streamlit run app.py
     ```
-5.  **Aceda à aplicação** no seu navegador, geralmente em `http://localhost:8501`.
-    - **Login Padrão:** `admin`
-    - **Senha Padrão:** `admin`
+
+6.  **Aceda à aplicação** no seu navegador, geralmente em `http://localhost:8501`.
+    -   **Login Padrão:** `admin`
+    -   **Senha Padrão:** `123`
 
 ---
-*Instagram: Caufreitxs*
+*LinkedIn: [https://www.linkedin.com/in/cauafreitas](https://www.linkedin.com/in/cauafreitas)*
 
-*LinkedIn: https://www.linkedin.com/in/cauafreitas*
+*GitHub: [https://github.com/caufreitxs026](https://github.com/caufreitxs026)*
