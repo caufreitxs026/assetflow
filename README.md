@@ -1,6 +1,6 @@
 # AssetFlow v3.1 - Gestão de Ativos com IA e Banco de Dados na Nuvem
 
-Uma aplicação web completa e robusta construída com Python e Streamlit para gerir todo o ciclo de vida de ativos de TI. A versão 4.0 representa uma evolução crucial, migrando de um banco de dados local para uma solução **PostgreSQL na nuvem (Supabase)**, garantindo persistência, segurança e escalabilidade dos dados.
+Uma aplicação web completa e robusta construída com Python e Streamlit para gerir todo o ciclo de vida de ativos de TI. A versão 3.1 representa uma evolução crucial, migrando de um banco de dados local para uma solução **PostgreSQL na nuvem (Supabase)**, garantindo persistência, segurança e escalabilidade dos dados.
 
 Esta versão mantém o **Flow**, o assistente de IA conversacional, agora operando sobre uma base de dados fiável e permanente.
 
