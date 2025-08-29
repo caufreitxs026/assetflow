@@ -124,6 +124,7 @@ def processar_devolucao(aparelho_id, colaborador_id, checklist_data, destino_fin
             novo_status_id = s.execute(text("SELECT id FROM status WHERE nome_status = :nome"), {"nome": novo_status_nome}).scalar_one()
             checklist_json = json.dumps(checklist_data)
 
+            # Para o registo de devolução, o colaborador_id fica NULL, pois o aparelho não está mais com ninguém.
             query_hist = text("""
                 INSERT INTO historico_movimentacoes 
                 (data_movimentacao, aparelho_id, colaborador_id, status_id, localizacao_atual, observacoes, checklist_devolucao)
@@ -143,7 +144,7 @@ def processar_devolucao(aparelho_id, colaborador_id, checklist_data, destino_fin
                     VALUES (:ap_id, :col_id, :data, :defeito, 'Em Andamento')
                 """)
                 s.execute(query_manut, {
-                    "ap_id": aparelho_id, "col_id": colaborador_id, 
+                    "ap_id": aparelho_id, "col_id": colaborador_id, # Aqui guardamos quem foi o último a usar
                     "data": date.today(), "defeito": observacoes
                 })
 
@@ -165,10 +166,10 @@ def carregar_historico_devolucoes(start_date=None, end_date=None):
     """Carrega o histórico de devoluções, identificando o colaborador que devolveu."""
     conn = get_db_connection()
     
-    # CORREÇÃO: Removido "AND h.checklist_devolucao != ''" que é inválido para o tipo JSONB do PostgreSQL.
-    # A verificação "IS NOT NULL" é suficiente e correta.
+    # CORREÇÃO: Esta query agora usa LAG sobre todo o histórico para encontrar o colaborador_id anterior
+    # à movimentação de devolução, garantindo que o nome correto seja exibido.
     query = """
-        WITH Devolucoes AS (
+        WITH HistoricoComAnterior AS (
             SELECT
                 h.id,
                 h.data_movimentacao,
@@ -177,43 +178,42 @@ def carregar_historico_devolucoes(start_date=None, end_date=None):
                 h.localizacao_atual,
                 h.observacoes,
                 h.checklist_devolucao,
-                LAG(h.colaborador_id) OVER (PARTITION BY h.aparelho_id ORDER BY h.data_movimentacao) as prev_colaborador_id
+                LAG(h.colaborador_id) OVER (PARTITION BY h.aparelho_id ORDER BY h.data_movimentacao) as id_colaborador_anterior
             FROM historico_movimentacoes h
-            WHERE h.checklist_devolucao IS NOT NULL
         )
         SELECT
-            d.id,
-            d.data_movimentacao,
+            hca.id,
+            hca.data_movimentacao,
             ma.nome_marca || ' ' || mo.nome_modelo AS aparelho,
             a.numero_serie,
             c.nome_completo AS colaborador_devolveu,
             s.nome_status AS destino_final,
-            d.localizacao_atual,
-            d.observacoes,
-            d.checklist_devolucao
-        FROM Devolucoes d
-        JOIN aparelhos a ON d.aparelho_id = a.id
-        JOIN status s ON d.status_id = s.id
+            hca.localizacao_atual,
+            hca.observacoes,
+            hca.checklist_devolucao
+        FROM HistoricoComAnterior hca
+        JOIN aparelhos a ON hca.aparelho_id = a.id
+        JOIN status s ON hca.status_id = s.id
         JOIN modelos mo ON a.modelo_id = mo.id
         JOIN marcas ma ON mo.marca_id = ma.id
-        LEFT JOIN colaboradores c ON d.prev_colaborador_id = c.id
+        LEFT JOIN colaboradores c ON hca.id_colaborador_anterior = c.id
+        WHERE hca.checklist_devolucao IS NOT NULL
     """
     
     params = {}
     conditions = []
 
     if start_date:
-        conditions.append("CAST(d.data_movimentacao AS DATE) >= :start_date")
+        conditions.append("CAST(hca.data_movimentacao AS DATE) >= :start_date")
         params['start_date'] = start_date
     if end_date:
-        conditions.append("CAST(d.data_movimentacao AS DATE) <= :end_date")
+        conditions.append("CAST(hca.data_movimentacao AS DATE) <= :end_date")
         params['end_date'] = end_date
 
     if conditions:
-        # A query já tem um WHERE, então adicionamos com AND
         query += " AND " + " AND ".join(conditions)
     
-    query += " ORDER BY d.data_movimentacao DESC"
+    query += " ORDER BY hca.data_movimentacao DESC"
     
     df = conn.query(query, params=params)
     
