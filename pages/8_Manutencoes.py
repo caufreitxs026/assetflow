@@ -296,8 +296,12 @@ try:
             if manutencoes_df.empty:
                 st.info("Nenhuma ordem de serviço em andamento no momento.")
             else:
+                # Armazena o dataframe original no estado da sessão para comparação segura
+                if 'original_manutencoes_df' not in st.session_state or not st.session_state.original_manutencoes_df.equals(manutencoes_df):
+                    st.session_state.original_manutencoes_df = manutencoes_df.copy()
+
                 edited_df = st.data_editor(
-                    manutencoes_df,
+                    st.session_state.original_manutencoes_df,
                     column_config={
                         "id": st.column_config.NumberColumn("O.S. Nº", disabled=True),
                         "numero_serie": st.column_config.TextColumn("N/S", disabled=True),
@@ -310,26 +314,25 @@ try:
                 )
                 
                 if st.button("Salvar Alterações nas O.S.", use_container_width=True, key="save_os_changes"):
-                    # CORREÇÃO: Lógica de atualização mais robusta, comparando linha a linha
                     changes_made = False
-                    original_df_indexed = manutencoes_df.set_index('id')
-                    edited_df_indexed = edited_df.set_index('id')
-
-                    for manut_id in edited_df_indexed.index:
-                        if manut_id in original_df_indexed.index:
-                            original_row = original_df_indexed.loc[manut_id]
-                            edited_row = edited_df_indexed.loc[manut_id]
-                            
-                            # Compara campo a campo para maior precisão
-                            if (original_row['fornecedor'] != edited_row['fornecedor'] or
-                                original_row['defeito_reportado'] != edited_row['defeito_reportado']):
-                                
-                                if atualizar_manutencao(manut_id, edited_row['fornecedor'], edited_row['defeito_reportado']):
-                                    st.toast(f"O.S. Nº {manut_id} atualizada!", icon="✅")
-                                    changes_made = True
+                    original_df = st.session_state.original_manutencoes_df
+                    
+                    # Compara os dataframes para encontrar as linhas alteradas
+                    merged_df = original_df.merge(edited_df, on='id', how='outer', suffixes=('_orig', '_edit'))
+                    
+                    for index, row in merged_df.iterrows():
+                        # Verifica se a linha foi alterada
+                        if not pd.isna(row['fornecedor_orig']) and (row['fornecedor_orig'] != row['fornecedor_edit'] or row['defeito_reportado_orig'] != row['defeito_reportado_edit']):
+                            manut_id = int(row['id'])
+                            novo_fornecedor = row['fornecedor_edit']
+                            novo_defeito = row['defeito_reportado_edit']
+                            if atualizar_manutencao(manut_id, novo_fornecedor, novo_defeito):
+                                st.toast(f"O.S. Nº {manut_id} atualizada!", icon="✅")
+                                changes_made = True
                     
                     if changes_made:
-                        st.cache_data.clear()
+                        # Limpa o estado da sessão para forçar o recarregamento dos dados
+                        del st.session_state.original_manutencoes_df
                         st.rerun()
                     else:
                         st.info("Nenhuma alteração foi detetada.")
@@ -392,4 +395,4 @@ try:
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de manutenções: {e}")
-    st.info("Se esta é a primeira configuração, por favor, vá até a página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
+    st.info("Se esta é a primeira configuração, por favor, vá até a página 'Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
