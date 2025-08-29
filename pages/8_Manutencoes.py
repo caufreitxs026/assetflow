@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import date, datetime
 from auth import show_login_form
 from sqlalchemy import text
+import traceback
 
 # --- Autenticação ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -40,7 +41,7 @@ st.markdown("""
 st.markdown(
     """
     <div class="logo-text">
-        <span class="logo-asset">ASSET</span><span class="logo-flow">FLOW</span>
+        <span class.logo-asset">ASSET</span><span class="logo-flow">FLOW</span>
     </div>
     """,
     unsafe_allow_html=True
@@ -50,7 +51,7 @@ st.markdown(
 with st.sidebar:
     st.write(f"Bem-vindo, **{st.session_state['user_name']}**!")
     st.write(f"Cargo: **{st.session_state['user_role']}**")
-    if st.button("Logout"):
+    if st.button("Logout", key="manutencoes_logout"):
         from auth import logout
         logout()
     st.markdown("---")
@@ -159,8 +160,16 @@ def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
     conn = get_db_connection()
     try:
         with conn.session as s:
-            # Pega dados da manutenção e o novo status
-            aparelho_id = s.execute(text("SELECT aparelho_id FROM manutencoes WHERE id = :id"), {"id": manutencao_id}).scalar_one()
+            # CORREÇÃO: Verifica se a O.S. ainda existe e está 'Em Andamento' antes de prosseguir
+            query_check = text("SELECT aparelho_id FROM manutencoes WHERE id = :id AND status_manutencao = 'Em Andamento'")
+            aparelho_id_result = s.execute(query_check, {"id": manutencao_id}).fetchone()
+            
+            if not aparelho_id_result:
+                st.error(f"O.S. Nº {manutencao_id} não foi encontrada ou já foi fechada. Por favor, atualize a página.")
+                return # Interrompe a execução para evitar mais erros
+
+            aparelho_id = aparelho_id_result[0]
+            
             novo_status_id = s.execute(text("SELECT id FROM status WHERE nome_status = :nome"), {"nome": novo_status_nome}).scalar_one()
             status_manutencao = 'Concluída' if novo_status_nome == 'Em estoque' else 'Sem Reparo'
             
@@ -186,7 +195,7 @@ def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
             """)
             s.execute(query_insert_hist, {
                 "data": datetime.now(), "ap_id": aparelho_id, "status_id": novo_status_id,
-                "obs": f"Retorno da manutenção. Solução: {solucao}. Custo: R${custo:.2f}"
+                "obs": f"Retorno da manutenção. Solução: {solucao}. Custo: R${custo or 0:.2f}"
             })
             
             s.commit()
@@ -194,6 +203,7 @@ def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
         st.cache_data.clear()
     except Exception as e:
         st.error(f"Erro ao fechar a Ordem de Serviço: {e}")
+        st.code(traceback.format_exc()) # Mostra mais detalhes do erro para depuração
 
 def atualizar_manutencao(manutencao_id, fornecedor, defeito):
     conn = get_db_connection()
@@ -293,24 +303,38 @@ try:
                     },
                     hide_index=True, key="manutencoes_editor"
                 )
-                if st.button("Salvar Alterações nas O.S.", use_container_width=True):
-                    # Compara o dataframe editado com o original para encontrar mudanças
-                    if not edited_df.equals(manutencoes_df.loc[edited_df.index]):
-                        diff_df = pd.concat([edited_df, manutencoes_df]).drop_duplicates(keep=False)
-                        for index, row in diff_df.iterrows():
-                             if row['id'] in edited_df['id'].values:
-                                if atualizar_manutencao(row['id'], row['fornecedor'], row['defeito_reportado']):
-                                    st.toast(f"O.S. Nº {row['id']} atualizada!")
-                    st.rerun()
+                
+                if st.button("Salvar Alterações nas O.S.", use_container_width=True, key="save_os_changes"):
+                    # CORREÇÃO: Lógica de atualização mais robusta
+                    changes_made = False
+                    original_indexed = manutencoes_df.set_index('id')
+                    edited_indexed = edited_df.set_index('id')
+
+                    for manut_id in edited_indexed.index:
+                        if manut_id in original_indexed.index:
+                            original_row = original_indexed.loc[manut_id]
+                            edited_row = edited_indexed.loc[manut_id]
+                            if not original_row.equals(edited_row):
+                                if atualizar_manutencao(manut_id, edited_row['fornecedor'], edited_row['defeito_reportado']):
+                                    st.toast(f"O.S. Nº {manut_id} atualizada!", icon="✅")
+                                    changes_made = True
+                    
+                    if changes_made:
+                        st.rerun()
+                    else:
+                        st.info("Nenhuma alteração foi detetada.")
 
         st.markdown("---")
         st.subheader("3. Fechar Ordem de Serviço")
         
-        if manutencoes_df.empty:
+        # Recarregar os dados aqui para que o selectbox esteja sempre atualizado
+        manutencoes_em_andamento_df = carregar_manutencoes_em_andamento()
+
+        if manutencoes_em_andamento_df.empty:
             st.info("Nenhuma O.S. para fechar.")
         else:
             with st.form("form_fechar_os", clear_on_submit=True):
-                os_dict = {f"O.S. Nº {row['id']} - {row['nome_modelo']} (S/N: {row['numero_serie']})": row['id'] for index, row in manutencoes_df.iterrows()}
+                os_dict = {f"O.S. Nº {row['id']} - {row['nome_modelo']} (S/N: {row['numero_serie']})": row['id'] for index, row in manutencoes_em_andamento_df.iterrows()}
                 
                 os_selecionada_str = st.selectbox(
                     "Selecione a Ordem de Serviço para fechar*",
@@ -348,12 +372,12 @@ try:
 
         historico_df = carregar_historico_manutencoes(status_filter=status_filtro, colaborador_filter=colaborador_filtro)
         st.dataframe(historico_df, hide_index=True, use_container_width=True,
-                     column_config={
-                         "id": "O.S. Nº",
-                         "data_envio": st.column_config.DateColumn("Data Envio", format="DD/MM/YYYY"),
-                         "data_retorno": st.column_config.DateColumn("Data Retorno", format="DD/MM/YYYY"),
-                         "custo_reparo": st.column_config.NumberColumn("Custo", format="R$ %.2f")
-                     })
+                      column_config={
+                          "id": "O.S. Nº",
+                          "data_envio": st.column_config.DateColumn("Data Envio", format="DD/MM/YYYY"),
+                          "data_retorno": st.column_config.DateColumn("Data Retorno", format="DD/MM/YYYY"),
+                          "custo_reparo": st.column_config.NumberColumn("Custo", format="R$ %.2f")
+                      })
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de manutenções: {e}")
