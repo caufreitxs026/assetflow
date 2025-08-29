@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 from auth import show_login_form
-from sqlalchemy import text
+from sqlalchemy import text, exc
 import traceback
 
 # --- Autenticação ---
@@ -41,7 +41,7 @@ st.markdown("""
 st.markdown(
     """
     <div class="logo-text">
-        <span class.logo-asset">ASSET</span><span class="logo-flow">FLOW</span>
+        <span class="logo-asset">ASSET</span><span class="logo-flow">FLOW</span>
     </div>
     """,
     unsafe_allow_html=True
@@ -100,6 +100,7 @@ def abrir_ordem_servico(aparelho_id, fornecedor, defeito):
     conn = get_db_connection()
     try:
         with conn.session as s:
+            s.begin()
             # Pega o último colaborador associado ao aparelho
             query_colab = text("""
                 SELECT colaborador_id FROM historico_movimentacoes 
@@ -160,13 +161,15 @@ def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
     conn = get_db_connection()
     try:
         with conn.session as s:
-            # CORREÇÃO: Verifica se a O.S. ainda existe e está 'Em Andamento' antes de prosseguir
+            s.begin()
+            # Verifica se a O.S. ainda existe e está 'Em Andamento' antes de prosseguir
             query_check = text("SELECT aparelho_id FROM manutencoes WHERE id = :id AND status_manutencao = 'Em Andamento'")
             aparelho_id_result = s.execute(query_check, {"id": manutencao_id}).fetchone()
             
             if not aparelho_id_result:
                 st.error(f"O.S. Nº {manutencao_id} não foi encontrada ou já foi fechada. Por favor, atualize a página.")
-                return # Interrompe a execução para evitar mais erros
+                s.rollback()
+                return
 
             aparelho_id = aparelho_id_result[0]
             
@@ -201,6 +204,9 @@ def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
             s.commit()
         st.success("Ordem de Serviço fechada com sucesso!")
         st.cache_data.clear()
+    except exc.IntegrityError as e:
+        st.error("Erro de Duplicidade no Banco de Dados. Isso pode ocorrer se o ID do histórico já existir. A solução mais simples é ir à página 'Configurações' e reinicializar o banco de dados. Atenção: isso apagará todos os dados.")
+        st.error(f"Detalhe técnico: {e}")
     except Exception as e:
         st.error(f"Erro ao fechar a Ordem de Serviço: {e}")
         st.code(traceback.format_exc()) # Mostra mais detalhes do erro para depuração
@@ -212,7 +218,6 @@ def atualizar_manutencao(manutencao_id, fornecedor, defeito):
             query = text("UPDATE manutencoes SET fornecedor = :forn, defeito_reportado = :defeito WHERE id = :id")
             s.execute(query, {"forn": fornecedor, "defeito": defeito, "id": manutencao_id})
             s.commit()
-        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"Erro ao atualizar manutenção: {e}")
@@ -305,24 +310,30 @@ try:
                 )
                 
                 if st.button("Salvar Alterações nas O.S.", use_container_width=True, key="save_os_changes"):
-                    # CORREÇÃO: Lógica de atualização mais robusta
+                    # CORREÇÃO: Lógica de atualização mais robusta, comparando linha a linha
                     changes_made = False
-                    original_indexed = manutencoes_df.set_index('id')
-                    edited_indexed = edited_df.set_index('id')
+                    original_df_indexed = manutencoes_df.set_index('id')
+                    edited_df_indexed = edited_df.set_index('id')
 
-                    for manut_id in edited_indexed.index:
-                        if manut_id in original_indexed.index:
-                            original_row = original_indexed.loc[manut_id]
-                            edited_row = edited_indexed.loc[manut_id]
-                            if not original_row.equals(edited_row):
+                    for manut_id in edited_df_indexed.index:
+                        if manut_id in original_df_indexed.index:
+                            original_row = original_df_indexed.loc[manut_id]
+                            edited_row = edited_df_indexed.loc[manut_id]
+                            
+                            # Compara campo a campo para maior precisão
+                            if (original_row['fornecedor'] != edited_row['fornecedor'] or
+                                original_row['defeito_reportado'] != edited_row['defeito_reportado']):
+                                
                                 if atualizar_manutencao(manut_id, edited_row['fornecedor'], edited_row['defeito_reportado']):
                                     st.toast(f"O.S. Nº {manut_id} atualizada!", icon="✅")
                                     changes_made = True
                     
                     if changes_made:
+                        st.cache_data.clear()
                         st.rerun()
                     else:
                         st.info("Nenhuma alteração foi detetada.")
+
 
         st.markdown("---")
         st.subheader("3. Fechar Ordem de Serviço")
