@@ -111,6 +111,7 @@ def carregar_movimentacoes_entrega():
 @st.cache_data(ttl=30)
 def buscar_dados_termo(mov_id):
     conn = get_db_connection()
+    # Query agora busca o código do colaborador
     query = """
         SELECT
             c.nome_completo, c.cpf, s.nome_setor, c.gmail, c.codigo as codigo_colaborador,
@@ -140,6 +141,7 @@ def gerar_pdf_termo(dados, checklist_data):
     data_mov = dados.get('data_movimentacao')
     if isinstance(data_mov, str):
         try:
+            # Tenta converter a string de volta para datetime e formata
             data_formatada = datetime.strptime(data_mov, '%d/%m/%Y %H:%M').strftime('%d/%m/%Y %H:%M')
         except ValueError:
             data_formatada = data_mov 
@@ -163,6 +165,7 @@ def gerar_pdf_termo(dados, checklist_data):
     (Art. 462, § 1º da CLT). Autorizo o uso dos meus dados para este fim, de acordo com a LGPD.
     """
 
+    # AJUSTE: Troca de 'protocolo' por 'codigo_colaborador' e do label.
     html_string = f"""
     <!DOCTYPE html>
     <html>
@@ -200,7 +203,7 @@ def gerar_pdf_termo(dados, checklist_data):
         <div class="section">
             <div class="section-title">DADOS DA MOVIMENTAÇÃO</div>
             <table class="info-table">
-                <tr><td>PROTOCOLO:</td><td>{dados.get('protocolo', '')}</td></tr>
+                <tr><td>CÓDIGO DO COLABORADOR:</td><td>{dados.get('codigo_colaborador', '')}</td></tr>
                 <tr><td>DATA:</td><td>{dados.get('data_movimentacao_formatada', '')}</td></tr>
             </table>
         </div>
@@ -275,7 +278,8 @@ try:
                 with st.form("checkout_form"):
                     dados_termo_editaveis = dados_termo_original.copy()
 
-                    dados_termo_editaveis['protocolo'] = st.text_input("Protocolo", value=dados_termo_original['protocolo'])
+                    # AJUSTE: Troca de 'Protocolo' por 'Código do Colaborador'.
+                    dados_termo_editaveis['codigo_colaborador'] = st.text_input("Código do Colaborador", value=dados_termo_original.get('codigo_colaborador', ''))
                     data_str = dados_termo_original['data_movimentacao'].strftime('%d/%m/%Y %H:%M')
                     dados_termo_editaveis['data_movimentacao'] = st.text_input("Data", value=data_str)
                     
