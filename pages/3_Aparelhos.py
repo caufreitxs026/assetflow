@@ -49,7 +49,7 @@ st.markdown(
 # --- Barra Lateral ---
 with st.sidebar:
     st.write(f"Bem-vindo, **{st.session_state['user_name']}**!")
-    st.write(f"Cargo: **{st.session_state['user_role']}**")
+    st.write(f"Cargo, **{st.session_state['user_role']}**!")
     if st.button("Logout", key="aparelhos_logout"):
         from auth import logout
         logout()
@@ -247,7 +247,6 @@ try:
 
             inventario_df = carregar_inventario_completo(order_by=sort_options[sort_selection])
             
-            # Armazena o DF original no estado da sessão para uma comparação fiável
             if 'original_aparelhos_df' not in st.session_state:
                 st.session_state.original_aparelhos_df = inventario_df.copy()
 
@@ -285,24 +284,29 @@ try:
                         changes_made = True
 
                 # Lógica para Atualização
-                # Alinhar os dataframes pelo ID para comparar corretamente
-                original_df_indexed = original_df.set_index('id')
-                edited_df_indexed = edited_df.set_index('id')
-                common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
-                
-                for ap_id in common_ids:
-                    original_row = original_df_indexed.loc[ap_id]
-                    edited_row = edited_df_indexed.loc[ap_id]
-
-                    # Converte os tipos de dados para uma comparação consistente
-                    original_row['valor'] = pd.to_numeric(original_row['valor'], errors='coerce')
-                    edited_row['valor'] = pd.to_numeric(edited_row['valor'], errors='coerce')
+                try:
+                    # Alinhar os dataframes pelo ID para comparar corretamente
+                    original_df_indexed = original_df.set_index('id')
+                    edited_df_indexed = edited_df.set_index('id')
+                    common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
                     
-                    if not original_row.equals(edited_row):
-                        novo_modelo_id = modelos_dict.get(edited_row['modelo_completo'])
-                        if atualizar_aparelho_completo(ap_id, edited_row['numero_serie'], edited_row['imei1'], edited_row['imei2'], edited_row['valor'], novo_modelo_id):
-                            st.toast(f"Aparelho N/S '{edited_row['numero_serie']}' atualizado!", icon="✅")
-                            changes_made = True
+                    for ap_id in common_ids:
+                        original_row = original_df_indexed.loc[ap_id]
+                        edited_row = edited_df_indexed.loc[ap_id]
+
+                        # Converte os tipos de dados para uma comparação consistente, tratando Nulos
+                        original_row['valor'] = pd.to_numeric(original_row['valor'], errors='coerce')
+                        edited_row['valor'] = pd.to_numeric(edited_row['valor'], errors='coerce')
+                        
+                        # Compara linha a linha
+                        if not original_row.equals(edited_row):
+                            novo_modelo_id = modelos_dict.get(edited_row['modelo_completo'])
+                            if atualizar_aparelho_completo(ap_id, edited_row['numero_serie'], edited_row['imei1'], edited_row['imei2'], edited_row['valor'], novo_modelo_id):
+                                st.toast(f"Aparelho N/S '{edited_row['numero_serie']}' atualizado!", icon="✅")
+                                changes_made = True
+                except KeyError as e:
+                    st.warning(f"Não foi possível processar as alterações devido a uma inconsistência de dados. Tente atualizar a página. Erro: {e}")
+
 
                 if changes_made:
                     # Força a limpeza do cache e o recarregamento dos dados do DB
@@ -315,3 +319,4 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de aparelhos: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
+
