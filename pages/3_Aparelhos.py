@@ -69,7 +69,7 @@ with st.sidebar:
 st.title("Gestão de Aparelhos")
 st.markdown("---")
 
-# --- Funções de Banco de Dados (MODIFICADAS PARA POSTGRESQL) ---
+# --- Funções de Banco de Dados ---
 
 def get_db_connection():
     """Retorna uma conexão ao banco de dados Supabase."""
@@ -168,7 +168,6 @@ def atualizar_aparelho_completo(aparelho_id, serie, imei1, imei2, valor, modelo_
             """)
             s.execute(query, {
                 "serie": serie, "imei1": imei1, "imei2": imei2, 
-                # CORREÇÃO: Converte o valor para um tipo float padrão do Python
                 "valor": float(valor) if valor is not None else None, 
                 "modelo_id": modelo_id, "id": aparelho_id
             })
@@ -196,7 +195,7 @@ def excluir_aparelho(aparelho_id):
             st.error(f"Erro ao excluir o aparelho ID {aparelho_id}: {e}")
         return False
 
-# --- Interface do Usuário ---
+# --- UI ---
 try:
     modelos_list, status_list = carregar_dados_para_selects()
     modelos_dict = {f"{m['nome_marca']} - {m['nome_modelo']}": m['id'] for m in modelos_list}
@@ -234,6 +233,8 @@ try:
                     status_id = status_dict[status_selecionado_str]
                     if adicionar_aparelho_e_historico(novo_serie, novo_imei1, novo_imei2, novo_valor, modelo_id, status_id):
                         st.cache_data.clear()
+                        # Limpa também o estado do data_editor para forçar o recarregamento
+                        st.session_state.pop('original_aparelhos_df', None)
                         st.rerun()
 
     with col2:
@@ -250,7 +251,8 @@ try:
 
             inventario_df = carregar_inventario_completo(order_by=sort_options[sort_selection])
             
-            if 'original_aparelhos_df' not in st.session_state or st.button("Recarregar Lista", key="reload_aparelhos"):
+            # Armazena o DF original no estado da sessão para uma comparação fiável
+            if 'original_aparelhos_df' not in st.session_state:
                 st.session_state.original_aparelhos_df = inventario_df.copy()
 
             edited_df = st.data_editor(
@@ -286,44 +288,37 @@ try:
                         st.toast(f"Aparelho ID {aparelho_id} excluído!", icon="🗑️")
                         changes_made = True
 
-                # Lógica para Atualização
-                try:
-                    merged_df = original_df.merge(edited_df, on='id', how='outer', indicator=True, suffixes=('_orig', ''))
+                # Lógica para Atualização (comparação mais robusta)
+                original_df_indexed = original_df.set_index('id')
+                edited_df_indexed = edited_df.set_index('id')
+                common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
+                
+                for ap_id in common_ids:
+                    original_row = original_df_indexed.loc[ap_id]
+                    edited_row = edited_df_indexed.loc[ap_id]
+
+                    # Converte tipos para garantir uma comparação justa e evita erros
+                    original_row_clean = original_row.copy()
+                    edited_row_clean = edited_row.copy()
                     
-                    # Filtra apenas as linhas que foram modificadas
-                    updated_rows = merged_df[merged_df['_merge'] == 'both']
+                    original_row_clean['valor'] = pd.to_numeric(original_row_clean['valor'], errors='coerce').fillna(0.0)
+                    edited_row_clean['valor'] = pd.to_numeric(edited_row_clean['valor'], errors='coerce').fillna(0.0)
+                    
+                    # Converte valores nulos (None, NaN) para string vazia para comparação
+                    original_row_clean = original_row_clean.fillna('')
+                    edited_row_clean = edited_row_clean.fillna('')
+                    
+                    # Compara as linhas tratadas
+                    if not original_row_clean.equals(edited_row_clean):
+                        novo_modelo_id = modelos_dict.get(edited_row['modelo_completo'])
+                        valor_float = float(edited_row['valor']) if not pd.isna(edited_row['valor']) else None
 
-                    for _, row in updated_rows.iterrows():
-                        # Constrói dicionários para a linha original e a editada
-                        original_row_data = row.filter(like='_orig').to_dict()
-                        edited_row_data = row.drop(list(original_row_data.keys()) + ['_merge']).to_dict()
-
-                        # Renomeia as chaves do dicionário original para corresponderem às do editado
-                        original_row_data = {k.replace('_orig', ''): v for k, v in original_row_data.items()}
-
-                        # Trata os tipos de dados para comparação
-                        if 'valor' in original_row_data:
-                            original_row_data['valor'] = pd.to_numeric(original_row_data.get('valor'), errors='coerce')
-                        if 'valor' in edited_row_data:
-                            edited_row_data['valor'] = pd.to_numeric(edited_row_data.get('valor'), errors='coerce')
-                        
-                        # Compara os dicionários
-                        if original_row_data != edited_row_data:
-                            ap_id = row['id']
-                            novo_modelo_id = modelos_dict.get(edited_row_data['modelo_completo'])
-                            
-                            # CORREÇÃO: Converte explicitamente o valor para float
-                            valor_float = float(edited_row_data['valor']) if not pd.isna(edited_row_data['valor']) else None
-
-                            if atualizar_aparelho_completo(ap_id, edited_row_data['numero_serie'], edited_row_data['imei1'], edited_row_data['imei2'], valor_float, novo_modelo_id):
-                                st.toast(f"Aparelho N/S '{edited_row_data['numero_serie']}' atualizado!", icon="✅")
-                                changes_made = True
-
-                except Exception as e:
-                    st.warning(f"Não foi possível processar as alterações. Erro: {e}")
-
+                        if atualizar_aparelho_completo(ap_id, edited_row['numero_serie'], edited_row['imei1'], edited_row['imei2'], valor_float, novo_modelo_id):
+                            st.toast(f"Aparelho N/S '{edited_row['numero_serie']}' atualizado!", icon="✅")
+                            changes_made = True
 
                 if changes_made:
+                    # Força a limpeza do cache e o recarregamento dos dados do DB
                     st.cache_data.clear()
                     st.session_state.pop('original_aparelhos_df', None)
                     st.rerun()
