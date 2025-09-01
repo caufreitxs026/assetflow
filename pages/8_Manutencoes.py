@@ -5,7 +5,7 @@ from auth import show_login_form
 from sqlalchemy import text, exc
 import traceback
 
-# --- Autenticação ---
+# --- Verificação de Autenticação ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
     st.switch_page("app.py")
 
@@ -65,7 +65,7 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-# --- Funções do DB (MODIFICADAS PARA POSTGRESQL) ---
+# --- Funções do DB ---
 def get_db_connection():
     """Retorna uma conexão ao banco de dados Supabase."""
     return st.connection("supabase", type="sql")
@@ -101,7 +101,6 @@ def abrir_ordem_servico(aparelho_id, fornecedor, defeito):
     try:
         with conn.session as s:
             s.begin()
-            # Pega o último colaborador associado ao aparelho
             query_colab = text("""
                 SELECT colaborador_id FROM historico_movimentacoes 
                 WHERE aparelho_id = :ap_id AND colaborador_id IS NOT NULL 
@@ -110,10 +109,8 @@ def abrir_ordem_servico(aparelho_id, fornecedor, defeito):
             result_colab = s.execute(query_colab, {"ap_id": aparelho_id}).fetchone()
             ultimo_colaborador_id = result_colab[0] if result_colab else None
 
-            # Pega o ID do status 'Em manutenção'
             status_manutencao_id = s.execute(text("SELECT id FROM status WHERE nome_status = 'Em manutenção'")).scalar_one()
 
-            # Insere o registo na tabela de manutenções
             query_insert_manut = text("""
                 INSERT INTO manutencoes (aparelho_id, colaborador_id_no_envio, fornecedor, data_envio, defeito_reportado, status_manutencao)
                 VALUES (:ap_id, :col_id, :forn, :data, :defeito, 'Em Andamento')
@@ -123,11 +120,9 @@ def abrir_ordem_servico(aparelho_id, fornecedor, defeito):
                 "data": date.today(), "defeito": defeito
             })
 
-            # Atualiza o status do aparelho
             s.execute(text("UPDATE aparelhos SET status_id = :status_id WHERE id = :ap_id"), 
                       {"status_id": status_manutencao_id, "ap_id": aparelho_id})
 
-            # Adiciona um registo ao histórico de movimentações
             query_insert_hist = text("""
                 INSERT INTO historico_movimentacoes (data_movimentacao, aparelho_id, colaborador_id, status_id, localizacao_atual, observacoes)
                 VALUES (:data, :ap_id, :col_id, :status_id, :loc, :obs)
@@ -139,9 +134,10 @@ def abrir_ordem_servico(aparelho_id, fornecedor, defeito):
             
             s.commit()
         st.success("Ordem de Serviço aberta e aparelho enviado para manutenção!")
-        st.cache_data.clear()
+        return True
     except Exception as e:
         st.error(f"Erro ao abrir a Ordem de Serviço: {e}")
+        return False
 
 @st.cache_data(ttl=30)
 def carregar_manutencoes_em_andamento(order_by="m.data_envio ASC"):
@@ -162,7 +158,6 @@ def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
     try:
         with conn.session as s:
             s.begin()
-            # Verifica se a O.S. ainda existe e está 'Em Andamento' antes de prosseguir
             query_check = text("SELECT aparelho_id FROM manutencoes WHERE id = :id AND status_manutencao = 'Em Andamento'")
             aparelho_id_result = s.execute(query_check, {"id": manutencao_id}).fetchone()
             
@@ -176,7 +171,6 @@ def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
             novo_status_id = s.execute(text("SELECT id FROM status WHERE nome_status = :nome"), {"nome": novo_status_nome}).scalar_one()
             status_manutencao = 'Concluída' if novo_status_nome == 'Em estoque' else 'Sem Reparo'
             
-            # Atualiza a tabela de manutenções
             query_update_manut = text("""
                 UPDATE manutencoes 
                 SET data_retorno = :data, solucao_aplicada = :solucao, custo_reparo = :custo, status_manutencao = :status_m
@@ -187,11 +181,9 @@ def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
                 "status_m": status_manutencao, "id": manutencao_id
             })
             
-            # Atualiza o status do aparelho
             s.execute(text("UPDATE aparelhos SET status_id = :status_id WHERE id = :ap_id"), 
                       {"status_id": novo_status_id, "ap_id": aparelho_id})
             
-            # Insere no histórico
             query_insert_hist = text("""
                 INSERT INTO historico_movimentacoes (data_movimentacao, aparelho_id, colaborador_id, status_id, localizacao_atual, observacoes)
                 VALUES (:data, :ap_id, NULL, :status_id, 'Estoque Interno', :obs)
@@ -203,13 +195,11 @@ def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
             
             s.commit()
         st.success("Ordem de Serviço fechada com sucesso!")
-        st.cache_data.clear()
-    except exc.IntegrityError as e:
-        st.error("Erro de Duplicidade no Banco de Dados. Isso pode ocorrer se o ID do histórico já existir. A solução mais simples é ir à página 'Configurações' e reinicializar o banco de dados. Atenção: isso apagará todos os dados.")
-        st.error(f"Detalhe técnico: {e}")
+        return True
     except Exception as e:
         st.error(f"Erro ao fechar a Ordem de Serviço: {e}")
-        st.code(traceback.format_exc()) # Mostra mais detalhes do erro para depuração
+        st.code(traceback.format_exc())
+        return False
 
 def atualizar_manutencao(manutencao_id, fornecedor, defeito):
     conn = get_db_connection()
@@ -285,23 +275,25 @@ try:
                         st.error("Todos os campos são obrigatórios.")
                     else:
                         aparelho_id = aparelhos_dict[aparelho_selecionado_str]
-                        abrir_ordem_servico(aparelho_id, fornecedor, defeito)
-                        st.rerun()
+                        if abrir_ordem_servico(aparelho_id, fornecedor, defeito):
+                            st.cache_data.clear()
+                            st.session_state.pop('original_manutencoes_df', None)
+                            st.rerun()
 
     with tab2:
         st.subheader("2. Ordens de Serviço em Andamento")
-        manutencoes_df = carregar_manutencoes_em_andamento()
-
+        
         with st.expander("Ver e Editar Ordens de Serviço em Andamento", expanded=True):
+            manutencoes_df = carregar_manutencoes_em_andamento()
             if manutencoes_df.empty:
                 st.info("Nenhuma ordem de serviço em andamento no momento.")
             else:
                 # Armazena o dataframe original no estado da sessão para comparação segura
-                if 'original_manutencoes_df' not in st.session_state or not st.session_state.original_manutencoes_df.equals(manutencoes_df):
+                if 'original_manutencoes_df' not in st.session_state:
                     st.session_state.original_manutencoes_df = manutencoes_df.copy()
 
                 edited_df = st.data_editor(
-                    st.session_state.original_manutencoes_df,
+                    manutencoes_df,
                     column_config={
                         "id": st.column_config.NumberColumn("O.S. Nº", disabled=True),
                         "numero_serie": st.column_config.TextColumn("N/S", disabled=True),
@@ -314,25 +306,26 @@ try:
                 )
                 
                 if st.button("Salvar Alterações nas O.S.", use_container_width=True, key="save_os_changes"):
-                    changes_made = False
                     original_df = st.session_state.original_manutencoes_df
+                    changes_made = False
+
+                    # Lógica de comparação linha a linha
+                    original_df_indexed = original_df.set_index('id')
+                    edited_df_indexed = edited_df.set_index('id')
+                    common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
                     
-                    # Compara os dataframes para encontrar as linhas alteradas
-                    merged_df = original_df.merge(edited_df, on='id', how='outer', suffixes=('_orig', '_edit'))
-                    
-                    for index, row in merged_df.iterrows():
-                        # Verifica se a linha foi alterada
-                        if not pd.isna(row['fornecedor_orig']) and (row['fornecedor_orig'] != row['fornecedor_edit'] or row['defeito_reportado_orig'] != row['defeito_reportado_edit']):
-                            manut_id = int(row['id'])
-                            novo_fornecedor = row['fornecedor_edit']
-                            novo_defeito = row['defeito_reportado_edit']
-                            if atualizar_manutencao(manut_id, novo_fornecedor, novo_defeito):
+                    for manut_id in common_ids:
+                        original_row = original_df_indexed.loc[manut_id]
+                        edited_row = edited_df_indexed.loc[manut_id]
+
+                        if original_row['fornecedor'] != edited_row['fornecedor'] or original_row['defeito_reportado'] != edited_row['defeito_reportado']:
+                            if atualizar_manutencao(manut_id, edited_row['fornecedor'], edited_row['defeito_reportado']):
                                 st.toast(f"O.S. Nº {manut_id} atualizada!", icon="✅")
                                 changes_made = True
                     
                     if changes_made:
-                        # Limpa o estado da sessão para forçar o recarregamento dos dados
-                        del st.session_state.original_manutencoes_df
+                        st.cache_data.clear()
+                        st.session_state.pop('original_manutencoes_df', None)
                         st.rerun()
                     else:
                         st.info("Nenhuma alteração foi detetada.")
@@ -365,8 +358,10 @@ try:
                         st.error("Ordem de Serviço e Solução são campos obrigatórios.")
                     else:
                         os_id = os_dict[os_selecionada_str]
-                        fechar_ordem_servico(os_id, solucao, custo, novo_status_final)
-                        st.rerun()
+                        if fechar_ordem_servico(os_id, solucao, custo, novo_status_final):
+                           st.cache_data.clear()
+                           st.session_state.pop('original_manutencoes_df', None)
+                           st.rerun()
 
     with tab3:
         st.subheader("Histórico Completo de Manutenções")
@@ -386,12 +381,12 @@ try:
 
         historico_df = carregar_historico_manutencoes(status_filter=status_filtro, colaborador_filter=colaborador_filtro)
         st.dataframe(historico_df, hide_index=True, use_container_width=True,
-                      column_config={
-                          "id": "O.S. Nº",
-                          "data_envio": st.column_config.DateColumn("Data Envio", format="DD/MM/YYYY"),
-                          "data_retorno": st.column_config.DateColumn("Data Retorno", format="DD/MM/YYYY"),
-                          "custo_reparo": st.column_config.NumberColumn("Custo", format="R$ %.2f")
-                      })
+                         column_config={
+                              "id": "O.S. Nº",
+                              "data_envio": st.column_config.DateColumn("Data Envio", format="DD/MM/YYYY"),
+                              "data_retorno": st.column_config.DateColumn("Data Retorno", format="DD/MM/YYYY"),
+                              "custo_reparo": st.column_config.NumberColumn("Custo", format="R$ %.2f")
+                         })
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de manutenções: {e}")
