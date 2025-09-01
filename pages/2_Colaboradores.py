@@ -50,7 +50,7 @@ st.markdown(
 with st.sidebar:
     st.write(f"Bem-vindo, **{st.session_state['user_name']}**!")
     st.write(f"Cargo: **{st.session_state['user_role']}**")
-    if st.button("Logout"):
+    if st.button("Logout", key="colab_logout"):
         from auth import logout
         logout()
     st.markdown("---")
@@ -73,21 +73,22 @@ def get_db_connection():
 def carregar_setores():
     conn = get_db_connection()
     setores_df = conn.query("SELECT id, nome_setor FROM setores ORDER BY nome_setor;")
-    return setores_df.to_dict('records') # Retorna como lista de dicionários
+    return setores_df.to_dict('records')
 
 def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
     if not nome or not cpf or not codigo:
         st.error("Nome, CPF e Código são campos obrigatórios.")
-        return
+        return False
     try:
         conn = get_db_connection()
         with conn.session as s:
-            # Verifica se CPF ou Código já existem
+            s.begin()
             query_check = text("SELECT 1 FROM colaboradores WHERE cpf = :cpf OR codigo = :codigo")
-            existe = s.execute(query_check, {"cpf": cpf, "codigo": codigo}).fetchone()
+            existe = s.execute(query_check, {"cpf": cpf, "codigo": str(codigo)}).fetchone()
             if existe:
                 st.warning("Um colaborador com este CPF ou Código já existe.")
-                return
+                s.rollback()
+                return False
 
             query_insert = text("""
                 INSERT INTO colaboradores (nome_completo, cpf, gmail, setor_id, data_cadastro, codigo) 
@@ -95,24 +96,23 @@ def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
             """)
             s.execute(query_insert, {
                 "nome": nome, "cpf": cpf, "gmail": gmail, 
-                "setor_id": setor_id, "data": date.today(), "codigo": codigo
+                "setor_id": setor_id, "data": date.today(), "codigo": str(codigo)
             })
             s.commit()
         st.success(f"Colaborador '{nome}' adicionado com sucesso!")
-        st.cache_data.clear() # Limpa o cache para atualizar as listas
+        st.cache_data.clear()
+        return True
     except Exception as e:
-        # Verifica se o erro é de chave única (unique constraint)
         if 'unique constraint' in str(e).lower():
              st.warning("Um colaborador com este CPF ou Código já existe.")
         else:
             st.error(f"Erro ao adicionar colaborador: {e}")
+        return False
 
 @st.cache_data(ttl=30)
 def carregar_colaboradores(order_by="c.nome_completo ASC"):
     """Carrega os colaboradores, permitindo a ordenação dinâmica."""
     conn = get_db_connection()
-    # A ordenação por código precisa de um tratamento especial para texto
-    # Usamos LPAD para alinhar os textos e ordenar numericamente de forma correta
     if "codigo" in order_by:
         order_clause = "ORDER BY LPAD(c.codigo, 10, '0')"
         if "DESC" in order_by:
@@ -139,11 +139,10 @@ def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id):
                 WHERE id = :id
             """)
             s.execute(query, {
-                "codigo": codigo, "nome": nome, "cpf": cpf, 
+                "codigo": str(codigo), "nome": nome, "cpf": cpf, 
                 "gmail": gmail, "setor_id": setor_id, "id": col_id
             })
             s.commit()
-        st.cache_data.clear()
         return True
     except Exception as e:
         if 'unique constraint' in str(e).lower() and 'cpf' in str(e).lower():
@@ -159,7 +158,6 @@ def excluir_colaborador(col_id):
             query = text("DELETE FROM colaboradores WHERE id = :id")
             s.execute(query, {"id": col_id})
             s.commit()
-        st.cache_data.clear()
         return True
     except Exception as e:
         if 'foreign key constraint' in str(e).lower():
@@ -190,32 +188,31 @@ try:
             if st.form_submit_button("Adicionar Colaborador", use_container_width=True):
                 if setor_selecionado_nome:
                     setor_id = setores_dict.get(setor_selecionado_nome)
-                    adicionar_colaborador(novo_nome, novo_cpf, novo_gmail, setor_id, novo_codigo)
-                    st.rerun()
+                    if adicionar_colaborador(novo_nome, novo_cpf, novo_gmail, setor_id, novo_codigo):
+                        st.rerun()
                 else:
                     st.warning("Por favor, selecione um setor.")
 
     with col2:
         with st.expander("Ver, Editar e Excluir Colaboradores", expanded=True):
             
-            # Caixa de seleção para ordenação
             sort_options = {
                 "Nome (A-Z)": "c.nome_completo ASC",
-                "Código (Crescente)": "codigo ASC", # Simplificado, a função trata a lógica
+                "Código (Crescente)": "codigo ASC",
                 "Setor (A-Z)": "s.nome_setor ASC"
             }
             sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
 
             colaboradores_df = carregar_colaboradores(order_by=sort_options[sort_selection])
             
+            # Armazenar o DF original no estado da sessão para uma comparação fiável
+            if 'original_colabs_df' not in st.session_state or not st.session_state.original_colabs_df.equals(colaboradores_df):
+                 st.session_state.original_colabs_df = colaboradores_df.copy()
+
             setores_options = list(setores_dict.keys())
-
-            # Usamos o estado da sessão para detetar mudanças
-            if 'colaboradores_editor_state' not in st.session_state:
-                st.session_state.colaboradores_editor_state = None
-
+            
             edited_df = st.data_editor(
-                colaboradores_df,
+                st.session_state.original_colabs_df,
                 column_config={
                     "id": st.column_config.NumberColumn("ID", disabled=True),
                     "codigo": st.column_config.TextColumn("Código", required=True),
@@ -227,36 +224,46 @@ try:
                     ),
                 },
                 hide_index=True,
-                num_rows="dynamic", # Permite adicionar e excluir linhas
+                num_rows="dynamic",
                 key="colaboradores_editor"
             )
             
             if st.button("Salvar Alterações", use_container_width=True):
+                original_df = st.session_state.original_colabs_df
+                changes_made = False
+
                 # Lógica para Exclusão
-                deleted_ids = set(colaboradores_df['id']) - set(edited_df['id'])
+                deleted_ids = set(original_df['id']) - set(edited_df['id'])
                 for col_id in deleted_ids:
                     if excluir_colaborador(col_id):
                         st.toast(f"Colaborador ID {col_id} excluído!", icon="🗑️")
+                        changes_made = True
 
-                # Lógica para Atualização
-                # Compara o dataframe editado com o original
-                if not edited_df.equals(colaboradores_df.loc[edited_df.index]):
-                    # Encontra as diferenças
-                    diff_df = pd.concat([edited_df, colaboradores_df]).drop_duplicates(keep=False)
-                    for index, row in diff_df.iterrows():
-                        if row['id'] in edited_df['id'].values: # Garante que é uma linha atualizada
-                            col_id = row['id']
-                            novo_codigo = row['codigo']
-                            novo_nome = row['nome_completo']
-                            novo_cpf = row['cpf']
-                            novo_gmail = row['gmail']
-                            novo_setor_id = setores_dict.get(row['nome_setor'])
-                            
-                            if atualizar_colaborador(col_id, novo_codigo, novo_nome, novo_cpf, novo_gmail, novo_setor_id):
-                                st.toast(f"Colaborador '{novo_nome}' atualizado!", icon="✅")
-                st.rerun()
+                # Lógica para Atualização (comparação mais robusta)
+                # Alinhar os dataframes pelo ID para comparar corretamente
+                original_df_indexed = original_df.set_index('id')
+                edited_df_indexed = edited_df.set_index('id')
+
+                common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
+                
+                for col_id in common_ids:
+                    original_row = original_df_indexed.loc[col_id]
+                    edited_row = edited_df_indexed.loc[col_id]
+
+                    if not original_row.equals(edited_row):
+                        novo_setor_id = setores_dict.get(edited_row['nome_setor'])
+                        if atualizar_colaborador(col_id, edited_row['codigo'], edited_row['nome_completo'], edited_row['cpf'], edited_row['gmail'], novo_setor_id):
+                            st.toast(f"Colaborador '{edited_row['nome_completo']}' atualizado!", icon="✅")
+                            changes_made = True
+
+                if changes_made:
+                    # Limpa o cache e o estado da sessão para forçar o recarregamento
+                    st.cache_data.clear()
+                    del st.session_state.original_colabs_df
+                    st.rerun()
+                else:
+                    st.info("Nenhuma alteração foi detetada.")
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de colaboradores: {e}")
     st.info("Se esta é a primeira configuração, por favor, vá até a página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
-
