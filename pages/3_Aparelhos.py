@@ -4,7 +4,6 @@ from datetime import date, datetime
 from auth import show_login_form
 from sqlalchemy import text
 import numpy as np
-import httpx # Para fazer chamadas à API
 
 # --- Verificação de Autenticação ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -14,20 +13,39 @@ if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
 st.markdown("""
 <style>
     /* Estilos da Logo */
-    .logo-text { font-family: 'Courier New', monospace; font-size: 28px; font-weight: bold; padding-top: 20px; }
-    .logo-asset { color: #003366; } .logo-flow { color: #E30613; }
-    @media (prefers-color-scheme: dark) { .logo-asset { color: #FFFFFF; } .logo-flow { color: #FF4B4B; } }
+    .logo-text {
+        font-family: 'Courier New', monospace;
+        font-size: 28px;
+        font-weight: bold;
+        padding-top: 20px;
+    }
+    .logo-asset { color: #003366; }
+    .logo-flow { color: #E30613; }
+    @media (prefers-color-scheme: dark) {
+        .logo-asset { color: #FFFFFF; }
+        .logo-flow { color: #FF4B4B; }
+    }
     /* Estilos para o footer na barra lateral */
     .sidebar-footer { text-align: center; padding-top: 20px; padding-bottom: 20px; }
     .sidebar-footer a { margin-right: 15px; text-decoration: none; }
     .sidebar-footer img { width: 25px; height: 25px; filter: grayscale(1) opacity(0.5); transition: filter 0.3s; }
     .sidebar-footer img:hover { filter: grayscale(0) opacity(1); }
-    @media (prefers-color-scheme: dark) { .sidebar-footer img { filter: grayscale(1) opacity(0.6) invert(1); } .sidebar-footer img:hover { filter: opacity(1) invert(1); } }
+    @media (prefers-color-scheme: dark) {
+        .sidebar-footer img { filter: grayscale(1) opacity(0.6) invert(1); }
+        .sidebar-footer img:hover { filter: opacity(1) invert(1); }
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- Header ---
-st.markdown("""<div class="logo-text"><span class="logo-asset">ASSET</span><span class="logo-flow">FLOW</span></div>""", unsafe_allow_html=True)
+# --- Header (Logo no canto superior esquerdo) ---
+st.markdown(
+    """
+    <div class="logo-text">
+        <span class="logo-asset">ASSET</span><span class="logo-flow">FLOW</span>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # --- Barra Lateral ---
 with st.sidebar:
@@ -37,19 +55,24 @@ with st.sidebar:
         from auth import logout
         logout()
     st.markdown("---")
-    st.markdown(f"""
+    st.markdown(
+        f"""
         <div class="sidebar-footer">
             <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg"></a>
             <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg"></a>
         </div>
-        """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True
+    )
 
 # --- Conteúdo Principal da Página ---
 st.title("Gestão de Aparelhos")
 st.markdown("---")
 
-# --- Funções do Banco de Dados ---
+# --- Funções de Banco de Dados ---
+
 def get_db_connection():
+    """Retorna uma conexão ao banco de dados Supabase."""
     return st.connection("supabase", type="sql")
 
 @st.cache_data(ttl=30)
@@ -57,7 +80,8 @@ def carregar_dados_para_selects():
     conn = get_db_connection()
     modelos_df = conn.query("""
         SELECT m.id, m.nome_modelo, ma.nome_marca 
-        FROM modelos m JOIN marcas ma ON m.marca_id = ma.id 
+        FROM modelos m 
+        JOIN marcas ma ON m.marca_id = ma.id 
         ORDER BY ma.nome_marca, m.nome_modelo;
     """)
     status_df = conn.query("SELECT id, nome_status FROM status ORDER BY nome_status;")
@@ -107,14 +131,22 @@ def carregar_inventario_completo(order_by="a.data_cadastro DESC"):
     conn = get_db_connection()
     query = f"""
         WITH UltimoResponsavel AS (
-            SELECT h.aparelho_id, h.colaborador_id,
-                   ROW_NUMBER() OVER(PARTITION BY h.aparelho_id ORDER BY h.data_movimentacao DESC) as rn
+            SELECT
+                h.aparelho_id,
+                h.colaborador_id,
+                ROW_NUMBER() OVER(PARTITION BY h.aparelho_id ORDER BY h.data_movimentacao DESC) as rn
             FROM historico_movimentacoes h
         )
         SELECT 
-            a.id, a.numero_serie, ma.nome_marca || ' - ' || mo.nome_modelo as modelo_completo,
-            s.nome_status, c.nome_completo as responsavel_atual, a.valor,
-            a.imei1, a.imei2, a.data_cadastro
+            a.id,
+            a.numero_serie,
+            ma.nome_marca || ' - ' || mo.nome_modelo as modelo_completo,
+            s.nome_status,
+            c.nome_completo as responsavel_atual,
+            a.valor,
+            a.imei1,
+            a.imei2,
+            a.data_cadastro
         FROM aparelhos a
         LEFT JOIN modelos mo ON a.modelo_id = mo.id
         LEFT JOIN marcas ma ON mo.marca_id = ma.id
@@ -124,11 +156,6 @@ def carregar_inventario_completo(order_by="a.data_cadastro DESC"):
         ORDER BY {order_by}
     """
     df = conn.query(query)
-    for col in ['responsavel_atual', 'imei1', 'imei2']:
-        if col in df.columns:
-            df[col] = df[col].fillna('')
-    if 'valor' in df.columns:
-        df['valor'] = pd.to_numeric(df['valor'].fillna(0))
     return df
 
 def atualizar_aparelho_completo(aparelho_id, serie, imei1, imei2, valor, modelo_id):
@@ -167,65 +194,34 @@ def excluir_aparelho(aparelho_id):
             st.error(f"Erro ao excluir o aparelho ID {aparelho_id}: {e}")
         return False
 
-# --- FUNÇÃO PARA A API DO PULSUS ---
-@st.cache_data(ttl=60)
-def consultar_pulsus(imei):
-    if not imei or pd.isna(imei):
-        return {"status": "erro", "mensagem": "IMEI inválido ou não fornecido."}
-
-    # CORREÇÃO: Verifica se a chave existe nos segredos antes de tentar usá-la.
-    if "PULSUS_API_KEY" not in st.secrets:
-        st.error("Chave da API do Pulsus (PULSUS_API_KEY) não foi encontrada nos segredos do Streamlit. Verifique a configuração e reinicie (Reboot) a aplicação.")
-        return None
-    
-    api_key = st.secrets["PULSUS_API_KEY"]
-    url = f"https://ws.pulsus.mobi/v1/devices?imei={imei}"
-    headers = {"Authorization": f"Token {api_key}"}
-
-    try:
-        with httpx.Client() as client:
-            response = client.get(url, headers=headers, timeout=10.0)
-        response.raise_for_status()
-        data = response.json()
-        if data and isinstance(data, list) and len(data) > 0:
-            return {"status": "sucesso", "dados": data[0]}
-        else:
-            return {"status": "nao_encontrado", "mensagem": f"O aparelho com IMEI {imei} não foi encontrado no Pulsus MDM."}
-    except httpx.HTTPStatusError as e:
-        return {"status": "erro_api", "mensagem": f"Erro na API do Pulsus: {e.response.status_code} - {e.response.text}"}
-    except httpx.RequestError as e:
-        return {"status": "erro_conexao", "mensagem": f"Erro de conexão com a API do Pulsus: {e}"}
-    except Exception as e:
-        return {"status": "erro_desconhecido", "mensagem": f"Ocorreu um erro inesperado: {e}"}
-
-# --- Inicialização do Estado da Sessão ---
-if "active_tab" not in st.session_state:
-    st.session_state.active_tab = "Cadastrar Aparelho"
-if "mdm_consulta_imei" not in st.session_state:
-    st.session_state.mdm_consulta_imei = None
-
-# --- Interface do Usuário com Abas ---
+# --- Interface do Usuário ---
 try:
     modelos_list, status_list = carregar_dados_para_selects()
     modelos_dict = {f"{m['nome_marca']} - {m['nome_modelo']}": m['id'] for m in modelos_list}
 
-    tab_titles = ["Cadastrar Aparelho", "Consultar Inventário e MDM"]
-    active_tab_index = tab_titles.index(st.session_state.active_tab)
-    
-    tab_cadastro, tab_consulta = st.tabs(tab_titles)
+    col1, col2 = st.columns([1, 2])
 
-    with tab_cadastro:
-        if st.session_state.active_tab != "Cadastrar Aparelho": st.session_state.active_tab = "Cadastrar Aparelho"
+    with col1:
         st.subheader("Adicionar Novo Aparelho")
         with st.form("form_novo_aparelho", clear_on_submit=True):
             novo_serie = st.text_input("Número de Série*")
-            modelo_selecionado_str = st.selectbox("Modelo*", options=modelos_dict.keys(), index=None, placeholder="Selecione...")
+            
+            modelo_selecionado_str = st.selectbox(
+                "Modelo*",
+                options=modelos_dict.keys(),
+                index=None,
+                placeholder="Selecione um modelo...",
+                help="Clique na lista e comece a digitar para pesquisar."
+            )
+            
             novo_imei1 = st.text_input("IMEI 1")
             novo_imei2 = st.text_input("IMEI 2")
             novo_valor = st.number_input("Valor (R$)", min_value=0.0, value=0.0, format="%.2f")
             status_dict = {s['nome_status']: s['id'] for s in status_list}
+            
             status_options = list(status_dict.keys())
             default_status_index = status_options.index('Em estoque') if 'Em estoque' in status_options else 0
+            
             status_selecionado_str = st.selectbox("Status Inicial*", options=status_options, index=default_status_index)
 
             if st.form_submit_button("Adicionar Aparelho", use_container_width=True):
@@ -236,122 +232,99 @@ try:
                     status_id = status_dict[status_selecionado_str]
                     if adicionar_aparelho_e_historico(novo_serie, novo_imei1, novo_imei2, novo_valor, modelo_id, status_id):
                         st.cache_data.clear()
+                        st.session_state.pop('original_aparelhos_df', None)
                         st.rerun()
 
-    with tab_consulta:
-        if st.session_state.active_tab != "Consultar Inventário e MDM": st.session_state.active_tab = "Consultar Inventário e MDM"
-        st.subheader("Ver, Editar e Consultar Inventário de Aparelhos")
-        
-        sort_options = {
-            "Data de Entrada (Mais Recente)": "a.data_cadastro DESC", "Número de Série (A-Z)": "a.numero_serie ASC",
-            "Modelo (A-Z)": "modelo_completo ASC", "Status (A-Z)": "s.nome_status ASC", "Responsável (A-Z)": "responsavel_atual ASC"
-        }
-        sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
-
-        inventario_df = carregar_inventario_completo(order_by=sort_options[sort_selection])
-        st.session_state.inventario_df = inventario_df # Armazena o DF para acesso no callback
-
-        df_para_editar = inventario_df.copy()
-        df_para_editar.insert(0, 'Consultar MDM', False)
-
-        # --- Lógica de Consulta MDM com Callback ---
-        def handle_mdm_query():
-            # CORREÇÃO: Acessa o estado do editor de forma segura
-            editor_state = st.session_state.get("aparelhos_editor", {})
-            edited_rows = editor_state.get("edited_rows", {})
+    with col2:
+        with st.expander("Ver, Editar e Excluir Inventário de Aparelhos", expanded=True):
             
-            for idx, changes in edited_rows.items():
-                if changes.get("Consultar MDM"):
-                    # Pega o dataframe que foi usado para renderizar a tabela
-                    df_atual = st.session_state.inventario_df
-                    imei = df_atual.iloc[idx]['imei1']
-                    st.session_state.mdm_consulta_imei = imei
-                    break
-        
-        st.data_editor(
-            df_para_editar,
-            column_config={
-                "id": None, "Consultar MDM": st.column_config.CheckboxColumn(required=False),
-                "numero_serie": st.column_config.TextColumn("N/S", required=True),
-                "modelo_completo": st.column_config.SelectboxColumn("Modelo", options=list(modelos_dict.keys()), required=True),
-                "nome_status": st.column_config.TextColumn("Status Atual", disabled=True),
-                "responsavel_atual": st.column_config.TextColumn("Responsável Atual", disabled=True),
-                "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", required=True),
-                "imei1": st.column_config.TextColumn("IMEI 1"), "imei2": st.column_config.TextColumn("IMEI 2"),
-                "data_cadastro": st.column_config.DateColumn("Data de Entrada", format="DD/MM/YYYY", disabled=True),
-            },
-            hide_index=True, num_rows="dynamic", key="aparelhos_editor",
-            on_change=handle_mdm_query
-        )
+            sort_options = {
+                "Data de Entrada (Mais Recente)": "a.data_cadastro DESC",
+                "Número de Série (A-Z)": "a.numero_serie ASC",
+                "Modelo (A-Z)": "modelo_completo ASC",
+                "Status (A-Z)": "s.nome_status ASC",
+                "Responsável (A-Z)": "responsavel_atual ASC"
+            }
+            sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
 
-        if st.button("Salvar Alterações", use_container_width=True, key="save_aparelhos_changes"):
-            # Usa o mesmo método seguro para ler o estado do editor
-            editor_state = st.session_state.get("aparelhos_editor", {})
-            changes_made = False
+            inventario_df = carregar_inventario_completo(order_by=sort_options[sort_selection])
+            
+            if 'original_aparelhos_df' not in st.session_state:
+                 st.session_state.original_aparelhos_df = inventario_df.copy()
 
-            if editor_state.get("deleted_rows"):
-                indices_to_delete = editor_state["deleted_rows"]
-                ids_to_delete = [inventario_df.iloc[i]['id'] for i in indices_to_delete]
-                for aparelho_id in ids_to_delete:
+            edited_df = st.data_editor(
+                inventario_df,
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", disabled=True),
+                    "numero_serie": st.column_config.TextColumn("N/S", required=True),
+                    "modelo_completo": st.column_config.SelectboxColumn(
+                        "Modelo",
+                        options=list(modelos_dict.keys()),
+                        required=True
+                    ),
+                    "nome_status": st.column_config.TextColumn("Status Atual", disabled=True),
+                    "responsavel_atual": st.column_config.TextColumn("Responsável Atual", disabled=True),
+                    "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", required=True),
+                    "imei1": st.column_config.TextColumn("IMEI 1"),
+                    "imei2": st.column_config.TextColumn("IMEI 2"),
+                    "data_cadastro": st.column_config.DateColumn("Data de Entrada", format="DD/MM/YYYY", disabled=True),
+                },
+                hide_index=True,
+                num_rows="dynamic",
+                key="aparelhos_editor"
+            )
+            
+            if st.button("Salvar Alterações", use_container_width=True, key="save_aparelhos_changes"):
+                original_df = st.session_state.original_aparelhos_df
+                changes_made = False
+
+                # Lógica para Exclusão
+                deleted_ids = set(original_df['id']) - set(edited_df['id'])
+                for aparelho_id in deleted_ids:
                     if excluir_aparelho(aparelho_id):
                         st.toast(f"Aparelho ID {aparelho_id} excluído!", icon="🗑️")
                         changes_made = True
 
-            if editor_state.get("edited_rows"):
-                for index, changes in editor_state["edited_rows"].items():
-                    if "Consultar MDM" in changes: continue # Ignora a checkbox
-                    original_row = inventario_df.iloc[index]
-                    aparelho_id = original_row['id']
-                    updated_data = original_row.to_dict()
-                    updated_data.update(changes)
-                    novo_modelo_id = modelos_dict[updated_data['modelo_completo']]
+                # Lógica para Atualização (Robusta)
+                original_df_indexed = original_df.set_index('id')
+                edited_df_indexed = edited_df.set_index('id')
+                common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
+                
+                for aparelho_id in common_ids:
+                    original_row = original_df_indexed.loc[aparelho_id]
+                    edited_row = edited_df_indexed.loc[aparelho_id]
                     
-                    if atualizar_aparelho_completo(aparelho_id, updated_data['numero_serie'], updated_data['imei1'], 
-                                                  updated_data['imei2'], updated_data['valor'], novo_modelo_id):
-                        st.toast(f"Aparelho N/S '{updated_data['numero_serie']}' atualizado!", icon="✅")
-                        changes_made = True
-            
-            if changes_made:
-                st.cache_data.clear()
-                st.rerun()
-            else:
-                st.info("Nenhuma alteração foi detetada.")
+                    # Compara campo a campo para evitar falsos positivos
+                    is_different = False
+                    if str(original_row['numero_serie']) != str(edited_row['numero_serie']) or \
+                       str(original_row['modelo_completo']) != str(edited_row['modelo_completo']) or \
+                       not np.isclose(float(original_row['valor']), float(edited_row['valor'])) or \
+                       str(original_row['imei1']) != str(edited_row['imei1']) or \
+                       str(original_row['imei2']) != str(edited_row['imei2']):
+                        is_different = True
 
-        # --- SEÇÃO DE RESULTADOS DO MDM ---
-        st.markdown("---")
-        st.subheader("Status no MDM (Pulsus)")
-        
-        if st.session_state.mdm_consulta_imei:
-            imei_a_consultar = st.session_state.mdm_consulta_imei
-            st.session_state.mdm_consulta_imei = None
-            
-            with st.spinner(f"A consultar o Pulsus pelo IMEI: {imei_a_consultar}..."):
-                resultado = consultar_pulsus(imei_a_consultar)
-                if resultado:
-                    if resultado['status'] == 'sucesso':
-                        st.success("Dados do MDM recebidos com sucesso!")
-                        dados_mdm = resultado['dados']
-                        col_mdm1, col_mdm2, col_mdm3 = st.columns(3)
-                        col_mdm1.metric("Status MDM", dados_mdm.get('status', 'N/A'))
-                        col_mdm2.metric("Nível da Bateria", f"{dados_mdm.get('battery_level', 0)}%")
-                        last_checkin_str = dados_mdm.get('last_checkin', '')
-                        if last_checkin_str:
-                            try:
-                                last_checkin_dt = datetime.fromisoformat(last_checkin_str.replace('Z', '+00:00'))
-                                last_checkin_fmt = last_checkin_dt.strftime('%d/%m/%Y %H:%M:%S')
-                                col_mdm3.metric("Última Sincronização", last_checkin_fmt)
-                            except:
-                                col_mdm3.metric("Última Sincronização", "Data inválida")
-                        else:
-                            col_mdm3.metric("Última Sincronização", "N/A")
-                        with st.expander("Ver todos os dados do MDM (JSON)"):
-                            st.json(dados_mdm)
-                    else:
-                        st.warning(resultado['mensagem'])
-        else:
-            st.info("Marque a caixa 'Consultar MDM' de um aparelho na tabela para ver os seus dados do Pulsus aqui.")
+                    if is_different:
+                        novo_modelo_id = modelos_dict[edited_row['modelo_completo']]
+                        
+                        if atualizar_aparelho_completo(
+                            aparelho_id, 
+                            edited_row['numero_serie'], 
+                            edited_row['imei1'], 
+                            edited_row['imei2'], 
+                            edited_row['valor'], 
+                            novo_modelo_id
+                        ):
+                            st.toast(f"Aparelho N/S '{edited_row['numero_serie']}' atualizado!", icon="✅")
+                            changes_made = True
+                
+                if changes_made:
+                    st.cache_data.clear()
+                    del st.session_state.original_aparelhos_df
+                    st.rerun()
+                else:
+                    st.info("Nenhuma alteração foi detetada.")
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de aparelhos: {e}")
-    st.info("Se esta é a primeira configuração, vá até a página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
+    st.info("Se esta é a primeira configuração, por favor, vá até a página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
 
