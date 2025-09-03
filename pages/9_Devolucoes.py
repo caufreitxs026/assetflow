@@ -138,45 +138,63 @@ def processar_devolucao(aparelho_id, colaborador_id, nome_colaborador_devolveu, 
 
 @st.cache_data(ttl=30)
 def carregar_historico_devolucoes(start_date=None, end_date=None):
-    """Carrega o histórico de devoluções, usando o nome do colaborador guardado no momento da devolução."""
+    """
+    Carrega o histórico de devoluções.
+    Dá prioridade ao nome guardado no 'snapshot', mas como fallback,
+    procura o nome do colaborador do registo anterior para dados antigos.
+    """
     conn = get_db_connection()
     
-    # --- LÓGICA ATUALIZADA ---
-    # A query agora é muito mais simples e correta, lendo diretamente do snapshot.
     query = """
+        WITH HistoricoComNomePrevio AS (
+            SELECT
+                h.id,
+                h.data_movimentacao,
+                h.aparelho_id,
+                h.status_id,
+                h.localizacao_atual,
+                h.observacoes,
+                h.checklist_devolucao,
+                h.colaborador_snapshot,
+                -- Pega o ID do colaborador da movimentação anterior para o mesmo aparelho
+                LAG(h.colaborador_id) OVER (PARTITION BY h.aparelho_id ORDER BY h.data_movimentacao) as prev_colaborador_id
+            FROM historico_movimentacoes h
+        )
         SELECT
-            h.id,
-            h.data_movimentacao,
+            h_prev.id,
+            h_prev.data_movimentacao,
             ma.nome_marca || ' ' || mo.nome_modelo AS aparelho,
             a.numero_serie,
-            h.colaborador_snapshot AS colaborador_devolveu, -- Usa o nome guardado no momento
+            -- COALESCE dá prioridade ao snapshot, mas usa o nome do colaborador anterior se o snapshot for nulo
+            COALESCE(h_prev.colaborador_snapshot, c.nome_completo) AS colaborador_devolveu,
             s.nome_status AS destino_final,
-            h.localizacao_atual,
-            h.observacoes,
-            h.checklist_devolucao
-        FROM historico_movimentacoes h
-        JOIN aparelhos a ON h.aparelho_id = a.id
-        JOIN status s ON h.status_id = s.id
+            h_prev.localizacao_atual,
+            h_prev.observacoes,
+            h_prev.checklist_devolucao
+        FROM HistoricoComNomePrevio h_prev
+        JOIN aparelhos a ON h_prev.aparelho_id = a.id
+        JOIN status s ON h_prev.status_id = s.id
         JOIN modelos mo ON a.modelo_id = mo.id
         JOIN marcas ma ON mo.marca_id = ma.id
+        LEFT JOIN colaboradores c ON h_prev.prev_colaborador_id = c.id
         WHERE 
-            h.checklist_devolucao IS NOT NULL
+            h_prev.checklist_devolucao IS NOT NULL
     """
     
     params = {}
     conditions = []
 
     if start_date:
-        conditions.append("CAST(h.data_movimentacao AS DATE) >= :start_date")
+        conditions.append("CAST(h_prev.data_movimentacao AS DATE) >= :start_date")
         params['start_date'] = start_date
     if end_date:
-        conditions.append("CAST(h.data_movimentacao AS DATE) <= :end_date")
+        conditions.append("CAST(h_prev.data_movimentacao AS DATE) <= :end_date")
         params['end_date'] = end_date
 
     if conditions:
         query += " AND " + " AND ".join(conditions)
     
-    query += " ORDER BY h.data_movimentacao DESC"
+    query += " ORDER BY h_prev.data_movimentacao DESC"
     
     df = conn.query(query, params=params)
     
@@ -233,8 +251,8 @@ try:
                     cols = st.columns(2)
                     for i, item in enumerate(itens_checklist):
                         with cols[i % 2]:
-                            entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}")
-                            estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}", label_visibility="collapsed")
+                            entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{aparelho_id}")
+                            estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}_{aparelho_id}", label_visibility="collapsed")
                             checklist_data[item] = {'entregue': entregue, 'estado': estado}
                     
                     observacoes = st.text_area("Observações Gerais da Devolução", placeholder="Ex: Tela com risco profundo no canto superior direito.")
