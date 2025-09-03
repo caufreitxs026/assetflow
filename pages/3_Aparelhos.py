@@ -27,7 +27,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Header ---
-st.markdown("""<div class="logo-text"><span class="logo-asset">ASSET</span><span class.logo-flow">FLOW</span></div>""", unsafe_allow_html=True)
+st.markdown("""<div class="logo-text"><span class="logo-asset">ASSET</span><span class="logo-flow">FLOW</span></div>""", unsafe_allow_html=True)
 
 # --- Barra Lateral ---
 with st.sidebar:
@@ -48,7 +48,7 @@ with st.sidebar:
 st.title("Gestão de Aparelhos")
 st.markdown("---")
 
-# --- Funções de Banco de Dados ---
+# --- Funções do Banco de Dados ---
 def get_db_connection():
     return st.connection("supabase", type="sql")
 
@@ -124,13 +124,11 @@ def carregar_inventario_completo(order_by="a.data_cadastro DESC"):
         ORDER BY {order_by}
     """
     df = conn.query(query)
-    # Garante que colunas que podem ser nulas (None) sejam tratadas para evitar erros de tipo
     for col in ['responsavel_atual', 'imei1', 'imei2']:
         if col in df.columns:
             df[col] = df[col].fillna('')
     if 'valor' in df.columns:
         df['valor'] = pd.to_numeric(df['valor'].fillna(0))
-
     return df
 
 def atualizar_aparelho_completo(aparelho_id, serie, imei1, imei2, valor, modelo_id):
@@ -175,19 +173,18 @@ def consultar_pulsus(imei):
     if not imei or pd.isna(imei):
         return {"status": "erro", "mensagem": "IMEI inválido ou não fornecido."}
 
-    try:
-        api_key = st.secrets["PULSUS_API_KEY"]
-    except KeyError:
-        st.error("Chave da API do Pulsus (PULSUS_API_KEY) não foi encontrada nos segredos do Streamlit.")
+    # CORREÇÃO: Verifica se a chave existe nos segredos antes de tentar usá-la.
+    if "PULSUS_API_KEY" not in st.secrets:
+        st.error("Chave da API do Pulsus (PULSUS_API_KEY) não foi encontrada nos segredos do Streamlit. Verifique a configuração e reinicie (Reboot) a aplicação.")
         return None
-
+    
+    api_key = st.secrets["PULSUS_API_KEY"]
     url = f"https://ws.pulsus.mobi/v1/devices?imei={imei}"
     headers = {"Authorization": f"Token {api_key}"}
 
     try:
         with httpx.Client() as client:
             response = client.get(url, headers=headers, timeout=10.0)
-        
         response.raise_for_status()
         data = response.json()
         if data and isinstance(data, list) and len(data) > 0:
@@ -212,7 +209,6 @@ try:
     modelos_list, status_list = carregar_dados_para_selects()
     modelos_dict = {f"{m['nome_marca']} - {m['nome_modelo']}": m['id'] for m in modelos_list}
 
-    # Controla a aba ativa
     tab_titles = ["Cadastrar Aparelho", "Consultar Inventário e MDM"]
     active_tab_index = tab_titles.index(st.session_state.active_tab)
     
@@ -253,33 +249,35 @@ try:
         sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
 
         inventario_df = carregar_inventario_completo(order_by=sort_options[sort_selection])
-        
-        # --- Lógica de Consulta MDM com Callback ---
-        def handle_mdm_query():
-            edited_rows = st.session_state["aparelhos_editor"]["edited_rows"]
-            for idx, changes in edited_rows.items():
-                if changes.get("Consultar MDM") == True:
-                    imei = inventario_df.iloc[idx]['imei1']
-                    st.session_state.mdm_consulta_imei = imei
-                    # A consulta será feita no próximo rerun, não precisa de st.rerun() explícito aqui
-                    break # Processa apenas a primeira checkbox marcada
-        
-        # Adiciona a coluna de ação para a UI
+        st.session_state.inventario_df = inventario_df # Armazena o DF para acesso no callback
+
         df_para_editar = inventario_df.copy()
         df_para_editar.insert(0, 'Consultar MDM', False)
+
+        # --- Lógica de Consulta MDM com Callback ---
+        def handle_mdm_query():
+            # CORREÇÃO: Acessa o estado do editor de forma segura
+            editor_state = st.session_state.get("aparelhos_editor", {})
+            edited_rows = editor_state.get("edited_rows", {})
+            
+            for idx, changes in edited_rows.items():
+                if changes.get("Consultar MDM"):
+                    # Pega o dataframe que foi usado para renderizar a tabela
+                    df_atual = st.session_state.inventario_df
+                    imei = df_atual.iloc[idx]['imei1']
+                    st.session_state.mdm_consulta_imei = imei
+                    break
         
         st.data_editor(
             df_para_editar,
             column_config={
-                "id": None, 
-                "Consultar MDM": st.column_config.CheckboxColumn(required=False),
+                "id": None, "Consultar MDM": st.column_config.CheckboxColumn(required=False),
                 "numero_serie": st.column_config.TextColumn("N/S", required=True),
                 "modelo_completo": st.column_config.SelectboxColumn("Modelo", options=list(modelos_dict.keys()), required=True),
                 "nome_status": st.column_config.TextColumn("Status Atual", disabled=True),
                 "responsavel_atual": st.column_config.TextColumn("Responsável Atual", disabled=True),
                 "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", required=True),
-                "imei1": st.column_config.TextColumn("IMEI 1"), 
-                "imei2": st.column_config.TextColumn("IMEI 2"),
+                "imei1": st.column_config.TextColumn("IMEI 1"), "imei2": st.column_config.TextColumn("IMEI 2"),
                 "data_cadastro": st.column_config.DateColumn("Data de Entrada", format="DD/MM/YYYY", disabled=True),
             },
             hide_index=True, num_rows="dynamic", key="aparelhos_editor",
@@ -287,10 +285,10 @@ try:
         )
 
         if st.button("Salvar Alterações", use_container_width=True, key="save_aparelhos_changes"):
-            editor_state = st.session_state.aparelhos_editor
+            # Usa o mesmo método seguro para ler o estado do editor
+            editor_state = st.session_state.get("aparelhos_editor", {})
             changes_made = False
 
-            # Lógica de Exclusão
             if editor_state.get("deleted_rows"):
                 indices_to_delete = editor_state["deleted_rows"]
                 ids_to_delete = [inventario_df.iloc[i]['id'] for i in indices_to_delete]
@@ -299,26 +297,17 @@ try:
                         st.toast(f"Aparelho ID {aparelho_id} excluído!", icon="🗑️")
                         changes_made = True
 
-            # Lógica de Atualização
             if editor_state.get("edited_rows"):
                 for index, changes in editor_state["edited_rows"].items():
+                    if "Consultar MDM" in changes: continue # Ignora a checkbox
                     original_row = inventario_df.iloc[index]
                     aparelho_id = original_row['id']
-                    
-                    # Constrói o dicionário com os dados atualizados
                     updated_data = original_row.to_dict()
-                    updated_data.update(changes) # Aplica as alterações do editor
-
+                    updated_data.update(changes)
                     novo_modelo_id = modelos_dict[updated_data['modelo_completo']]
                     
-                    if atualizar_aparelho_completo(
-                        aparelho_id, 
-                        updated_data['numero_serie'], 
-                        updated_data['imei1'], 
-                        updated_data['imei2'], 
-                        updated_data['valor'], 
-                        novo_modelo_id
-                    ):
+                    if atualizar_aparelho_completo(aparelho_id, updated_data['numero_serie'], updated_data['imei1'], 
+                                                  updated_data['imei2'], updated_data['valor'], novo_modelo_id):
                         st.toast(f"Aparelho N/S '{updated_data['numero_serie']}' atualizado!", icon="✅")
                         changes_made = True
             
@@ -334,20 +323,17 @@ try:
         
         if st.session_state.mdm_consulta_imei:
             imei_a_consultar = st.session_state.mdm_consulta_imei
-            st.session_state.mdm_consulta_imei = None # Limpa para a próxima interação
+            st.session_state.mdm_consulta_imei = None
             
             with st.spinner(f"A consultar o Pulsus pelo IMEI: {imei_a_consultar}..."):
                 resultado = consultar_pulsus(imei_a_consultar)
-
                 if resultado:
                     if resultado['status'] == 'sucesso':
                         st.success("Dados do MDM recebidos com sucesso!")
                         dados_mdm = resultado['dados']
-                        
                         col_mdm1, col_mdm2, col_mdm3 = st.columns(3)
                         col_mdm1.metric("Status MDM", dados_mdm.get('status', 'N/A'))
                         col_mdm2.metric("Nível da Bateria", f"{dados_mdm.get('battery_level', 0)}%")
-                        
                         last_checkin_str = dados_mdm.get('last_checkin', '')
                         if last_checkin_str:
                             try:
@@ -358,7 +344,6 @@ try:
                                 col_mdm3.metric("Última Sincronização", "Data inválida")
                         else:
                             col_mdm3.metric("Última Sincronização", "N/A")
-
                         with st.expander("Ver todos os dados do MDM (JSON)"):
                             st.json(dados_mdm)
                     else:
