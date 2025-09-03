@@ -10,4 +10,6 @@ pycache/
 
 Arquivos de Banco de Dados local (se usar novamente)
 *.db
+
 *.sqlite3
+
