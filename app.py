@@ -116,8 +116,6 @@ else:
                 WHERE m.status_manutencao = 'Em Andamento' AND m.data_envio < :data_limite
             """, params={"data_limite": data_limite}, ttl=600)
 
-            # --- LÓGICA ATUALIZADA ---
-            # Busca o nome do colaborador a partir do 'colaborador_snapshot' para o histórico
             df_ultimas_mov = conn.query("""
                 SELECT h.data_movimentacao, h.colaborador_snapshot as nome_completo, s.nome_status, a.numero_serie
                 FROM historico_movimentacoes h
@@ -143,8 +141,8 @@ else:
     with col_titulo:
         st.title("Dashboard Gerencial")
     with col_botao:
-        st.write("") # Espaçador
-        st.write("") # Espaçador
+        st.write("") 
+        st.write("") 
         if st.button("Atualizar Dados", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
@@ -164,14 +162,14 @@ else:
 
     st.subheader("Visão Geral (Aparelhos Ativos)")
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total de Aparelhos Ativos", f"{kpis['total_aparelhos']:,}".replace(",", "."))
+    col1.metric("Total de Aparelhos Ativos", f"{int(kpis['total_aparelhos']):,}".replace(",", "."))
     col2.metric("Valor do Inventário Ativo", f"R$ {kpis.get('valor_total', 0):,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
-    col3.metric("Total de Colaboradores", f"{kpis['total_colaboradores']:,}".replace(",", "."))
+    col3.metric("Total de Colaboradores", f"{int(kpis['total_colaboradores']):,}".replace(",", "."))
     
     col4, col5, col6 = st.columns(3)
-    col4.metric("Aparelhos em Manutenção", f"{kpis['aparelhos_manutencao']:,}".replace(",", "."))
+    col4.metric("Aparelhos em Manutenção", f"{int(kpis['aparelhos_manutencao']):,}".replace(",", "."))
     col5.metric("Valor em Manutenção", f"R$ {kpis.get('valor_manutencao', 0):,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
-    col6.metric("Aparelhos em Estoque", f"{kpis['aparelhos_estoque']:,}".replace(",", "."))
+    col6.metric("Aparelhos em Estoque", f"{int(kpis['aparelhos_estoque']):,}".replace(",", "."))
 
     st.markdown("---")
 
