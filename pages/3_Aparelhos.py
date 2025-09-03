@@ -171,7 +171,8 @@ def consultar_pulsus(imei):
     try:
         api_key = st.secrets["PULSUS_API_KEY"]
     except KeyError:
-        st.error("Chave da API do Pulsus (PULSUS_API_KEY) não foi encontrada nos segredos do Streamlit.")
+        # Este erro é importante para o debug inicial.
+        st.error("Chave da API do Pulsus (PULSUS_API_KEY) não foi encontrada nos segredos do Streamlit. Verifique o ficheiro secrets.toml e reinicie a aplicação.")
         return None
 
     url = f"https://ws.pulsus.mobi/v1/devices?imei={imei}"
@@ -240,7 +241,6 @@ try:
 
         inventario_df = carregar_inventario_completo(order_by=sort_options[sort_selection])
         
-        # Adiciona a coluna de consulta MDM
         inventario_df_com_acao = inventario_df.copy()
         inventario_df_com_acao.insert(0, 'Consultar MDM', False)
 
@@ -250,7 +250,7 @@ try:
         edited_df = st.data_editor(
             inventario_df_com_acao,
             column_config={
-                "id": None, # Oculta a coluna ID
+                "id": None, 
                 "Consultar MDM": st.column_config.CheckboxColumn(required=False),
                 "numero_serie": st.column_config.TextColumn("N/S", required=True),
                 "modelo_completo": st.column_config.SelectboxColumn("Modelo", options=list(modelos_dict.keys()), required=True),
@@ -264,36 +264,28 @@ try:
             hide_index=True, num_rows="dynamic", key="aparelhos_editor"
         )
         
-        # --- Lógica para processar as ações (Edição, Exclusão, Consulta MDM) ---
-        # 1. Detetar Consulta MDM (Ação mais rápida e sem 'Salvar')
         if not edited_df.equals(st.session_state.original_aparelhos_df):
             try:
-                # Encontra a linha onde a checkbox "Consultar MDM" foi marcada
                 consulted_rows = edited_df[edited_df['Consultar MDM'] & ~st.session_state.original_aparelhos_df['Consultar MDM']]
                 if not consulted_rows.empty:
                     imei_para_consulta = consulted_rows.iloc[0]['imei1']
                     st.session_state.mdm_consulta_imei = imei_para_consulta
-                    # Desmarca a checkbox para a próxima execução
                     st.session_state.original_aparelhos_df = edited_df.copy()
                     st.session_state.original_aparelhos_df['Consultar MDM'] = False
                     st.rerun()
             except Exception:
-                pass # Ignora erros de comparação se a estrutura do DF mudar (ex: exclusão)
+                pass 
 
-
-        # 2. Lógica do botão Salvar Alterações (Edição e Exclusão)
         if st.button("Salvar Alterações", use_container_width=True, key="save_aparelhos_changes"):
             original_df = st.session_state.original_aparelhos_df
             changes_made = False
 
-            # Exclusão
             deleted_ids = set(original_df['id']) - set(edited_df['id'])
             for aparelho_id in deleted_ids:
                 if excluir_aparelho(aparelho_id):
                     st.toast(f"Aparelho ID {aparelho_id} excluído!", icon="🗑️")
                     changes_made = True
 
-            # Atualização
             original_df_indexed = original_df.set_index('id')
             edited_df_indexed = edited_df.set_index('id')
             common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
@@ -323,17 +315,15 @@ try:
             else:
                 st.info("Nenhuma alteração foi detetada.")
 
-        # --- NOVA SEÇÃO DE RESULTADOS DO MDM ---
         st.markdown("---")
         st.subheader("Status no MDM (Pulsus)")
         
-        # Mostra os resultados se uma consulta foi solicitada
         if 'mdm_consulta_imei' in st.session_state and st.session_state.mdm_consulta_imei:
-            imei_a_consultar = st.session_state.pop('mdm_consulta_imei') # Pega e remove para não consultar de novo
+            imei_a_consultar = st.session_state.pop('mdm_consulta_imei') 
             with st.spinner(f"A consultar o Pulsus pelo IMEI: {imei_a_consultar}..."):
                 resultado = consultar_pulsus(imei_a_consultar)
 
-                if resultado: # Verifica se a função retornou algo
+                if resultado:
                     if resultado['status'] == 'sucesso':
                         st.success("Dados do MDM recebidos com sucesso!")
                         dados_mdm = resultado['dados']
@@ -355,8 +345,7 @@ try:
 
                         with st.expander("Ver todos os dados do MDM (JSON)"):
                             st.json(dados_mdm)
-
-                    else: # Trata todos os outros status de erro
+                    else:
                         st.warning(resultado['mensagem'])
         else:
             st.info("Marque a caixa 'Consultar MDM' de um aparelho na tabela acima para ver os seus dados do Pulsus aqui.")
