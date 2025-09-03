@@ -107,7 +107,7 @@ def processar_devolucao(aparelho_id, colaborador_id, nome_colaborador_devolveu, 
             s.execute(query_hist, {
                 "data": datetime.now(), "ap_id": aparelho_id, "status_id": novo_status_id,
                 "loc": localizacao, "obs": observacoes, "checklist": checklist_json, 
-                "col_snap": nome_colaborador_devolveu
+                "col_snap": nome_colaborador_devolveu 
             })
 
             s.execute(text("UPDATE aparelhos SET status_id = :status_id WHERE id = :ap_id"), 
@@ -141,6 +141,8 @@ def carregar_historico_devolucoes(start_date=None, end_date=None):
     """Carrega o histórico de devoluções, usando o nome do colaborador guardado no momento da devolução."""
     conn = get_db_connection()
     
+    # --- LÓGICA ATUALIZADA ---
+    # A query agora é muito mais simples e correta, lendo diretamente do snapshot.
     query = """
         SELECT
             h.id,
@@ -248,6 +250,7 @@ try:
 
                     submitted = st.form_submit_button("Processar Devolução", use_container_width=True)
                     if submitted:
+                        # Passa o nome do colaborador para a função de processamento
                         if processar_devolucao(aparelho_id, colaborador_id, colaborador_nome, checklist_data, destino_final, observacoes):
                             st.cache_data.clear()
                             st.rerun()
@@ -287,7 +290,7 @@ try:
             st.markdown("##### Detalhes do Checklist da Devolução")
 
             opcoes_detalhe = [
-                f"ID {row['id']}: {row['data_movimentacao'].strftime('%d/%m/%Y %H:%M')} - {row['aparelho']} (Devolvido por: {row['colaborador_devolveu'] or 'N/A'})" 
+                f"ID {row['id']}: {pd.to_datetime(row['data_movimentacao']).strftime('%d/%m/%Y %H:%M')} - {row['aparelho']} (Devolvido por: {row['colaborador_devolveu'] or 'N/A'})" 
                 for index, row in historico_df.iterrows()
             ]
             
@@ -319,3 +322,4 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de devoluções: {e}")
     st.info("Se esta é a primeira configuração, por favor, vá até a página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
+
