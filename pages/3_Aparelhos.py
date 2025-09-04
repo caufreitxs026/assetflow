@@ -40,7 +40,7 @@ st.markdown("""
 # --- Header (Logo no canto superior esquerdo) ---
 st.markdown(
     """
-    <div class="logo-text">
+    <div class.logo-text">
         <span class="logo-asset">ASSET</span><span class="logo-flow">FLOW</span>
     </div>
     """,
@@ -239,11 +239,11 @@ try:
     status_dict = {s['nome_status']: s['id'] for s in status_list}
     setores_dict = {s['nome_setor']: s['id'] for s in setores_list}
     
-    col1, col2 = st.columns([1, 2.5]) # Ajuste na proporção das colunas
+    col1, col2 = st.columns([1, 2.5])
 
     with col1:
+        st.subheader("Adicionar Novo Aparelho")
         with st.form("form_novo_aparelho", clear_on_submit=True):
-            st.subheader("Adicionar Novo Aparelho")
             novo_serie = st.text_input("Número de Série*")
             modelo_selecionado_str = st.selectbox(
                 "Modelo*", options=list(modelos_dict.keys()), index=None,
@@ -372,3 +372,4 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de aparelhos: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
+
