@@ -5,7 +5,7 @@ from auth import show_login_form
 from sqlalchemy import text
 import numpy as np
 
-# --- Autenticação ---
+# --- Verificação de Autenticação ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
     st.switch_page("app.py")
 
@@ -85,7 +85,7 @@ def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
         with conn.session as s:
             s.begin()
             
-            # 1. Verifica se o CPF já existe (deve ser único em toda a tabela)
+            # 1. Verifica se o CPF já existe
             query_check_cpf = text("SELECT 1 FROM colaboradores WHERE cpf = :cpf")
             cpf_existe = s.execute(query_check_cpf, {"cpf": cpf}).fetchone()
             if cpf_existe:
@@ -101,7 +101,6 @@ def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
                 s.rollback()
                 return False
 
-            # Se ambas as verificações passarem, insere o novo colaborador
             query_insert = text("""
                 INSERT INTO colaboradores (nome_completo, cpf, gmail, setor_id, data_cadastro, codigo) 
                 VALUES (:nome, :cpf, :gmail, :setor_id, :data, :codigo)
@@ -135,6 +134,10 @@ def carregar_colaboradores(order_by="c.nome_completo ASC"):
         {order_clause}
     """
     df = conn.query(query)
+    # Garante que colunas de texto editáveis não contenham None
+    for col in ['codigo', 'nome_completo', 'cpf', 'gmail', 'nome_setor']:
+        if col in df.columns:
+            df[col] = df[col].fillna('')
     return df
 
 def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id):
@@ -159,7 +162,6 @@ def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id):
                 s.rollback()
                 return False
 
-            # Se tudo estiver OK, atualiza
             query = text("""
                 UPDATE colaboradores SET codigo = :codigo, nome_completo = :nome, 
                 cpf = :cpf, gmail = :gmail, setor_id = :setor_id 
@@ -197,106 +199,97 @@ st.markdown("---")
 try:
     setores_list = carregar_setores()
     setores_dict = {s['nome_setor']: s['id'] for s in setores_list}
+    
+    tab_cadastro, tab_consulta = st.tabs(["Cadastrar Novo Colaborador", "Consultar Colaboradores"])
 
-    col1, col2 = st.columns([1, 2])
-
-    with col1:
-        st.subheader("Adicionar Novo Colaborador")
+    with tab_cadastro:
         with st.form("form_novo_colaborador", clear_on_submit=True):
+            st.subheader("Dados do Novo Colaborador")
             novo_codigo = st.text_input("Código*")
             novo_nome = st.text_input("Nome Completo*")
             novo_cpf = st.text_input("CPF*")
             novo_gmail = st.text_input("Gmail")
             setor_selecionado_nome = st.selectbox("Setor*", options=setores_dict.keys(), index=None, placeholder="Selecione...")
 
-            if st.form_submit_button("Adicionar Colaborador", use_container_width=True):
-                if setor_selecionado_nome:
-                    setor_id = setores_dict.get(setor_selecionado_nome)
-                    if adicionar_colaborador(novo_nome, novo_cpf, novo_gmail, setor_id, novo_codigo):
-                        st.cache_data.clear()
-                        st.session_state.pop('original_colabs_df', None)
-                        st.rerun()
-                else:
-                    st.warning("Por favor, selecione um setor.")
+            if st.form_submit_button("Adicionar Colaborador", use_container_width=True, type="primary"):
+                setor_id = setores_dict.get(setor_selecionado_nome)
+                if adicionar_colaborador(novo_nome, novo_cpf, novo_gmail, setor_id, novo_codigo):
+                    st.cache_data.clear()
+                    if 'original_colabs_df' in st.session_state:
+                        del st.session_state.original_colabs_df
+                    st.rerun()
 
-    with col2:
-        with st.expander("Ver, Editar e Excluir Colaboradores", expanded=True):
-            
-            sort_options = {
-                "Nome (A-Z)": "c.nome_completo ASC",
-                "Código (Crescente)": "codigo ASC",
-                "Setor (A-Z)": "s.nome_setor ASC"
-            }
-            sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
+    with tab_consulta:
+        st.subheader("Colaboradores Registrados")
+        
+        sort_options = {
+            "Nome (A-Z)": "c.nome_completo ASC",
+            "Código (Crescente)": "codigo ASC",
+            "Setor (A-Z)": "s.nome_setor ASC"
+        }
+        sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
 
-            colaboradores_df = carregar_colaboradores(order_by=sort_options[sort_selection])
-            
-            if 'original_colabs_df' not in st.session_state:
-                 st.session_state.original_colabs_df = colaboradores_df.copy()
+        colaboradores_df = carregar_colaboradores(order_by=sort_options[sort_selection])
+        
+        if 'original_colabs_df' not in st.session_state:
+             st.session_state.original_colabs_df = colaboradores_df.copy()
 
-            setores_options = list(setores_dict.keys())
-            
-            edited_df = st.data_editor(
-                colaboradores_df,
-                column_config={
-                    "id": st.column_config.NumberColumn("ID", disabled=True),
-                    "codigo": st.column_config.TextColumn("Código", required=True),
-                    "nome_completo": st.column_config.TextColumn("Nome Completo", required=True),
-                    "cpf": st.column_config.TextColumn("CPF", required=True),
-                    "gmail": st.column_config.TextColumn("Gmail"),
-                    "nome_setor": st.column_config.SelectboxColumn(
-                        "Setor", options=setores_options, required=True
-                    ),
-                },
-                hide_index=True,
-                num_rows="dynamic",
-                key="colaboradores_editor"
-            )
-            
-            if st.button("Salvar Alterações", use_container_width=True, key="save_colabs_changes"):
-                original_df = st.session_state.original_colabs_df
-                changes_made = False
+        setores_options = list(setores_dict.keys())
+        
+        edited_df = st.data_editor(
+            colaboradores_df,
+            column_config={
+                "id": st.column_config.NumberColumn("ID", disabled=True),
+                "codigo": st.column_config.TextColumn("Código", required=True),
+                "nome_completo": st.column_config.TextColumn("Nome Completo", required=True),
+                "cpf": st.column_config.TextColumn("CPF", required=True),
+                "gmail": st.column_config.TextColumn("Gmail"),
+                "nome_setor": st.column_config.SelectboxColumn(
+                    "Setor", options=setores_options, required=True
+                ),
+            },
+            hide_index=True,
+            num_rows="dynamic",
+            key="colaboradores_editor",
+            use_container_width=True
+        )
+        
+        if st.button("Salvar Alterações", use_container_width=True, key="save_colabs_changes"):
+            original_df = st.session_state.original_colabs_df
+            changes_made = False
 
-                # Lógica para Exclusão
-                deleted_ids = set(original_df['id']) - set(edited_df['id'])
-                for col_id in deleted_ids:
-                    if excluir_colaborador(col_id):
-                        st.toast(f"Colaborador ID {col_id} excluído!", icon="🗑️")
+            # Lógica para Exclusão
+            deleted_ids = set(original_df['id']) - set(edited_df['id'])
+            for col_id in deleted_ids:
+                if excluir_colaborador(col_id):
+                    st.toast(f"Colaborador ID {col_id} excluído!", icon="🗑️")
+                    changes_made = True
+
+            # Lógica para Atualização
+            original_df_indexed = original_df.set_index('id')
+            edited_df_indexed = edited_df.set_index('id')
+            common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
+            
+            for col_id in common_ids:
+                original_row = original_df_indexed.loc[col_id]
+                edited_row = edited_df_indexed.loc[col_id]
+
+                is_different = not original_row.equals(edited_row)
+                
+                if is_different:
+                    novo_setor_id = setores_dict.get(edited_row['nome_setor'])
+                    if atualizar_colaborador(col_id, edited_row['codigo'], edited_row['nome_completo'], edited_row['cpf'], edited_row['gmail'], novo_setor_id):
+                        st.toast(f"Colaborador '{edited_row['nome_completo']}' atualizado!", icon="✅")
                         changes_made = True
 
-                # Lógica para Atualização (Robusta)
-                original_df_indexed = original_df.set_index('id')
-                edited_df_indexed = edited_df.set_index('id')
-
-                common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
-                
-                for col_id in common_ids:
-                    original_row = original_df_indexed.loc[col_id]
-                    edited_row = edited_df_indexed.loc[col_id]
-
-                    is_different = False
-                    # Compara campo a campo
-                    if str(original_row['codigo']) != str(edited_row['codigo']) or \
-                       str(original_row['nome_completo']) != str(edited_row['nome_completo']) or \
-                       str(original_row['cpf']) != str(edited_row['cpf']) or \
-                       str(original_row['gmail']) != str(edited_row['gmail']) or \
-                       str(original_row['nome_setor']) != str(edited_row['nome_setor']):
-                        is_different = True
-                    
-                    if is_different:
-                        novo_setor_id = setores_dict.get(edited_row['nome_setor'])
-                        if atualizar_colaborador(col_id, edited_row['codigo'], edited_row['nome_completo'], edited_row['cpf'], edited_row['gmail'], novo_setor_id):
-                            st.toast(f"Colaborador '{edited_row['nome_completo']}' atualizado!", icon="✅")
-                            changes_made = True
-
-                if changes_made:
-                    st.cache_data.clear()
-                    st.session_state.pop('original_colabs_df', None)
-                    st.rerun()
-                else:
-                    st.info("Nenhuma alteração foi detetada.")
+            if changes_made:
+                st.cache_data.clear()
+                del st.session_state.original_colabs_df
+                st.rerun()
+            else:
+                st.info("Nenhuma alteração foi detetada.")
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de colaboradores: {e}")
-    st.info("Se esta é a primeira configuração, por favor, vá até a página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
+    st.info("Verifique se o banco de dados está a funcionar corretamente.")
 
