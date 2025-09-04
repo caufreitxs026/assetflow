@@ -122,8 +122,32 @@ def adicionar_aparelho_e_historico(serie, imei1, imei2, valor, modelo_id, status
         return False
 
 @st.cache_data(ttl=30)
-def carregar_inventario_completo(order_by="a.data_cadastro DESC"):
+def carregar_inventario_completo(order_by="a.data_cadastro DESC", search_term=None, status_id=None):
+    """Carrega o inventário com filtros de pesquisa e status."""
     conn = get_db_connection()
+    
+    params = {}
+    where_clauses = []
+
+    if status_id:
+        where_clauses.append("a.status_id = :status_id")
+        params["status_id"] = status_id
+    
+    if search_term:
+        search_like = f"%{search_term}%"
+        # Pesquisa no N/S, IMEIs e no nome do responsável atual (usando a lógica do snapshot)
+        where_clauses.append("""
+            (a.numero_serie ILIKE :search OR 
+             a.imei1 ILIKE :search OR 
+             a.imei2 ILIKE :search OR 
+             COALESCE(h_atual.colaborador_snapshot, c.nome_completo) ILIKE :search)
+        """)
+        params["search"] = search_like
+
+    where_sql = ""
+    if where_clauses:
+        where_sql = "WHERE " + " AND ".join(where_clauses)
+
     query = f"""
         WITH UltimoResponsavel AS (
             SELECT
@@ -149,17 +173,18 @@ def carregar_inventario_completo(order_by="a.data_cadastro DESC"):
         LEFT JOIN UltimoResponsavel ur ON a.id = ur.aparelho_id AND ur.rn = 1
         LEFT JOIN colaboradores c ON ur.colaborador_id = c.id
         LEFT JOIN historico_movimentacoes h_atual ON h_atual.aparelho_id = a.id AND h_atual.id = (SELECT MAX(id) FROM historico_movimentacoes WHERE aparelho_id = a.id)
+        {where_sql}
         ORDER BY {order_by}
     """
-    df = conn.query(query)
-    # Garante que colunas que podem ser nulas (None) sejam tratadas para evitar erros no data_editor
+    df = conn.query(query, params=params)
+    
+    # Prepara o DataFrame para exibição
     for col in ['responsavel_atual', 'imei1', 'imei2', 'numero_serie', 'modelo_completo', 'nome_status']:
         if col in df.columns:
             df[col] = df[col].fillna('')
     if 'valor' in df.columns:
         df['valor'] = pd.to_numeric(df['valor'].fillna(0))
     return df
-
 
 def atualizar_aparelho_completo(aparelho_id, serie, imei1, imei2, valor, modelo_id):
     try:
@@ -204,6 +229,14 @@ st.markdown("---")
 try:
     modelos_list, status_list = carregar_dados_para_selects()
     modelos_dict = {f"{m['nome_marca']} - {m['nome_modelo']}": m['id'] for m in modelos_list}
+    status_dict = {s['nome_status']: s['id'] for s in status_list}
+
+    # Gerencia a aba ativa para evitar que mude ao filtrar
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = "Cadastrar Novo Aparelho"
+
+    def set_active_tab(tab_name):
+        st.session_state.active_tab = tab_name
 
     tab_cadastro, tab_consulta = st.tabs(["Cadastrar Novo Aparelho", "Consultar Inventário"])
 
@@ -212,16 +245,12 @@ try:
             st.subheader("Dados do Novo Aparelho")
             novo_serie = st.text_input("Número de Série*")
             modelo_selecionado_str = st.selectbox(
-                "Modelo*",
-                options=modelos_dict.keys(),
-                index=None,
-                placeholder="Selecione um modelo...",
-                help="Clique na lista e comece a digitar para pesquisar."
+                "Modelo*", options=modelos_dict.keys(), index=None,
+                placeholder="Selecione um modelo...", help="Clique na lista e comece a digitar para pesquisar."
             )
             novo_imei1 = st.text_input("IMEI 1")
             novo_imei2 = st.text_input("IMEI 2")
             novo_valor = st.number_input("Valor (R$)", min_value=0.0, value=0.0, format="%.2f")
-            status_dict = {s['nome_status']: s['id'] for s in status_list}
             status_options = list(status_dict.keys())
             default_status_index = status_options.index('Em estoque') if 'Em estoque' in status_options else 0
             status_selecionado_str = st.selectbox("Status Inicial*", options=status_options, index=default_status_index)
@@ -234,12 +263,27 @@ try:
                     status_id = status_dict[status_selecionado_str]
                     if adicionar_aparelho_e_historico(novo_serie, novo_imei1, novo_imei2, novo_valor, modelo_id, status_id):
                         st.cache_data.clear()
-                        st.session_state.pop('original_aparelhos_df', None) # Limpa o estado da outra aba
+                        # Limpa o estado da outra aba para forçar recarregamento dos dados
+                        for key in list(st.session_state.keys()):
+                            if key.startswith('original_aparelhos_df_'):
+                                del st.session_state[key]
                         st.rerun()
 
     with tab_consulta:
         st.subheader("Inventário de Aparelhos")
 
+        # --- FILTROS ---
+        col_filtro1, col_filtro2 = st.columns(2)
+        with col_filtro1:
+            status_filtro_nome = st.selectbox("Filtrar por Status:", ["Todos"] + list(status_dict.keys()))
+        with col_filtro2:
+            termo_pesquisa = st.text_input("Pesquisar por N/S, IMEI ou Responsável:")
+
+        status_id_filtro = None
+        if status_filtro_nome != "Todos":
+            status_id_filtro = status_dict.get(status_filtro_nome)
+        
+        # --- ORDENAÇÃO ---
         sort_options = {
             "Data de Entrada (Mais Recente)": "a.data_cadastro DESC",
             "Número de Série (A-Z)": "a.numero_serie ASC",
@@ -249,21 +293,27 @@ try:
         }
         sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
 
-        inventario_df = carregar_inventario_completo(order_by=sort_options[sort_selection])
+        # Carrega os dados com os filtros aplicados
+        inventario_df = carregar_inventario_completo(
+            order_by=sort_options[sort_selection],
+            search_term=termo_pesquisa,
+            status_id=status_id_filtro
+        )
         
-        if 'original_aparelhos_df' not in st.session_state:
-             st.session_state.original_aparelhos_df = inventario_df.copy()
+        # --- LÓGICA DE GESTÃO DO ESTADO PARA EDIÇÃO ---
+        session_state_key = f"original_aparelhos_df_{sort_selection}_{termo_pesquisa}_{status_filtro_nome}"
+        if session_state_key not in st.session_state:
+            for key in list(st.session_state.keys()):
+                if key.startswith('original_aparelhos_df_'):
+                    del st.session_state[key]
+            st.session_state[session_state_key] = inventario_df.copy()
 
         edited_df = st.data_editor(
             inventario_df,
             column_config={
                 "id": st.column_config.NumberColumn("ID", disabled=True),
                 "numero_serie": st.column_config.TextColumn("N/S", required=True),
-                "modelo_completo": st.column_config.SelectboxColumn(
-                    "Modelo",
-                    options=list(modelos_dict.keys()),
-                    required=True
-                ),
+                "modelo_completo": st.column_config.SelectboxColumn("Modelo", options=list(modelos_dict.keys()), required=True),
                 "nome_status": st.column_config.TextColumn("Status Atual", disabled=True),
                 "responsavel_atual": st.column_config.TextColumn("Responsável Atual", disabled=True),
                 "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", required=True),
@@ -278,7 +328,7 @@ try:
         )
         
         if st.button("Salvar Alterações", use_container_width=True, key="save_aparelhos_changes"):
-            original_df = st.session_state.original_aparelhos_df
+            original_df = st.session_state[session_state_key]
             changes_made = False
 
             # Lógica para Exclusão
@@ -297,36 +347,26 @@ try:
                 original_row = original_df_indexed.loc[aparelho_id]
                 edited_row = edited_df_indexed.loc[aparelho_id]
                 
-                is_different = False
-                if str(original_row['numero_serie']) != str(edited_row['numero_serie']) or \
-                   str(original_row['modelo_completo']) != str(edited_row['modelo_completo']) or \
-                   not np.isclose(float(original_row['valor']), float(edited_row['valor'])) or \
-                   (str(original_row['imei1']) if pd.notna(original_row['imei1']) else '') != (str(edited_row['imei1']) if pd.notna(edited_row['imei1']) else '') or \
-                   (str(original_row['imei2']) if pd.notna(original_row['imei2']) else '') != (str(edited_row['imei2']) if pd.notna(edited_row['imei2']) else ''):
-                    is_different = True
+                is_different = not original_row.equals(edited_row)
 
                 if is_different:
                     novo_modelo_id = modelos_dict[edited_row['modelo_completo']]
                     
                     if atualizar_aparelho_completo(
-                        aparelho_id, 
-                        edited_row['numero_serie'], 
-                        edited_row['imei1'], 
-                        edited_row['imei2'], 
-                        edited_row['valor'], 
-                        novo_modelo_id
+                        aparelho_id, edited_row['numero_serie'], edited_row['imei1'], 
+                        edited_row['imei2'], edited_row['valor'], novo_modelo_id
                     ):
                         st.toast(f"Aparelho N/S '{edited_row['numero_serie']}' atualizado!", icon="✅")
                         changes_made = True
             
             if changes_made:
                 st.cache_data.clear()
-                del st.session_state.original_aparelhos_df
+                del st.session_state[session_state_key]
                 st.rerun()
             else:
                 st.info("Nenhuma alteração foi detetada.")
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de aparelhos: {e}")
-    st.info("Se esta é a primeira configuração, vá até a página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
+    st.info("Verifique se o banco de dados está a funcionar corretamente.")
 
