@@ -40,7 +40,7 @@ st.markdown("""
 # --- Header (Logo no canto superior esquerdo) ---
 st.markdown(
     """
-    <div class.logo-text">
+    <div class="logo-text">
         <span class="logo-asset">ASSET</span><span class="logo-flow">FLOW</span>
     </div>
     """,
@@ -239,11 +239,11 @@ try:
     status_dict = {s['nome_status']: s['id'] for s in status_list}
     setores_dict = {s['nome_setor']: s['id'] for s in setores_list}
     
-    col1, col2 = st.columns([1, 2.5])
+    tab_cadastro, tab_consulta = st.tabs(["Cadastrar Novo Aparelho", "Consultar Inventário"])
 
-    with col1:
-        st.subheader("Adicionar Novo Aparelho")
+    with tab_cadastro:
         with st.form("form_novo_aparelho", clear_on_submit=True):
+            st.subheader("Dados do Novo Aparelho")
             novo_serie = st.text_input("Número de Série*")
             modelo_selecionado_str = st.selectbox(
                 "Modelo*", options=list(modelos_dict.keys()), index=None,
@@ -269,105 +269,104 @@ try:
                                 del st.session_state[key]
                         st.rerun()
 
-    with col2:
-        with st.expander("Consultar, Editar e Excluir Inventário", expanded=True):
-            st.subheader("Inventário de Aparelhos")
+    with tab_consulta:
+        st.subheader("Inventário de Aparelhos")
 
-            # --- FILTROS ---
-            filter_cols = st.columns(3)
-            with filter_cols[0]:
-                status_filtro_nome = st.selectbox("Filtrar por Status:", ["Todos"] + list(status_dict.keys()), key="status_filter")
-            with filter_cols[1]:
-                modelo_filtro_nome = st.selectbox("Filtrar por Modelo:", ["Todos"] + list(modelos_dict.keys()), key="modelo_filter")
-            with filter_cols[2]:
-                setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()), key="setor_filter")
+        # --- FILTROS ---
+        filter_cols = st.columns(3)
+        with filter_cols[0]:
+            status_filtro_nome = st.selectbox("Filtrar por Status:", ["Todos"] + list(status_dict.keys()), key="status_filter")
+        with filter_cols[1]:
+            modelo_filtro_nome = st.selectbox("Filtrar por Modelo:", ["Todos"] + list(modelos_dict.keys()), key="modelo_filter")
+        with filter_cols[2]:
+            setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()), key="setor_filter")
 
-            termo_pesquisa = st.text_input("Pesquisar por N/S, IMEI ou Responsável:", placeholder="Digite para buscar...", key="search_filter")
+        termo_pesquisa = st.text_input("Pesquisar por N/S, IMEI ou Responsável:", placeholder="Digite para buscar...", key="search_filter")
 
-            status_id_filtro = status_dict.get(status_filtro_nome) if status_filtro_nome != "Todos" else None
-            modelo_id_filtro = modelos_dict.get(modelo_filtro_nome) if modelo_filtro_nome != "Todos" else None
-            setor_id_filtro = setores_dict.get(setor_filtro_nome) if setor_filtro_nome != "Todos" else None
+        status_id_filtro = status_dict.get(status_filtro_nome) if status_filtro_nome != "Todos" else None
+        modelo_id_filtro = modelos_dict.get(modelo_filtro_nome) if modelo_filtro_nome != "Todos" else None
+        setor_id_filtro = setores_dict.get(setor_filtro_nome) if setor_filtro_nome != "Todos" else None
+        
+        # --- ORDENAÇÃO ---
+        sort_options = {
+            "Data de Entrada (Mais Recente)": "a.data_cadastro DESC",
+            "Número de Série (A-Z)": "a.numero_serie ASC",
+            "Modelo (A-Z)": "modelo_completo ASC",
+            "Status (A-Z)": "s.nome_status ASC",
+            "Responsável (A-Z)": "responsavel_atual ASC",
+            "Setor (A-Z)": "setor_atual ASC"
+        }
+        sort_selection = st.selectbox("Organizar por:", options=sort_options.keys(), key="sort_selection")
+
+        inventario_df = carregar_inventario_completo(
+            order_by=sort_options[sort_selection],
+            search_term=termo_pesquisa,
+            status_id=status_id_filtro,
+            modelo_id=modelo_id_filtro,
+            setor_id=setor_id_filtro
+        )
+        
+        session_state_key = f"original_aparelhos_df_{sort_selection}_{termo_pesquisa}_{status_filtro_nome}_{modelo_filtro_nome}_{setor_filtro_nome}"
+        if session_state_key not in st.session_state:
+            for key in list(st.session_state.keys()):
+                if key.startswith('original_aparelhos_df_'):
+                    del st.session_state[key]
+            st.session_state[session_state_key] = inventario_df.copy()
+
+        edited_df = st.data_editor(
+            inventario_df,
+            column_config={
+                "id": st.column_config.NumberColumn("ID", disabled=True),
+                "numero_serie": st.column_config.TextColumn("N/S", required=True),
+                "modelo_completo": st.column_config.SelectboxColumn("Modelo", options=list(modelos_dict.keys()), required=True),
+                "nome_status": st.column_config.TextColumn("Status", disabled=True),
+                "responsavel_atual": st.column_config.TextColumn("Responsável", disabled=True),
+                "setor_atual": st.column_config.TextColumn("Setor", disabled=True),
+                "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", required=True),
+                "imei1": st.column_config.TextColumn("IMEI 1"),
+                "imei2": st.column_config.TextColumn("IMEI 2"),
+                "data_cadastro": st.column_config.DateColumn("Data de Entrada", format="DD/MM/YYYY", disabled=True),
+            },
+            hide_index=True,
+            num_rows="dynamic",
+            key="aparelhos_editor",
+            use_container_width=True
+        )
+        
+        if st.button("Salvar Alterações", use_container_width=True, key="save_aparelhos_changes"):
+            original_df = st.session_state[session_state_key]
+            changes_made = False
+
+            deleted_ids = set(original_df['id']) - set(edited_df['id'])
+            for aparelho_id in deleted_ids:
+                if excluir_aparelho(aparelho_id):
+                    st.toast(f"Aparelho ID {aparelho_id} excluído!", icon="🗑️")
+                    changes_made = True
+
+            original_df_indexed = original_df.set_index('id')
+            edited_df_indexed = edited_df.set_index('id')
+            common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
             
-            # --- ORDENAÇÃO ---
-            sort_options = {
-                "Data de Entrada (Mais Recente)": "a.data_cadastro DESC",
-                "Número de Série (A-Z)": "a.numero_serie ASC",
-                "Modelo (A-Z)": "modelo_completo ASC",
-                "Status (A-Z)": "s.nome_status ASC",
-                "Responsável (A-Z)": "responsavel_atual ASC",
-                "Setor (A-Z)": "setor_atual ASC"
-            }
-            sort_selection = st.selectbox("Organizar por:", options=sort_options.keys(), key="sort_selection")
-
-            inventario_df = carregar_inventario_completo(
-                order_by=sort_options[sort_selection],
-                search_term=termo_pesquisa,
-                status_id=status_id_filtro,
-                modelo_id=modelo_id_filtro,
-                setor_id=setor_id_filtro
-            )
-            
-            session_state_key = f"original_aparelhos_df_{sort_selection}_{termo_pesquisa}_{status_filtro_nome}_{modelo_filtro_nome}_{setor_filtro_nome}"
-            if session_state_key not in st.session_state:
-                for key in list(st.session_state.keys()):
-                    if key.startswith('original_aparelhos_df_'):
-                        del st.session_state[key]
-                st.session_state[session_state_key] = inventario_df.copy()
-
-            edited_df = st.data_editor(
-                inventario_df,
-                column_config={
-                    "id": st.column_config.NumberColumn("ID", disabled=True),
-                    "numero_serie": st.column_config.TextColumn("N/S", required=True),
-                    "modelo_completo": st.column_config.SelectboxColumn("Modelo", options=list(modelos_dict.keys()), required=True),
-                    "nome_status": st.column_config.TextColumn("Status", disabled=True),
-                    "responsavel_atual": st.column_config.TextColumn("Responsável", disabled=True),
-                    "setor_atual": st.column_config.TextColumn("Setor", disabled=True),
-                    "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", required=True),
-                    "imei1": st.column_config.TextColumn("IMEI 1"),
-                    "imei2": st.column_config.TextColumn("IMEI 2"),
-                    "data_cadastro": st.column_config.DateColumn("Data de Entrada", format="DD/MM/YYYY", disabled=True),
-                },
-                hide_index=True,
-                num_rows="dynamic",
-                key="aparelhos_editor",
-                use_container_width=True
-            )
-            
-            if st.button("Salvar Alterações", use_container_width=True, key="save_aparelhos_changes"):
-                original_df = st.session_state[session_state_key]
-                changes_made = False
-
-                deleted_ids = set(original_df['id']) - set(edited_df['id'])
-                for aparelho_id in deleted_ids:
-                    if excluir_aparelho(aparelho_id):
-                        st.toast(f"Aparelho ID {aparelho_id} excluído!", icon="🗑️")
-                        changes_made = True
-
-                original_df_indexed = original_df.set_index('id')
-                edited_df_indexed = edited_df.set_index('id')
-                common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
+            for aparelho_id in common_ids:
+                original_row = original_df_indexed.loc[aparelho_id]
+                edited_row = edited_df_indexed.loc[aparelho_id]
                 
-                for aparelho_id in common_ids:
-                    original_row = original_df_indexed.loc[aparelho_id]
-                    edited_row = edited_df_indexed.loc[aparelho_id]
+                if not original_row.equals(edited_row):
+                    novo_modelo_id = modelos_dict[edited_row['modelo_completo']]
                     
-                    if not original_row.equals(edited_row):
-                        novo_modelo_id = modelos_dict[edited_row['modelo_completo']]
-                        
-                        if atualizar_aparelho_completo(
-                            aparelho_id, edited_row['numero_serie'], edited_row['imei1'], 
-                            edited_row['imei2'], edited_row['valor'], novo_modelo_id
-                        ):
-                            st.toast(f"Aparelho N/S '{edited_row['numero_serie']}' atualizado!", icon="✅")
-                            changes_made = True
-                
-                if changes_made:
-                    st.cache_data.clear()
-                    del st.session_state[session_state_key]
-                    st.rerun()
-                else:
-                    st.info("Nenhuma alteração foi detetada.")
+                    if atualizar_aparelho_completo(
+                        aparelho_id, edited_row['numero_serie'], edited_row['imei1'], 
+                        edited_row['imei2'], edited_row['valor'], novo_modelo_id
+                    ):
+                        st.toast(f"Aparelho N/S '{edited_row['numero_serie']}' atualizado!", icon="✅")
+                        changes_made = True
+            
+            if changes_made:
+                st.cache_data.clear()
+                del st.session_state[session_state_key]
+                st.rerun()
+            else:
+                st.info("Nenhuma alteração foi detetada.")
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de aparelhos: {e}")
