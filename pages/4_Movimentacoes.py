@@ -11,10 +11,11 @@ if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
 # --- Configuração de Layout (Header, Footer e CSS) ---
 st.markdown("""
 <style>
-    /* ... (CSS omitido para brevidade) ... */
+    /* Estilos da Logo */
     .logo-text { font-family: 'Courier New', monospace; font-size: 28px; font-weight: bold; padding-top: 20px; }
     .logo-asset { color: #003366; } .logo-flow { color: #E30613; }
     @media (prefers-color-scheme: dark) { .logo-asset { color: #FFFFFF; } .logo-flow { color: #FF4B4B; } }
+    /* Estilos para o footer na barra lateral */
     .sidebar-footer { text-align: center; padding-top: 20px; padding-bottom: 20px; }
     .sidebar-footer a { margin-right: 15px; text-decoration: none; }
     .sidebar-footer img { width: 25px; height: 25px; filter: grayscale(1) opacity(0.5); transition: filter 0.3s; }
@@ -67,9 +68,6 @@ def registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_st
         with conn.session as s:
             s.begin()
             
-            # --- LÓGICA ATUALIZADA ---
-            # Se o status for 'Em manutenção', o colaborador_id no histórico é o último que o usou.
-            # O snapshot será o nome desse último colaborador.
             id_colaborador_final = colaborador_id
             nome_colaborador_snapshot = colaborador_nome
 
@@ -84,7 +82,6 @@ def registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_st
                     id_colaborador_final = ultimo_colaborador[0]
                     nome_colaborador_snapshot = ultimo_colaborador[1]
 
-            # Inserir no histórico, agora com o campo 'colaborador_snapshot'
             query_hist = text("""
                 INSERT INTO historico_movimentacoes (data_movimentacao, aparelho_id, colaborador_id, status_id, localizacao_atual, observacoes, colaborador_snapshot) 
                 VALUES (:data, :ap_id, :col_id, :status_id, :loc, :obs, :col_snap)
@@ -108,24 +105,22 @@ def registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_st
                 })
 
             s.commit()
-        st.success("Movimentação registada com sucesso!")
-        if novo_status_nome == "Em manutenção":
-            st.info("Uma Ordem de Serviço preliminar foi aberta. Aceda à página 'Manutenções' para adicionar o fornecedor.")
-        return True
+            st.success("Movimentação registada com sucesso!")
+            if novo_status_nome == "Em manutenção":
+                st.info("Uma Ordem de Serviço preliminar foi aberta. Aceda à página 'Manutenções' para adicionar o fornecedor.")
+            return True
     except Exception as e:
         st.error(f"Ocorreu um erro ao registar a movimentação: {e}")
         return False
 
 @st.cache_data(ttl=30)
-def carregar_historico_completo(status_filter=None, start_date=None, end_date=None):
+def carregar_historico_completo(status_filter=None, start_date=None, end_date=None, search_term=None):
     """Carrega o histórico completo de movimentações, com filtros avançados."""
     conn = get_db_connection()
-    # --- LÓGICA ATUALIZADA ---
-    # Agora busca o nome do colaborador a partir do 'colaborador_snapshot'
     query = """
         SELECT 
             h.id, h.data_movimentacao, a.numero_serie, mo.nome_modelo,
-            h.colaborador_snapshot as colaborador, -- <--- MUDANÇA AQUI
+            h.colaborador_snapshot as colaborador,
             s.nome_status,
             h.localizacao_atual, h.observacoes
         FROM historico_movimentacoes h
@@ -147,6 +142,16 @@ def carregar_historico_completo(status_filter=None, start_date=None, end_date=No
         where_clauses.append("CAST(h.data_movimentacao AS DATE) <= :end_date")
         params['end_date'] = end_date
 
+    if search_term:
+        search_like = f"%{search_term}%"
+        where_clauses.append("""
+            (a.numero_serie ILIKE :search OR 
+             mo.nome_modelo ILIKE :search OR 
+             h.colaborador_snapshot ILIKE :search OR 
+             h.observacoes ILIKE :search)
+        """)
+        params['search'] = search_like
+
     if where_clauses:
         query += " WHERE " + " AND ".join(where_clauses)
     
@@ -156,74 +161,76 @@ def carregar_historico_completo(status_filter=None, start_date=None, end_date=No
     return df
 
 # --- UI ---
-st.title("Registar Movimentação de Aparelho")
+st.title("Gestão de Movimentações")
 st.markdown("---")
 
 try:
     aparelhos_list, colaboradores_list, status_list = carregar_dados_para_selects()
 
-    st.subheader("Formulário de Movimentação")
+    tab_cadastro, tab_consulta = st.tabs(["Registar Nova Movimentação", "Consultar Histórico"])
 
-    # Usar uma chave única para o formulário para permitir reset programático
-    if 'form_key' not in st.session_state:
-        st.session_state.form_key = 0
+    with tab_cadastro:
+        with st.form("form_movimentacao", clear_on_submit=True):
+            st.subheader("Formulário de Movimentação")
+            aparelhos_dict = {f"{ap['nome_marca']} {ap['nome_modelo']} (S/N: {ap['numero_serie']})": ap['id'] for ap in aparelhos_list}
+            aparelho_selecionado_str = st.selectbox(
+                "Selecione o Aparelho*",
+                options=aparelhos_dict.keys(),
+                index=None, placeholder="Selecione...",
+                help="Clique na lista e comece a digitar para pesquisar."
+            )
 
-    with st.form(f"form_movimentacao_{st.session_state.form_key}", clear_on_submit=False):
-        aparelhos_dict = {f"{ap['nome_marca']} {ap['nome_modelo']} (S/N: {ap['numero_serie']})": ap['id'] for ap in aparelhos_list}
-        aparelho_selecionado_str = st.selectbox(
-            "Selecione o Aparelho*",
-            options=aparelhos_dict.keys(),
-            index=None, placeholder="Selecione...",
-            help="Clique na lista e comece a digitar para pesquisar."
+            colaboradores_dict = {col['nome_completo']: col['id'] for col in colaboradores_list}
+            opcoes_colaborador_com_nenhum = {"Nenhum": None}
+            opcoes_colaborador_com_nenhum.update(colaboradores_dict)
+            
+            colaborador_selecionado_str = st.selectbox(
+                "Atribuir ao Colaborador",
+                options=opcoes_colaborador_com_nenhum.keys(),
+                index=0,
+                help="Clique na lista e comece a digitar para pesquisar."
+            )
+            
+            status_dict = {s['nome_status']: s['id'] for s in status_list}
+            novo_status_str = st.selectbox("Novo Status do Aparelho*", options=status_dict.keys())
+            nova_localizacao = st.text_input("Nova Localização", placeholder="Ex: Mesa do colaborador, Assistência Técnica XYZ")
+            observacoes = st.text_area("Observações", placeholder="Ex: Devolução com tela trincada, Envio para troca de bateria.")
+
+            submitted = st.form_submit_button("Registar Movimentação", use_container_width=True, type="primary")
+            if submitted:
+                if not aparelho_selecionado_str or not novo_status_str:
+                    st.error("Aparelho e Novo Status são campos obrigatórios.")
+                else:
+                    aparelho_id = aparelhos_dict[aparelho_selecionado_str]
+                    colaborador_id = opcoes_colaborador_com_nenhum[colaborador_selecionado_str]
+                    colaborador_nome = colaborador_selecionado_str if colaborador_selecionado_str != "Nenhum" else None
+                    novo_status_id = status_dict[novo_status_str]
+                    
+                    if registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_status_id, novo_status_str, nova_localizacao, observacoes):
+                        st.cache_data.clear()
+                        st.rerun()
+
+    with tab_consulta:
+        st.subheader("Histórico de Movimentações")
+        
+        # --- FILTROS ---
+        col_filtro1, col_filtro2 = st.columns(2)
+        with col_filtro1:
+            search_term = st.text_input("Pesquisar por N/S, Modelo, Colaborador ou Obs:")
+            status_options = ["Todos"] + [s['nome_status'] for s in status_list]
+            status_filtro = st.selectbox("Filtrar por Status:", status_options)
+
+        with col_filtro2:
+            data_inicio = st.date_input("Período de:", value=None, format="DD/MM/YYYY")
+            data_fim = st.date_input("Até:", value=None, format="DD/MM/YYYY")
+
+        historico_df = carregar_historico_completo(
+            status_filter=status_filtro, 
+            start_date=data_inicio, 
+            end_date=data_fim,
+            search_term=search_term
         )
-
-        colaboradores_dict = {col['nome_completo']: col['id'] for col in colaboradores_list}
-        opcoes_colaborador_com_nenhum = {"Nenhum": None}
-        opcoes_colaborador_com_nenhum.update(colaboradores_dict)
         
-        colaborador_selecionado_str = st.selectbox(
-            "Atribuir ao Colaborador",
-            options=opcoes_colaborador_com_nenhum.keys(),
-            index=0,
-            help="Clique na lista e comece a digitar para pesquisar."
-        )
-        
-        status_dict = {s['nome_status']: s['id'] for s in status_list}
-        novo_status_str = st.selectbox("Novo Status do Aparelho*", options=status_dict.keys())
-        nova_localizacao = st.text_input("Nova Localização", placeholder="Ex: Mesa do colaborador, Assistência Técnica XYZ")
-        observacoes = st.text_area("Observações", placeholder="Ex: Devolução com tela trincada, Envio para troca de bateria.")
-
-        submitted = st.form_submit_button("Registar Movimentação", use_container_width=True)
-        if submitted:
-            if not aparelho_selecionado_str or not novo_status_str:
-                st.error("Aparelho e Novo Status são campos obrigatórios.")
-            else:
-                aparelho_id = aparelhos_dict[aparelho_selecionado_str]
-                colaborador_id = opcoes_colaborador_com_nenhum[colaborador_selecionado_str]
-                # Passa o nome do colaborador (snapshot) para a função
-                colaborador_nome = colaborador_selecionado_str if colaborador_selecionado_str != "Nenhum" else None
-                novo_status_id = status_dict[novo_status_str]
-                
-                if registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_status_id, novo_status_str, nova_localizacao, observacoes):
-                    st.session_state.form_key += 1 # Reseta o formulário incrementando a chave
-                    st.rerun()
-
-    st.markdown("---")
-
-    with st.expander("Ver e Filtrar Histórico de Movimentações", expanded=True):
-        
-        st.markdown("###### Filtros do Relatório")
-        
-        status_options = ["Todos"] + [s['nome_status'] for s in status_list]
-        status_filtro = st.selectbox("Filtrar por Status:", status_options)
-
-        col_data1, col_data2 = st.columns(2)
-        data_inicio = col_data1.date_input("Período de:", value=None, format="DD/MM/YYYY")
-        data_fim = col_data2.date_input("Até:", value=None, format="DD/MM/YYYY")
-
-        historico_df = carregar_historico_completo(status_filter=status_filtro, start_date=data_inicio, end_date=data_fim)
-        
-        st.markdown("###### Resultados")
         st.dataframe(historico_df, use_container_width=True, hide_index=True, column_config={
             "data_movimentacao": st.column_config.DatetimeColumn("Data e Hora", format="DD/MM/YYYY HH:mm"),
             "numero_serie": "N/S do Aparelho",
@@ -236,4 +243,5 @@ try:
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página: {e}")
-    st.info("Se esta é a primeira configuração, por favor, vá até a página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
+    st.info("Verifique se o banco de dados está a funcionar corretamente.")
+
