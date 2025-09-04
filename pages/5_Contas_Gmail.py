@@ -194,9 +194,22 @@ try:
     colaboradores_dict = {"Nenhum": None}
     colaboradores_dict.update({c['nome_completo']: c['id'] for c in colaboradores_list})
 
-    tab_cadastro, tab_consulta = st.tabs(["Cadastrar Nova Conta", "Consultar Contas"])
+    # --- Seletor de Abas ---
+    # Usamos st.radio para simular as abas e manter o estado após o rerun dos filtros
+    # O `key` é essencial para que o Streamlit se lembre da seleção
+    if 'gmail_active_tab' not in st.session_state:
+        st.session_state.gmail_active_tab = "Cadastrar"
 
-    with tab_cadastro:
+    option = st.radio(
+        "Selecione a operação:",
+        ("Cadastrar Nova Conta", "Consultar Contas"),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="gmail_tab_selector" # Chave para o widget de rádio
+    )
+
+    # --- Aba de Cadastro ---
+    if option == "Cadastrar Nova Conta":
         with st.form("form_nova_conta", clear_on_submit=True):
             st.subheader("Dados da Nova Conta")
             st.warning("Atenção: As senhas são armazenadas em texto plano. Use com cautela.", icon="⚠️")
@@ -220,15 +233,16 @@ try:
                 else:
                     st.error("Formato de e-mail inválido. Certifique-se de que termina com '@gmail.com'.")
 
-    with tab_consulta:
+    # --- Aba de Consulta ---
+    elif option == "Consultar Contas":
         st.subheader("Contas Registradas")
         
         # --- FILTROS ---
         col_filtro1, col_filtro2 = st.columns(2)
         with col_filtro1:
-            setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()))
+            setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()), key="gmail_setor_filter")
         with col_filtro2:
-            termo_pesquisa = st.text_input("Pesquisar por E-mail ou Colaborador:")
+            termo_pesquisa = st.text_input("Pesquisar por E-mail ou Colaborador:", key="gmail_search_filter")
 
         setor_id_filtro = None
         if setor_filtro_nome != "Todos":
@@ -240,7 +254,7 @@ try:
             "Setor (A-Z)": "s.nome_setor ASC",
             "Colaborador (A-Z)": "colaborador ASC"
         }
-        sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
+        sort_selection = st.selectbox("Organizar por:", options=sort_options.keys(), key="gmail_sort_filter")
 
         contas_df = carregar_contas(
             order_by=sort_options[sort_selection],
