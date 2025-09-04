@@ -194,11 +194,11 @@ try:
     colaboradores_dict = {"Nenhum": None}
     colaboradores_dict.update({c['nome_completo']: c['id'] for c in colaboradores_list})
 
-    col1, col2 = st.columns([1, 2])
+    tab_cadastro, tab_consulta = st.tabs(["Cadastrar Nova Conta", "Consultar Contas"])
 
-    with col1:
-        st.subheader("Adicionar Nova Conta")
+    with tab_cadastro:
         with st.form("form_nova_conta", clear_on_submit=True):
+            st.subheader("Dados da Nova Conta")
             st.warning("Atenção: As senhas são armazenadas em texto plano. Use com cautela.", icon="⚠️")
             email = st.text_input("E-mail/Gmail*")
             senha = st.text_input("Senha")
@@ -220,97 +220,96 @@ try:
                 else:
                     st.error("Formato de e-mail inválido. Certifique-se de que termina com '@gmail.com'.")
 
-    with col2:
-        with st.expander("Ver, Editar e Excluir Contas", expanded=True):
-            st.subheader("Contas Registradas")
+    with tab_consulta:
+        st.subheader("Contas Registradas")
         
-            # --- FILTROS ---
-            col_filtro1, col_filtro2 = st.columns(2)
-            with col_filtro1:
-                setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()))
-            with col_filtro2:
-                termo_pesquisa = st.text_input("Pesquisar por E-mail ou Colaborador:")
+        # --- FILTROS ---
+        col_filtro1, col_filtro2 = st.columns(2)
+        with col_filtro1:
+            setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()))
+        with col_filtro2:
+            termo_pesquisa = st.text_input("Pesquisar por E-mail ou Colaborador:")
 
-            setor_id_filtro = None
-            if setor_filtro_nome != "Todos":
-                setor_id_filtro = setores_dict.get(setor_filtro_nome)
+        setor_id_filtro = None
+        if setor_filtro_nome != "Todos":
+            setor_id_filtro = setores_dict.get(setor_filtro_nome)
 
-            # --- ORDENAÇÃO ---
-            sort_options = {
-                "Email (A-Z)": "cg.email ASC",
-                "Setor (A-Z)": "s.nome_setor ASC",
-                "Colaborador (A-Z)": "colaborador ASC"
-            }
-            sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
+        # --- ORDENAÇÃO ---
+        sort_options = {
+            "Email (A-Z)": "cg.email ASC",
+            "Setor (A-Z)": "s.nome_setor ASC",
+            "Colaborador (A-Z)": "colaborador ASC"
+        }
+        sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
 
-            contas_df = carregar_contas(
-                order_by=sort_options[sort_selection],
-                search_term=termo_pesquisa,
-                setor_id=setor_id_filtro
-            )
+        contas_df = carregar_contas(
+            order_by=sort_options[sort_selection],
+            search_term=termo_pesquisa,
+            setor_id=setor_id_filtro
+        )
+        
+        # --- LÓGICA DE GESTÃO DO ESTADO PARA EDIÇÃO ---
+        session_state_key = f"original_contas_df_{sort_selection}_{termo_pesquisa}_{setor_filtro_nome}"
+        if session_state_key not in st.session_state:
+            for key in list(st.session_state.keys()):
+                if key.startswith('original_contas_df_'):
+                    del st.session_state[key]
+            st.session_state[session_state_key] = contas_df.copy()
+
+        setores_options = list(setores_dict.keys())
+        colaboradores_options = list(colaboradores_dict.keys())
+
+        edited_df = st.data_editor(
+            contas_df,
+            column_config={
+                "id": st.column_config.NumberColumn("ID", disabled=True),
+                "email": st.column_config.TextColumn("E-mail", disabled=True),
+                "senha": st.column_config.TextColumn("Senha", required=False),
+                "telefone_recuperacao": st.column_config.TextColumn("Telefone Recuperação"),
+                "email_recuperacao": st.column_config.TextColumn("E-mail Recuperação"),
+                "nome_setor": st.column_config.SelectboxColumn("Setor", options=setores_options),
+                "colaborador": st.column_config.SelectboxColumn("Colaborador", options=colaboradores_options),
+            },
+            hide_index=True,
+            num_rows="dynamic",
+            key="contas_editor",
+            use_container_width=True
+        )
+
+        if st.button("Salvar Alterações", use_container_width=True, key="save_contas_changes"):
+            original_df = st.session_state[session_state_key]
+            changes_made = False
+
+            # Lógica para Exclusão
+            deleted_ids = set(original_df['id']) - set(edited_df['id'])
+            for conta_id in deleted_ids:
+                if excluir_conta(conta_id):
+                    st.toast(f"Conta ID {conta_id} excluída!", icon="🗑️")
+                    changes_made = True
+
+            # Lógica para Atualização
+            original_df_indexed = original_df.set_index('id')
+            edited_df_indexed = edited_df.set_index('id')
+            common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
             
-            # --- LÓGICA DE GESTÃO DO ESTADO PARA EDIÇÃO ---
-            session_state_key = f"original_contas_df_{sort_selection}_{termo_pesquisa}_{setor_filtro_nome}"
-            if session_state_key not in st.session_state:
-                for key in list(st.session_state.keys()):
-                    if key.startswith('original_contas_df_'):
-                        del st.session_state[key]
-                st.session_state[session_state_key] = contas_df.copy()
+            for conta_id in common_ids:
+                original_row = original_df_indexed.loc[conta_id]
+                edited_row = edited_df_indexed.loc[conta_id]
 
-            setores_options = list(setores_dict.keys())
-            colaboradores_options = list(colaboradores_dict.keys())
+                if not original_row.equals(edited_row):
+                    novo_setor_id = setores_dict.get(edited_row['nome_setor'])
+                    novo_col_id = colaboradores_dict.get(edited_row['colaborador'])
 
-            edited_df = st.data_editor(
-                contas_df,
-                column_config={
-                    "id": st.column_config.NumberColumn("ID", disabled=True),
-                    "email": st.column_config.TextColumn("E-mail", disabled=True),
-                    "senha": st.column_config.TextColumn("Senha", required=False),
-                    "telefone_recuperacao": st.column_config.TextColumn("Telefone Recuperação"),
-                    "email_recuperacao": st.column_config.TextColumn("E-mail Recuperação"),
-                    "nome_setor": st.column_config.SelectboxColumn("Setor", options=setores_options),
-                    "colaborador": st.column_config.SelectboxColumn("Colaborador", options=colaboradores_options),
-                },
-                hide_index=True,
-                num_rows="dynamic",
-                key="contas_editor",
-                use_container_width=True
-            )
-
-            if st.button("Salvar Alterações", use_container_width=True, key="save_contas_changes"):
-                original_df = st.session_state[session_state_key]
-                changes_made = False
-
-                # Lógica para Exclusão
-                deleted_ids = set(original_df['id']) - set(edited_df['id'])
-                for conta_id in deleted_ids:
-                    if excluir_conta(conta_id):
-                        st.toast(f"Conta ID {conta_id} excluída!", icon="🗑️")
+                    if atualizar_conta(conta_id, edited_row['senha'], edited_row['telefone_recuperacao'], edited_row['email_recuperacao'], novo_setor_id, novo_col_id):
+                        st.toast(f"Conta '{edited_row['email']}' atualizada!", icon="✅")
                         changes_made = True
-
-                # Lógica para Atualização
-                original_df_indexed = original_df.set_index('id')
-                edited_df_indexed = edited_df.set_index('id')
-                common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
-                
-                for conta_id in common_ids:
-                    original_row = original_df_indexed.loc[conta_id]
-                    edited_row = edited_df_indexed.loc[conta_id]
-
-                    if not original_row.equals(edited_row):
-                        novo_setor_id = setores_dict.get(edited_row['nome_setor'])
-                        novo_col_id = colaboradores_dict.get(edited_row['colaborador'])
-
-                        if atualizar_conta(conta_id, edited_row['senha'], edited_row['telefone_recuperacao'], edited_row['email_recuperacao'], novo_setor_id, novo_col_id):
-                            st.toast(f"Conta '{edited_row['email']}' atualizada!", icon="✅")
-                            changes_made = True
-                
-                if changes_made:
-                    st.cache_data.clear()
-                    del st.session_state[session_state_key]
-                    st.rerun()
-                else:
-                    st.info("Nenhuma alteração foi detetada.")
+            
+            if changes_made:
+                st.cache_data.clear()
+                del st.session_state[session_state_key]
+                st.rerun()
+            else:
+                st.info("Nenhuma alteração foi detetada.")
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de contas: {e}")
