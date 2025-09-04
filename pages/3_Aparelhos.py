@@ -74,13 +74,14 @@ def get_db_connection():
 def carregar_dados_para_selects():
     conn = get_db_connection()
     modelos_df = conn.query("""
-        SELECT m.id, m.nome_modelo, ma.nome_marca 
+        SELECT m.id, ma.nome_marca || ' - ' || m.nome_modelo as modelo_completo 
         FROM modelos m 
         JOIN marcas ma ON m.marca_id = ma.id 
-        ORDER BY ma.nome_marca, m.nome_modelo;
+        ORDER BY modelo_completo;
     """)
     status_df = conn.query("SELECT id, nome_status FROM status ORDER BY nome_status;")
-    return modelos_df.to_dict('records'), status_df.to_dict('records')
+    setores_df = conn.query("SELECT id, nome_setor FROM setores ORDER BY nome_setor;")
+    return modelos_df.to_dict('records'), status_df.to_dict('records'), setores_df.to_dict('records')
 
 def adicionar_aparelho_e_historico(serie, imei1, imei2, valor, modelo_id, status_id):
     conn = get_db_connection()
@@ -122,8 +123,8 @@ def adicionar_aparelho_e_historico(serie, imei1, imei2, valor, modelo_id, status
         return False
 
 @st.cache_data(ttl=30)
-def carregar_inventario_completo(order_by="a.data_cadastro DESC", search_term=None, status_id=None):
-    """Carrega o inventário com filtros de pesquisa e status."""
+def carregar_inventario_completo(order_by, search_term=None, status_id=None, modelo_id=None, setor_id=None):
+    """Carrega o inventário com filtros avançados."""
     conn = get_db_connection()
     
     params = {}
@@ -132,10 +133,15 @@ def carregar_inventario_completo(order_by="a.data_cadastro DESC", search_term=No
     if status_id:
         where_clauses.append("a.status_id = :status_id")
         params["status_id"] = status_id
+    if modelo_id:
+        where_clauses.append("a.modelo_id = :modelo_id")
+        params["modelo_id"] = modelo_id
+    if setor_id:
+        where_clauses.append("c.setor_id = :setor_id")
+        params["setor_id"] = setor_id
     
     if search_term:
         search_like = f"%{search_term}%"
-        # Pesquisa no N/S, IMEIs e no nome do responsável atual (usando a lógica do snapshot)
         where_clauses.append("""
             (a.numero_serie ILIKE :search OR 
              a.imei1 ILIKE :search OR 
@@ -162,6 +168,7 @@ def carregar_inventario_completo(order_by="a.data_cadastro DESC", search_term=No
             ma.nome_marca || ' - ' || mo.nome_modelo as modelo_completo,
             s.nome_status,
             COALESCE(h_atual.colaborador_snapshot, c.nome_completo) as responsavel_atual,
+            setor.nome_setor as setor_atual,
             a.valor,
             a.imei1,
             a.imei2,
@@ -172,14 +179,14 @@ def carregar_inventario_completo(order_by="a.data_cadastro DESC", search_term=No
         LEFT JOIN status s ON a.status_id = s.id
         LEFT JOIN UltimoResponsavel ur ON a.id = ur.aparelho_id AND ur.rn = 1
         LEFT JOIN colaboradores c ON ur.colaborador_id = c.id
+        LEFT JOIN setores setor ON c.setor_id = setor.id
         LEFT JOIN historico_movimentacoes h_atual ON h_atual.aparelho_id = a.id AND h_atual.id = (SELECT MAX(id) FROM historico_movimentacoes WHERE aparelho_id = a.id)
         {where_sql}
         ORDER BY {order_by}
     """
     df = conn.query(query, params=params)
     
-    # Prepara o DataFrame para exibição
-    for col in ['responsavel_atual', 'imei1', 'imei2', 'numero_serie', 'modelo_completo', 'nome_status']:
+    for col in ['responsavel_atual', 'setor_atual', 'imei1', 'imei2', 'numero_serie', 'modelo_completo', 'nome_status']:
         if col in df.columns:
             df[col] = df[col].fillna('')
     if 'valor' in df.columns:
@@ -227,25 +234,26 @@ st.title("Gestão de Aparelhos")
 st.markdown("---")
 
 try:
-    modelos_list, status_list = carregar_dados_para_selects()
-    modelos_dict = {f"{m['nome_marca']} - {m['nome_modelo']}": m['id'] for m in modelos_list}
+    modelos_list, status_list, setores_list = carregar_dados_para_selects()
+    modelos_dict = {m['modelo_completo']: m['id'] for m in modelos_list}
     status_dict = {s['nome_status']: s['id'] for s in status_list}
+    setores_dict = {s['nome_setor']: s['id'] for s in setores_list}
+    
+    option = st.radio(
+        "Selecione a operação:",
+        ("Cadastrar Novo Aparelho", "Consultar Inventário"),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="aparelhos_tab_selector"
+    )
+    st.markdown("---")
 
-    # Gerencia a aba ativa para evitar que mude ao filtrar
-    if 'active_tab' not in st.session_state:
-        st.session_state.active_tab = "Cadastrar Novo Aparelho"
-
-    def set_active_tab(tab_name):
-        st.session_state.active_tab = tab_name
-
-    tab_cadastro, tab_consulta = st.tabs(["Cadastrar Novo Aparelho", "Consultar Inventário"])
-
-    with tab_cadastro:
+    if option == "Cadastrar Novo Aparelho":
         with st.form("form_novo_aparelho", clear_on_submit=True):
             st.subheader("Dados do Novo Aparelho")
             novo_serie = st.text_input("Número de Série*")
             modelo_selecionado_str = st.selectbox(
-                "Modelo*", options=modelos_dict.keys(), index=None,
+                "Modelo*", options=list(modelos_dict.keys()), index=None,
                 placeholder="Selecione um modelo...", help="Clique na lista e comece a digitar para pesquisar."
             )
             novo_imei1 = st.text_input("IMEI 1")
@@ -263,25 +271,28 @@ try:
                     status_id = status_dict[status_selecionado_str]
                     if adicionar_aparelho_e_historico(novo_serie, novo_imei1, novo_imei2, novo_valor, modelo_id, status_id):
                         st.cache_data.clear()
-                        # Limpa o estado da outra aba para forçar recarregamento dos dados
                         for key in list(st.session_state.keys()):
                             if key.startswith('original_aparelhos_df_'):
                                 del st.session_state[key]
                         st.rerun()
 
-    with tab_consulta:
+    elif option == "Consultar Inventário":
         st.subheader("Inventário de Aparelhos")
 
         # --- FILTROS ---
-        col_filtro1, col_filtro2 = st.columns(2)
+        col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
         with col_filtro1:
             status_filtro_nome = st.selectbox("Filtrar por Status:", ["Todos"] + list(status_dict.keys()))
         with col_filtro2:
-            termo_pesquisa = st.text_input("Pesquisar por N/S, IMEI ou Responsável:")
+            modelo_filtro_nome = st.selectbox("Filtrar por Modelo:", ["Todos"] + list(modelos_dict.keys()))
+        with col_filtro3:
+            setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()))
 
-        status_id_filtro = None
-        if status_filtro_nome != "Todos":
-            status_id_filtro = status_dict.get(status_filtro_nome)
+        termo_pesquisa = st.text_input("Pesquisar por N/S, IMEI ou Responsável:", placeholder="Digite para buscar...")
+
+        status_id_filtro = status_dict.get(status_filtro_nome) if status_filtro_nome != "Todos" else None
+        modelo_id_filtro = modelos_dict.get(modelo_filtro_nome) if modelo_filtro_nome != "Todos" else None
+        setor_id_filtro = setores_dict.get(setor_filtro_nome) if setor_filtro_nome != "Todos" else None
         
         # --- ORDENAÇÃO ---
         sort_options = {
@@ -289,19 +300,21 @@ try:
             "Número de Série (A-Z)": "a.numero_serie ASC",
             "Modelo (A-Z)": "modelo_completo ASC",
             "Status (A-Z)": "s.nome_status ASC",
-            "Responsável (A-Z)": "responsavel_atual ASC"
+            "Responsável (A-Z)": "responsavel_atual ASC",
+            "Setor (A-Z)": "setor_atual ASC"
         }
         sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
 
-        # Carrega os dados com os filtros aplicados
         inventario_df = carregar_inventario_completo(
             order_by=sort_options[sort_selection],
             search_term=termo_pesquisa,
-            status_id=status_id_filtro
+            status_id=status_id_filtro,
+            modelo_id=modelo_id_filtro,
+            setor_id=setor_id_filtro
         )
         
         # --- LÓGICA DE GESTÃO DO ESTADO PARA EDIÇÃO ---
-        session_state_key = f"original_aparelhos_df_{sort_selection}_{termo_pesquisa}_{status_filtro_nome}"
+        session_state_key = f"original_aparelhos_df_{sort_selection}_{termo_pesquisa}_{status_filtro_nome}_{modelo_filtro_nome}_{setor_filtro_nome}"
         if session_state_key not in st.session_state:
             for key in list(st.session_state.keys()):
                 if key.startswith('original_aparelhos_df_'):
@@ -316,6 +329,7 @@ try:
                 "modelo_completo": st.column_config.SelectboxColumn("Modelo", options=list(modelos_dict.keys()), required=True),
                 "nome_status": st.column_config.TextColumn("Status Atual", disabled=True),
                 "responsavel_atual": st.column_config.TextColumn("Responsável Atual", disabled=True),
+                "setor_atual": st.column_config.TextColumn("Setor Atual", disabled=True),
                 "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", required=True),
                 "imei1": st.column_config.TextColumn("IMEI 1"),
                 "imei2": st.column_config.TextColumn("IMEI 2"),
@@ -347,9 +361,7 @@ try:
                 original_row = original_df_indexed.loc[aparelho_id]
                 edited_row = edited_df_indexed.loc[aparelho_id]
                 
-                is_different = not original_row.equals(edited_row)
-
-                if is_different:
+                if not original_row.equals(edited_row):
                     novo_modelo_id = modelos_dict[edited_row['modelo_completo']]
                     
                     if atualizar_aparelho_completo(
