@@ -117,9 +117,26 @@ def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
         return False
 
 @st.cache_data(ttl=30)
-def carregar_colaboradores(order_by="c.nome_completo ASC"):
-    """Carrega os colaboradores, permitindo a ordenação dinâmica."""
+def carregar_colaboradores(order_by="c.nome_completo ASC", search_term=None, setor_id=None):
+    """Carrega os colaboradores, permitindo a ordenação e filtros dinâmicos."""
     conn = get_db_connection()
+    
+    params = {}
+    where_clauses = []
+
+    if setor_id:
+        where_clauses.append("s.id = :setor_id")
+        params["setor_id"] = setor_id
+    
+    if search_term:
+        search_like = f"%{search_term}%"
+        where_clauses.append("(c.nome_completo ILIKE :search OR c.codigo ILIKE :search OR c.gmail ILIKE :search)")
+        params["search"] = search_like
+
+    where_sql = ""
+    if where_clauses:
+        where_sql = "WHERE " + " AND ".join(where_clauses)
+        
     if "codigo" in order_by:
         order_clause = "ORDER BY s.nome_setor, LPAD(c.codigo, 10, '0')"
         if "DESC" in order_by:
@@ -131,9 +148,11 @@ def carregar_colaboradores(order_by="c.nome_completo ASC"):
         SELECT c.id, c.codigo, c.nome_completo, c.cpf, c.gmail, s.nome_setor
         FROM colaboradores c
         LEFT JOIN setores s ON c.setor_id = s.id
+        {where_sql}
         {order_clause}
     """
-    df = conn.query(query)
+    df = conn.query(query, params=params)
+    
     # Garante que colunas de texto editáveis não contenham None
     for col in ['codigo', 'nome_completo', 'cpf', 'gmail', 'nome_setor']:
         if col in df.columns:
@@ -146,7 +165,6 @@ def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id):
         with conn.session as s:
             s.begin()
             
-            # Verifica se o NOVO CPF já pertence a OUTRO colaborador
             query_check_cpf = text("SELECT 1 FROM colaboradores WHERE cpf = :cpf AND id != :id")
             cpf_existe = s.execute(query_check_cpf, {"cpf": cpf, "id": col_id}).fetchone()
             if cpf_existe:
@@ -154,7 +172,6 @@ def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id):
                 s.rollback()
                 return False
             
-            # Verifica se o NOVO CÓDIGO já pertence a OUTRO colaborador NO MESMO SETOR
             query_check_codigo = text("SELECT 1 FROM colaboradores WHERE codigo = :codigo AND setor_id = :setor_id AND id != :id")
             codigo_existe = s.execute(query_check_codigo, {"codigo": str(codigo), "setor_id": setor_id, "id": col_id}).fetchone()
             if codigo_existe:
@@ -222,6 +239,18 @@ try:
     with tab_consulta:
         st.subheader("Colaboradores Registrados")
         
+        # --- FILTROS ---
+        col_filtro1, col_filtro2 = st.columns(2)
+        with col_filtro1:
+            setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()))
+        with col_filtro2:
+            termo_pesquisa = st.text_input("Pesquisar por Nome, Código ou Gmail:")
+        
+        setor_id_filtro = None
+        if setor_filtro_nome != "Todos":
+            setor_id_filtro = setores_dict.get(setor_filtro_nome)
+
+        # --- ORDENAÇÃO ---
         sort_options = {
             "Nome (A-Z)": "c.nome_completo ASC",
             "Código (Crescente)": "codigo ASC",
@@ -229,10 +258,22 @@ try:
         }
         sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
 
-        colaboradores_df = carregar_colaboradores(order_by=sort_options[sort_selection])
+        # Carrega os dados com os filtros aplicados
+        colaboradores_df = carregar_colaboradores(
+            order_by=sort_options[sort_selection],
+            search_term=termo_pesquisa,
+            setor_id=setor_id_filtro
+        )
         
-        if 'original_colabs_df' not in st.session_state:
-             st.session_state.original_colabs_df = colaboradores_df.copy()
+        # --- LÓGICA DE GESTÃO DO ESTADO PARA EDIÇÃO ---
+        # A chave do estado agora inclui os filtros para que a tabela recarregue ao mudar de filtro
+        session_state_key = f"original_colabs_df_{sort_selection}_{termo_pesquisa}_{setor_filtro_nome}"
+        if session_state_key not in st.session_state:
+            # Limpa chaves antigas para não acumular memória
+            for key in list(st.session_state.keys()):
+                if key.startswith('original_colabs_df_'):
+                    del st.session_state[key]
+            st.session_state[session_state_key] = colaboradores_df.copy()
 
         setores_options = list(setores_dict.keys())
         
@@ -255,7 +296,7 @@ try:
         )
         
         if st.button("Salvar Alterações", use_container_width=True, key="save_colabs_changes"):
-            original_df = st.session_state.original_colabs_df
+            original_df = st.session_state[session_state_key]
             changes_made = False
 
             # Lógica para Exclusão
@@ -274,9 +315,7 @@ try:
                 original_row = original_df_indexed.loc[col_id]
                 edited_row = edited_df_indexed.loc[col_id]
 
-                is_different = not original_row.equals(edited_row)
-                
-                if is_different:
+                if not original_row.equals(edited_row):
                     novo_setor_id = setores_dict.get(edited_row['nome_setor'])
                     if atualizar_colaborador(col_id, edited_row['codigo'], edited_row['nome_completo'], edited_row['cpf'], edited_row['gmail'], novo_setor_id):
                         st.toast(f"Colaborador '{edited_row['nome_completo']}' atualizado!", icon="✅")
@@ -284,7 +323,7 @@ try:
 
             if changes_made:
                 st.cache_data.clear()
-                del st.session_state.original_colabs_df
+                del st.session_state[session_state_key]
                 st.rerun()
             else:
                 st.info("Nenhuma alteração foi detetada.")
