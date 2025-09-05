@@ -124,7 +124,7 @@ def adicionar_aparelho_e_historico(serie, imei1, imei2, valor, modelo_id, status
 
 @st.cache_data(ttl=30)
 def carregar_inventario_completo(order_by, search_term=None, status_id=None, modelo_id=None, setor_id=None):
-    """Carrega o inventário com filtros avançados."""
+    """Carrega o inventário com filtros avançados e lógica de responsável corrigida."""
     conn = get_db_connection()
     
     params = {}
@@ -137,7 +137,8 @@ def carregar_inventario_completo(order_by, search_term=None, status_id=None, mod
         where_clauses.append("a.modelo_id = :modelo_id")
         params["modelo_id"] = modelo_id
     if setor_id:
-        where_clauses.append("c.setor_id = :setor_id")
+        # Este filtro agora funciona corretamente com a nova lógica da query
+        where_clauses.append("c.setor_id = :setor_id AND s.nome_status = 'Em uso'")
         params["setor_id"] = setor_id
     
     if search_term:
@@ -146,7 +147,7 @@ def carregar_inventario_completo(order_by, search_term=None, status_id=None, mod
             (a.numero_serie ILIKE :search OR 
              a.imei1 ILIKE :search OR 
              a.imei2 ILIKE :search OR 
-             COALESCE(h_atual.colaborador_snapshot, c.nome_completo) ILIKE :search)
+             (s.nome_status = 'Em uso' AND COALESCE(h_atual.colaborador_snapshot, c.nome_completo) ILIKE :search))
         """)
         params["search"] = search_like
 
@@ -154,11 +155,13 @@ def carregar_inventario_completo(order_by, search_term=None, status_id=None, mod
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
 
+    # --- QUERY CORRIGIDA ---
     query = f"""
         WITH UltimoResponsavel AS (
             SELECT
                 h.aparelho_id,
                 h.colaborador_id,
+                h.colaborador_snapshot,
                 ROW_NUMBER() OVER(PARTITION BY h.aparelho_id ORDER BY h.data_movimentacao DESC) as rn
             FROM historico_movimentacoes h
         )
@@ -167,8 +170,14 @@ def carregar_inventario_completo(order_by, search_term=None, status_id=None, mod
             a.numero_serie,
             ma.nome_marca || ' - ' || mo.nome_modelo as modelo_completo,
             s.nome_status,
-            COALESCE(h_atual.colaborador_snapshot, c.nome_completo) as responsavel_atual,
-            setor.nome_setor as setor_atual,
+            CASE 
+                WHEN s.nome_status = 'Em uso' THEN COALESCE(ur.colaborador_snapshot, c.nome_completo)
+                ELSE '' 
+            END as responsavel_atual,
+            CASE 
+                WHEN s.nome_status = 'Em uso' THEN setor.nome_setor
+                ELSE ''
+            END as setor_atual,
             a.valor,
             a.imei1,
             a.imei2,
