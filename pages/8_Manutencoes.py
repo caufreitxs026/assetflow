@@ -95,13 +95,13 @@ def carregar_dados_para_selects_manutencao():
         ORDER BY ma.nome_marca, mo.nome_modelo;
     """)
     # Colaboradores para o filtro do histórico
-    colaboradores_df = conn.query("SELECT nome_completo FROM colaboradores ORDER BY nome_completo;")
+    colaboradores_df = conn.query("SELECT DISTINCT colaborador_snapshot FROM manutencoes WHERE colaborador_snapshot IS NOT NULL ORDER BY colaborador_snapshot;")
     # Status de manutenção para o filtro do histórico
     status_manutencao_df = conn.query("SELECT DISTINCT status_manutencao FROM manutencoes ORDER BY status_manutencao;")
     
     return (
         aparelhos_df.to_dict('records'), 
-        ["Todos"] + colaboradores_df['nome_completo'].tolist(),
+        ["Todos"] + colaboradores_df['colaborador_snapshot'].tolist(),
         ["Todos"] + status_manutencao_df['status_manutencao'].tolist()
     )
 
