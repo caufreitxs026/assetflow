@@ -153,7 +153,6 @@ def carregar_colaboradores(order_by="c.nome_completo ASC", search_term=None, set
     """
     df = conn.query(query, params=params)
     
-    # Garante que colunas de texto editáveis não contenham None
     for col in ['codigo', 'nome_completo', 'cpf', 'gmail', 'nome_setor']:
         if col in df.columns:
             df[col] = df[col].fillna('')
@@ -217,9 +216,18 @@ try:
     setores_list = carregar_setores()
     setores_dict = {s['nome_setor']: s['id'] for s in setores_list}
     
-    tab_cadastro, tab_consulta = st.tabs(["Cadastrar Novo Colaborador", "Consultar Colaboradores"])
+    # --- Seletor de Abas com st.radio para manter o estado ---
+    option = st.radio(
+        "Selecione a operação:",
+        ("Cadastrar Novo Colaborador", "Consultar Colaboradores"),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="colab_tab_selector" # Chave para que o Streamlit se lembre da seleção
+    )
+    
+    st.markdown("---") # Linha divisória
 
-    with tab_cadastro:
+    if option == "Cadastrar Novo Colaborador":
         with st.form("form_novo_colaborador", clear_on_submit=True):
             st.subheader("Dados do Novo Colaborador")
             novo_codigo = st.text_input("Código*")
@@ -232,11 +240,13 @@ try:
                 setor_id = setores_dict.get(setor_selecionado_nome)
                 if adicionar_colaborador(novo_nome, novo_cpf, novo_gmail, setor_id, novo_codigo):
                     st.cache_data.clear()
-                    if 'original_colabs_df' in st.session_state:
-                        del st.session_state.original_colabs_df
+                    # Limpa chaves de estado para forçar recarregamento na outra aba
+                    for key in list(st.session_state.keys()):
+                        if key.startswith('original_colabs_df_'):
+                            del st.session_state[key]
                     st.rerun()
-
-    with tab_consulta:
+    
+    elif option == "Consultar Colaboradores":
         st.subheader("Colaboradores Registrados")
         
         # --- FILTROS ---
@@ -258,7 +268,6 @@ try:
         }
         sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
 
-        # Carrega os dados com os filtros aplicados
         colaboradores_df = carregar_colaboradores(
             order_by=sort_options[sort_selection],
             search_term=termo_pesquisa,
@@ -266,10 +275,8 @@ try:
         )
         
         # --- LÓGICA DE GESTÃO DO ESTADO PARA EDIÇÃO ---
-        # A chave do estado agora inclui os filtros para que a tabela recarregue ao mudar de filtro
         session_state_key = f"original_colabs_df_{sort_selection}_{termo_pesquisa}_{setor_filtro_nome}"
         if session_state_key not in st.session_state:
-            # Limpa chaves antigas para não acumular memória
             for key in list(st.session_state.keys()):
                 if key.startswith('original_colabs_df_'):
                     del st.session_state[key]
