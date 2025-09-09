@@ -194,9 +194,17 @@ try:
     colaboradores_dict = {"Nenhum": None}
     colaboradores_dict.update({c['nome_completo']: c['id'] for c in colaboradores_list})
 
-    tab_cadastro, tab_consulta = st.tabs(["Cadastrar Nova Conta", "Consultar Contas"])
+    # --- Seletor de Abas com st.radio para manter o estado ---
+    option = st.radio(
+        "Selecione a operação:",
+        ("Cadastrar Nova Conta", "Consultar Contas"),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="gmail_tab_selector"
+    )
+    st.markdown("---")
 
-    with tab_cadastro:
+    if option == "Cadastrar Nova Conta":
         with st.form("form_nova_conta", clear_on_submit=True):
             st.subheader("Dados da Nova Conta")
             st.warning("Atenção: As senhas são armazenadas em texto plano. Use com cautela.", icon="⚠️")
@@ -220,7 +228,7 @@ try:
                 else:
                     st.error("Formato de e-mail inválido. Certifique-se de que termina com '@gmail.com'.")
 
-    with tab_consulta:
+    elif option == "Consultar Contas":
         st.subheader("Contas Registradas")
         
         # --- FILTROS ---
