@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 import io
+from auth import show_login_form, logout
 from sqlalchemy import text
 
 # --- Autenticação e Permissão ---
@@ -54,8 +55,7 @@ st.markdown(
 with st.sidebar:
     st.write(f"Bem-vindo, **{st.session_state['user_name']}**!")
     st.write(f"Cargo: **{st.session_state['user_role']}**")
-    if st.button("Logout"):
-        from auth import logout
+    if st.button("Logout", key="import_export_logout"):
         logout()
     st.markdown("---")
     st.markdown(
@@ -68,14 +68,12 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-# --- Funções do DB (MODIFICADAS PARA POSTGRESQL) ---
+# --- Funções do DB ---
 def get_db_connection():
-    """Retorna uma conexão ao banco de dados Supabase."""
     return st.connection("supabase", type="sql")
 
 @st.cache_data(ttl=60)
 def get_foreign_key_map(table_name, name_column, key_column='id', join_clause=""):
-    """Cria um dicionário mapeando nomes a IDs para chaves estrangeiras."""
     conn = get_db_connection()
     query = f"SELECT {key_column} as key_col, {name_column} as name_col FROM {table_name} {join_clause}"
     df = conn.query(query)
@@ -85,10 +83,16 @@ def get_foreign_key_map(table_name, name_column, key_column='id', join_clause=""
 st.title("Importar e Exportar Dados")
 st.markdown("---")
 
-tab_importar, tab_exportar = st.tabs(["Importar em Lote", "Exportar Relatórios"])
+option = st.radio(
+    "Selecione a operação:",
+    ("Importar em Lote", "Exportar Relatórios"),
+    horizontal=True,
+    label_visibility="collapsed",
+    key="import_export_tab_selector"
+)
+st.markdown("---")
 
-with tab_importar:
-    st.header("Importar Dados em Lote")
+if option == "Importar em Lote":
     st.info("Selecione a operação, baixe o modelo, preencha com seus dados e faça o upload para importar em massa.")
 
     tabela_selecionada = st.selectbox(
@@ -97,7 +101,6 @@ with tab_importar:
     )
 
     try:
-        # --- LÓGICA PARA COLABORADORES ---
         if tabela_selecionada == "Importar Colaboradores":
             st.subheader("Importar Novos Colaboradores")
             setores_map = get_foreign_key_map("setores", "nome_setor")
@@ -114,7 +117,7 @@ with tab_importar:
             if uploaded_file:
                 df_upload = pd.read_excel(uploaded_file, dtype=str).fillna('')
                 st.dataframe(df_upload)
-                if st.button("Importar Dados dos Colaboradores", use_container_width=True):
+                if st.button("Importar Dados dos Colaboradores", use_container_width=True, type="primary"):
                     conn = get_db_connection()
                     sucesso, erros = 0, 0
                     with st.spinner("Importando dados..."), conn.session as s:
@@ -130,7 +133,7 @@ with tab_importar:
                                 sucesso += 1
                             except Exception as e:
                                 if 'unique constraint' in str(e).lower():
-                                    st.warning(f"Linha {index+2}: Colaborador com código ou CPF já existe. Pulando registo.")
+                                    st.warning(f"Linha {index+2}: Colaborador com código, CPF ou setor já existe. Pulando registo.")
                                 else:
                                     st.error(f"Linha {index+2}: Erro inesperado - {e}. Pulando registo.")
                                 erros += 1
@@ -139,36 +142,35 @@ with tab_importar:
                     if erros > 0: st.error(f"{erros} registos continham erros.")
                     st.cache_data.clear()
 
-        # --- LÓGICA PARA APARELHOS ---
         elif tabela_selecionada == "Importar Aparelhos":
             st.subheader("Importar Novos Aparelhos")
             modelos_map = get_foreign_key_map("modelos", "ma.nome_marca || ' - ' || mo.nome_modelo", key_column="mo.id", join_clause="mo JOIN marcas ma ON mo.marca_id = ma.id")
             status_map = get_foreign_key_map("status", "nome_status")
             exemplo_modelo = list(modelos_map.keys())[0] if modelos_map else "Samsung - Galaxy S24"
-            exemplo_status = list(status_map.keys())[0] if status_map else "Em estoque"
+            exemplo_status = 'Em estoque' if 'Em estoque' in status_map else (list(status_map.keys())[0] if status_map else "")
             df_modelo = pd.DataFrame({"numero_serie": ["ABC123456789"], "imei1": ["111111111111111"], "imei2": ["222222222222222"], "valor": [4999.90], "modelo_completo": [exemplo_modelo], "status_inicial": [exemplo_status]})
             
             output = io.BytesIO()
             df_modelo.to_excel(output, index=False, sheet_name='Aparelhos')
             output.seek(0)
-
             st.download_button(label="Baixar Planilha Modelo", data=output, file_name="modelo_aparelhos.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             
             uploaded_file = st.file_uploader("Escolha a planilha de Aparelhos (.xlsx)", type="xlsx", key="upload_aparelho")
             if uploaded_file:
                 df_upload = pd.read_excel(uploaded_file).fillna('')
                 st.dataframe(df_upload)
-                if st.button("Importar Dados dos Aparelhos", use_container_width=True):
+                if st.button("Importar Dados dos Aparelhos", use_container_width=True, type="primary"):
                     conn = get_db_connection()
                     sucesso, erros = 0, 0
                     with st.spinner("Importando dados..."), conn.session as s:
                         for index, row in df_upload.iterrows():
                             try:
+                                s.begin()
                                 modelo_id = modelos_map.get(str(row['modelo_completo']).strip())
                                 status_id = status_map.get(str(row['status_inicial']).strip())
                                 if not all([modelo_id, status_id]):
                                     st.warning(f"Linha {index+2}: Modelo ou Status inválido. Pulando registo.")
-                                    erros += 1; continue
+                                    erros += 1; s.rollback(); continue
                                 
                                 q_aparelho = text("INSERT INTO aparelhos (numero_serie, imei1, imei2, valor, modelo_id, status_id, data_cadastro) VALUES (:ns, :i1, :i2, :val, :mid, :sid, :data) RETURNING id")
                                 result = s.execute(q_aparelho, {"ns": str(row['numero_serie']), "i1": str(row['imei1']), "i2": str(row['imei2']), "val": float(row['valor']), "mid": modelo_id, "sid": status_id, "data": date.today()})
@@ -176,19 +178,19 @@ with tab_importar:
                                 
                                 q_hist = text("INSERT INTO historico_movimentacoes (data_movimentacao, aparelho_id, status_id, localizacao_atual, observacoes) VALUES (:data, :apid, :sid, :loc, :obs)")
                                 s.execute(q_hist, {"data": datetime.now(), "apid": aparelho_id, "sid": status_id, "loc": "Estoque Interno", "obs": "Entrada via importação."})
+                                s.commit()
                                 sucesso += 1
                             except Exception as e:
+                                s.rollback()
                                 if 'unique constraint' in str(e).lower():
                                     st.warning(f"Linha {index+2}: Aparelho com N/S já existe. Pulando registo.")
                                 else:
                                     st.error(f"Linha {index+2}: Erro inesperado - {e}. Pulando registo.")
                                 erros += 1
-                        s.commit()
                     st.success(f"Importação concluída! {sucesso} registos importados com sucesso.")
                     if erros > 0: st.error(f"{erros} registos continham erros.")
                     st.cache_data.clear()
 
-        # --- LÓGICA PARA MARCAS ---
         elif tabela_selecionada == "Importar Marcas":
             st.subheader("Importar Novas Marcas")
             df_modelo = pd.DataFrame({"nome_marca": ["Nome da Marca Exemplo"]})
@@ -196,14 +198,13 @@ with tab_importar:
             output = io.BytesIO()
             df_modelo.to_excel(output, index=False, sheet_name='Marcas')
             output.seek(0)
-
             st.download_button(label="Baixar Planilha Modelo", data=output, file_name="modelo_marcas.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             
             uploaded_file = st.file_uploader("Escolha a planilha de Marcas (.xlsx)", type="xlsx", key="upload_marca")
             if uploaded_file:
                 df_upload = pd.read_excel(uploaded_file, dtype=str).fillna('')
                 st.dataframe(df_upload)
-                if st.button("Importar Dados de Marcas", use_container_width=True):
+                if st.button("Importar Dados de Marcas", use_container_width=True, type="primary"):
                     conn = get_db_connection()
                     sucesso, erros = 0, 0
                     with st.spinner("Importando dados..."), conn.session as s:
@@ -222,8 +223,7 @@ with tab_importar:
                     st.success(f"Importação concluída! {sucesso} registos importados com sucesso.")
                     if erros > 0: st.error(f"{erros} registos continham erros.")
                     st.cache_data.clear()
-
-        # --- LÓGICA PARA CONTAS GMAIL ---
+        
         elif tabela_selecionada == "Importar Contas Gmail":
             st.subheader("Importar Novas Contas Gmail")
             setores_map = get_foreign_key_map("setores", "nome_setor")
@@ -242,7 +242,7 @@ with tab_importar:
             if uploaded_file:
                 df_upload = pd.read_excel(uploaded_file, dtype=str).fillna('')
                 st.dataframe(df_upload)
-                if st.button("Importar Dados de Contas Gmail", use_container_width=True):
+                if st.button("Importar Dados de Contas Gmail", use_container_width=True, type="primary"):
                     conn = get_db_connection()
                     sucesso, erros = 0, 0
                     with st.spinner("Importando dados..."), conn.session as s:
@@ -265,7 +265,6 @@ with tab_importar:
                     if erros > 0: st.error(f"{erros} registos continham erros.")
                     st.cache_data.clear()
 
-        # --- LÓGICA PARA MOVIMENTAÇÕES ---
         elif tabela_selecionada == "Importar Movimentações":
             st.subheader("Importar Novas Movimentações (Entregas)")
             st.warning("Esta funcionalidade é ideal para registar a entrega de aparelhos a colaboradores em massa.")
@@ -289,28 +288,32 @@ with tab_importar:
             if uploaded_file:
                 df_upload = pd.read_excel(uploaded_file, dtype=str).fillna('')
                 st.dataframe(df_upload)
-                if st.button("Importar Movimentações", use_container_width=True):
+                if st.button("Importar Movimentações", use_container_width=True, type="primary"):
                     conn = get_db_connection()
                     sucesso, erros = 0, 0
                     with st.spinner("Processando movimentações..."), conn.session as s:
                         for index, row in df_upload.iterrows():
                             try:
+                                s.begin()
                                 aparelho_id = aparelhos_map.get(row['numero_serie_aparelho'].strip())
-                                colaborador_id = colaboradores_map.get(row['nome_colaborador'].strip())
+                                nome_colaborador_snapshot = row['nome_colaborador'].strip()
+                                colaborador_id = colaboradores_map.get(nome_colaborador_snapshot)
+
                                 if not all([aparelho_id, colaborador_id, status_em_uso_id]):
                                     st.warning(f"Linha {index+2}: Aparelho ou Colaborador não encontrado/disponível. Pulando registo.")
-                                    erros += 1; continue
+                                    erros += 1; s.rollback(); continue
                                 
-                                q_hist = text("INSERT INTO historico_movimentacoes (data_movimentacao, aparelho_id, colaborador_id, status_id, localizacao_atual, observacoes) VALUES (:data, :apid, :cid, :sid, :loc, :obs)")
-                                s.execute(q_hist, {"data": datetime.now(), "apid": aparelho_id, "cid": colaborador_id, "sid": status_em_uso_id, "loc": row['localizacao'], "obs": row['observacoes']})
+                                q_hist = text("INSERT INTO historico_movimentacoes (data_movimentacao, aparelho_id, colaborador_id, status_id, localizacao_atual, observacoes, colaborador_snapshot) VALUES (:data, :apid, :cid, :sid, :loc, :obs, :snap)")
+                                s.execute(q_hist, {"data": datetime.now(), "apid": aparelho_id, "cid": colaborador_id, "sid": status_em_uso_id, "loc": row['localizacao'], "obs": row['observacoes'], "snap": nome_colaborador_snapshot})
                                 
                                 q_update = text("UPDATE aparelhos SET status_id = :sid WHERE id = :apid")
                                 s.execute(q_update, {"sid": status_em_uso_id, "apid": aparelho_id})
+                                s.commit()
                                 sucesso += 1
                             except Exception as e:
+                                s.rollback()
                                 st.error(f"Linha {index+2}: Erro inesperado - {e}. Pulando registo.")
                                 erros += 1
-                        s.commit()
                     st.success(f"Importação concluída! {sucesso} movimentações registadas com sucesso.")
                     if erros > 0: st.error(f"{erros} registos continham erros.")
                     st.cache_data.clear()
@@ -319,14 +322,12 @@ with tab_importar:
         st.error(f"Ocorreu um erro ao carregar a página de importação: {e}")
         st.info("Verifique se o banco de dados está inicializado na página '⚙️ Configurações'.")
 
-
-with tab_exportar:
+elif option == "Exportar Relatórios":
     st.header("Exportar Relatórios Completos")
     st.write("Exporte os dados completos do sistema para uma planilha Excel (.xlsx).")
 
     conn = get_db_connection()
 
-    # Função para converter DataFrame para Excel em memória
     def to_excel(df):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -338,18 +339,24 @@ with tab_exportar:
         # Exportar Inventário Completo
         st.subheader("Inventário Geral de Aparelhos")
         inventario_df = conn.query("""
+            WITH UltimoResponsavel AS (
+                SELECT
+                    h.aparelho_id, h.colaborador_id, h.colaborador_snapshot,
+                    ROW_NUMBER() OVER(PARTITION BY h.aparelho_id ORDER BY h.data_movimentacao DESC) as rn
+                FROM historico_movimentacoes h
+            )
             SELECT 
                 a.id, a.numero_serie, ma.nome_marca, mo.nome_modelo, s.nome_status,
-                c.nome_completo as responsavel_atual, a.valor, a.imei1, a.imei2, a.data_cadastro
+                CASE WHEN s.nome_status = 'Em uso' THEN COALESCE(ur.colaborador_snapshot, c.nome_completo) ELSE NULL END as responsavel_atual,
+                CASE WHEN s.nome_status = 'Em uso' THEN setor.nome_setor ELSE NULL END as setor_atual,
+                a.valor, a.imei1, a.imei2, a.data_cadastro
             FROM aparelhos a
             LEFT JOIN modelos mo ON a.modelo_id = mo.id
             LEFT JOIN marcas ma ON mo.marca_id = ma.id
             LEFT JOIN status s ON a.status_id = s.id
-            LEFT JOIN (
-                SELECT aparelho_id, colaborador_id, ROW_NUMBER() OVER(PARTITION BY aparelho_id ORDER BY data_movimentacao DESC) as rn
-                FROM historico_movimentacoes
-            ) h ON a.id = h.aparelho_id AND h.rn = 1
-            LEFT JOIN colaboradores c ON h.colaborador_id = c.id
+            LEFT JOIN UltimoResponsavel ur ON a.id = ur.aparelho_id AND ur.rn = 1
+            LEFT JOIN colaboradores c ON ur.colaborador_id = c.id
+            LEFT JOIN setores setor ON c.setor_id = setor.id
             ORDER BY a.id;
         """)
         if not inventario_df.empty:
@@ -368,12 +375,11 @@ with tab_exportar:
         historico_df = conn.query("""
             SELECT 
                 h.id, h.data_movimentacao, a.numero_serie, mo.nome_modelo,
-                c.nome_completo as colaborador, s.nome_status,
+                h.colaborador_snapshot as colaborador, s.nome_status,
                 h.localizacao_atual, h.observacoes
             FROM historico_movimentacoes h
             JOIN aparelhos a ON h.aparelho_id = a.id
             JOIN status s ON h.status_id = s.id
-            LEFT JOIN colaboradores c ON h.colaborador_id = c.id
             LEFT JOIN modelos mo ON a.modelo_id = mo.id
             ORDER BY h.data_movimentacao DESC;
         """)
@@ -391,4 +397,3 @@ with tab_exportar:
     except Exception as e:
         st.error(f"Ocorreu um erro ao gerar os relatórios para exportação: {e}")
         st.info("Verifique se o banco de dados está inicializado na página '⚙️ Configurações'.")
-
