@@ -137,7 +137,6 @@ def carregar_inventario_completo(order_by, search_term=None, status_id=None, mod
         where_clauses.append("a.modelo_id = :modelo_id")
         params["modelo_id"] = modelo_id
     if setor_id:
-        # Este filtro agora funciona corretamente com a nova lógica da query
         where_clauses.append("c.setor_id = :setor_id AND s.nome_status = 'Em uso'")
         params["setor_id"] = setor_id
     
@@ -155,7 +154,6 @@ def carregar_inventario_completo(order_by, search_term=None, status_id=None, mod
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
 
-    # --- QUERY CORRIGIDA ---
     query = f"""
         WITH UltimoResponsavel AS (
             SELECT
@@ -172,11 +170,11 @@ def carregar_inventario_completo(order_by, search_term=None, status_id=None, mod
             s.nome_status,
             CASE 
                 WHEN s.nome_status = 'Em uso' THEN COALESCE(ur.colaborador_snapshot, c.nome_completo)
-                ELSE '' 
+                ELSE NULL 
             END as responsavel_atual,
             CASE 
                 WHEN s.nome_status = 'Em uso' THEN setor.nome_setor
-                ELSE ''
+                ELSE NULL
             END as setor_atual,
             a.valor,
             a.imei1,
@@ -248,9 +246,16 @@ try:
     status_dict = {s['nome_status']: s['id'] for s in status_list}
     setores_dict = {s['nome_setor']: s['id'] for s in setores_list}
     
-    tab_cadastro, tab_consulta = st.tabs(["Cadastrar Novo Aparelho", "Consultar Inventário"])
+    option = st.radio(
+        "Selecione a operação:",
+        ("Cadastrar Novo Aparelho", "Consultar Inventário"),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="aparelhos_tab_selector"
+    )
+    st.markdown("---")
 
-    with tab_cadastro:
+    if option == "Cadastrar Novo Aparelho":
         with st.form("form_novo_aparelho", clear_on_submit=True):
             st.subheader("Dados do Novo Aparelho")
             novo_serie = st.text_input("Número de Série*")
@@ -278,7 +283,7 @@ try:
                                 del st.session_state[key]
                         st.rerun()
 
-    with tab_consulta:
+    elif option == "Consultar Inventário":
         st.subheader("Inventário de Aparelhos")
 
         # --- FILTROS ---
