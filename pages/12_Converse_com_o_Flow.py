@@ -158,7 +158,7 @@ def executar_criar_colaborador(dados):
                 return f"Erro: O setor '{dados['nome_setor']}' não foi encontrado."
             setor_id = setor_id_res[0]
             
-            q_check = text("SELECT 1 FROM colaboradores WHERE (cpf = :cpf AND cpf IS NOT NULL) OR (codigo = :codigo AND setor_id = :setor_id)")
+            q_check = text("SELECT 1 FROM colaboradores WHERE (cpf = :cpf AND cpf IS NOT NULL AND cpf != '') OR (codigo = :codigo AND setor_id = :setor_id)")
             existe = s.execute(q_check, {"cpf": dados.get('cpf'), "codigo": dados.get('codigo'), "setor_id": setor_id}).fetchone()
             if existe:
                 s.rollback()
@@ -527,3 +527,4 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro crítico na página do assistente: {e}")
     st.info("Se o problema persistir, verifique a configuração do banco de dados na página '⚙️ Configurações'.")
+
