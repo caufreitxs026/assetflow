@@ -44,7 +44,7 @@ st.markdown("""
         .sidebar-footer img { filter: grayscale(1) opacity(0.6) invert(1); }
         .sidebar-footer img:hover { filter: opacity(1) invert(1); }
     }
-    /* --- NOVO: Estilos para a Logo do Chat --- */
+    /* --- Estilos para a Logo do Chat --- */
     .flow-title {
         display: flex;
         align-items: center;
@@ -108,13 +108,10 @@ def executar_pesquisa_aparelho(filtros):
     if not filtros:
         return "Por favor, forneça um critério de pesquisa, como o nome do colaborador ou o número de série."
     conn = get_db_connection()
-    # --- QUERY CORRIGIDA para usar a mesma lógica de 'responsavel_atual' da página de aparelhos ---
     query = """
         WITH UltimoResponsavel AS (
             SELECT
-                h.aparelho_id,
-                h.colaborador_id,
-                h.colaborador_snapshot,
+                h.aparelho_id, h.colaborador_id, h.colaborador_snapshot,
                 ROW_NUMBER() OVER(PARTITION BY h.aparelho_id ORDER BY h.data_movimentacao DESC) as rn
             FROM historico_movimentacoes h
         )
@@ -147,14 +144,15 @@ def executar_pesquisa_aparelho(filtros):
     return df
 
 def executar_criar_colaborador(dados):
-    if not dados or not dados.get('nome_completo') or not dados.get('codigo') or not dados.get('nome_setor'):
-        return "Não foi possível criar o colaborador. Faltam informações essenciais (nome, código e setor)."
+    if not dados or not all(k in dados for k in ['nome_completo', 'codigo', 'cpf', 'nome_setor']):
+        return "Não foi possível criar o colaborador. Faltam informações essenciais (nome, código, CPF e setor)."
     conn = get_db_connection()
     try:
         with conn.session as s:
             s.begin()
             setor_id_res = s.execute(text("SELECT id FROM setores WHERE nome_setor ILIKE :nome LIMIT 1"), {"nome": f"%{dados['nome_setor']}%"}).fetchone()
             if not setor_id_res:
+                s.rollback()
                 return f"Erro: O setor '{dados['nome_setor']}' não foi encontrado."
             setor_id = setor_id_res[0]
             
@@ -184,6 +182,7 @@ def executar_criar_aparelho(dados):
             query_modelo = text("SELECT mo.id FROM modelos mo JOIN marcas ma ON mo.marca_id = ma.id WHERE ma.nome_marca ILIKE :marca AND mo.nome_modelo ILIKE :modelo")
             modelo_id_result = s.execute(query_modelo, {"marca": dados['marca'], "modelo": dados['modelo']}).fetchone()
             if not modelo_id_result:
+                s.rollback()
                 return f"Erro: O modelo '{dados['marca']} - {dados['modelo']}' não foi encontrado. Cadastre-o primeiro."
             
             modelo_id = modelo_id_result[0]
@@ -208,7 +207,6 @@ def executar_pesquisa_movimentacoes(filtros):
     if not filtros:
         return "Por favor, forneça um critério de pesquisa (colaborador, N/S ou data)."
     conn = get_db_connection()
-    # --- QUERY CORRIGIDA para usar 'colaborador_snapshot' ---
     query = """
         SELECT h.data_movimentacao, a.numero_serie, mo.nome_modelo, h.colaborador_snapshot as colaborador, s.nome_status, h.observacoes
         FROM historico_movimentacoes h
@@ -296,29 +294,24 @@ async def get_flow_response(prompt, user_name, current_action=None):
 
     apiUrl = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={apiKey}"
     
-    # --- LÓGICA DE RETENTATIVA ---
     max_retries = 3
     for attempt in range(max_retries):
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(apiUrl, headers={'Content-Type': 'application/json'}, json=payload, timeout=45)
-                
                 if response.status_code == 503 and attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
                     continue
-                
                 response.raise_for_status()
                 result = response.json()
-                
                 if result.get('candidates'):
                     json_text = result['candidates'][0]['content']['parts'][0]['text']
                     return json.loads(json_text)
                 else:
                     return {"acao": "desconhecido", "dados": {"erro": f"Resposta inesperada da API: {result}"}}
-        
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 503:
-                continue # Tenta novamente
+                continue
             return {"acao": "desconhecido", "dados": {"erro": f"Erro na API ({e.response.status_code}). Verifique o nome do modelo e a chave da API."}}
         except Exception as e:
             return {"acao": "desconhecido", "dados": {"erro": f"Ocorreu um erro de comunicação: {e}"}}
@@ -337,11 +330,12 @@ def get_info_text():
     - **Colaborador:** Comece por dizer "criar colaborador".
     - **Aparelho:** Comece por dizer "criar aparelho".
     - **Conta Gmail:** Comece por dizer "criar conta gmail".
-    Eu irei guiá-lo passo a passo, pedindo cada informação necessária.
+    - Eu irei guiá-lo passo a passo, pedindo cada informação necessária.
 
     **3. Comandos do Chat:**
     - **`#info`:** Mostra esta mensagem de ajuda.
     - **`limpar chat`:** Apaga o histórico da nossa conversa.
+    - **`cancelar` ou `voltar`:** Interrompe a ação atual (como um cadastro) e volta ao início.
     - **`encerrar chat` ou `logout`:** Faz o logout do sistema.
 
     Estou aqui para ajudar a tornar a sua gestão mais rápida e fácil!
@@ -352,6 +346,24 @@ CAMPOS_CADASTRO = {
     "aparelho": ["marca", "modelo", "numero_serie", "valor", "imei1", "imei2"],
     "conta_gmail": ["email", "senha", "telefone_recuperacao", "email_recuperacao", "nome_setor", "nome_colaborador"]
 }
+
+def reset_chat_state():
+    """Reseta todos os estados da sessão relacionados com o chat."""
+    st.session_state.messages = [{"role": "assistant", "content": "Chat limpo! Como posso ajudar a recomeçar?"}]
+    st.session_state.pending_action = None
+    st.session_state.conversa_em_andamento = None
+    st.session_state.dados_recolhidos = {}
+    st.session_state.campo_para_corrigir = None
+    st.session_state.modo_correcao = False
+
+def reset_conversation_flow():
+    """Cancela uma conversa em andamento sem limpar o histórico."""
+    st.session_state.conversa_em_andamento = None
+    st.session_state.dados_recolhidos = {}
+    st.session_state.pending_action = None
+    st.session_state.campo_para_corrigir = None
+    st.session_state.modo_correcao = False
+    adicionar_mensagem("assistant", "Ok, ação cancelada. Estou pronto para um novo comando!")
 
 # --- Interface do Chatbot ---
 st.markdown(
@@ -364,20 +376,15 @@ st.markdown(
     unsafe_allow_html=True
 )
 st.markdown("---")
-st.info("Sou o Flow, seu assistente inteligente. Diga `#info` para ver os comandos, `limpar chat` para recomeçar ou `encerrar chat` para sair.")
+st.info("Sou o Flow, seu assistente inteligente. Diga `#info` para ver os comandos.")
 
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": f"Olá {st.session_state['user_name']}! Como posso ajudar?"}]
-if "pending_action" not in st.session_state:
-    st.session_state.pending_action = None
-if "conversa_em_andamento" not in st.session_state:
-    st.session_state.conversa_em_andamento = None
-if "dados_recolhidos" not in st.session_state:
-    st.session_state.dados_recolhidos = {}
-if "campo_para_corrigir" not in st.session_state:
-    st.session_state.campo_para_corrigir = None
-if "modo_correcao" not in st.session_state:
-    st.session_state.modo_correcao = False
+if "pending_action" not in st.session_state: st.session_state.pending_action = None
+if "conversa_em_andamento" not in st.session_state: st.session_state.conversa_em_andamento = None
+if "dados_recolhidos" not in st.session_state: st.session_state.dados_recolhidos = {}
+if "campo_para_corrigir" not in st.session_state: st.session_state.campo_para_corrigir = None
+if "modo_correcao" not in st.session_state: st.session_state.modo_correcao = False
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
@@ -389,8 +396,7 @@ for message in st.session_state.messages:
 def proximo_campo():
     entidade = st.session_state.conversa_em_andamento
     if not entidade: return None
-    campos_necessarios = CAMPOS_CADASTRO[entidade]
-    for campo in campos_necessarios:
+    for campo in CAMPOS_CADASTRO.get(entidade, []):
         if campo not in st.session_state.dados_recolhidos:
             return campo
     return None
@@ -416,20 +422,31 @@ def apresentar_resumo():
     st.session_state.pending_action = {"acao": f"criar_{entidade}", "dados": dados}
     st.session_state.conversa_em_andamento = None
     st.session_state.campo_para_corrigir = None
-    st.session_state.entidade_em_correcao = None 
+    st.session_state.entidade_em_correcao = None
 
-try:
-    if prompt := st.chat_input("Como posso ajudar?"):
-        adicionar_mensagem("user", prompt)
-        with st.spinner("A pensar..."):
-            if st.session_state.campo_para_corrigir:
-                campo = st.session_state.campo_para_corrigir
-                st.session_state.dados_recolhidos[campo] = prompt
-                st.session_state.campo_para_corrigir = None
-                apresentar_resumo()
-                st.rerun()
-            elif st.session_state.conversa_em_andamento:
-                campo_atual = proximo_campo()
+# --- Loop Principal do Chat ---
+if prompt := st.chat_input("Como posso ajudar?"):
+    adicionar_mensagem("user", prompt)
+    prompt_lower = prompt.strip().lower()
+
+    # --- LÓGICA DE COMANDOS UNIVERSAIS ---
+    if prompt_lower == '#info':
+        adicionar_mensagem("assistant", get_info_text())
+    elif prompt_lower == 'limpar chat':
+        reset_chat_state()
+        st.rerun()
+    elif prompt_lower in ['cancelar', 'voltar', 'menu']:
+        if st.session_state.conversa_em_andamento or st.session_state.pending_action:
+            reset_conversation_flow()
+            st.rerun()
+        else:
+            adicionar_mensagem("assistant", "Não há nenhuma ação em andamento para cancelar. Como posso ajudar?")
+    
+    # --- LÓGICA CONTEXTUAL (se estiver no meio de uma ação) ---
+    elif st.session_state.conversa_em_andamento:
+        with st.spinner("..."):
+            campo_atual = proximo_campo()
+            if campo_atual:
                 st.session_state.dados_recolhidos[campo_atual] = prompt
                 proximo = proximo_campo()
                 if proximo:
@@ -437,94 +454,93 @@ try:
                 else:
                     apresentar_resumo()
                     st.rerun()
-            else:
-                if prompt.strip().lower() == '#info':
-                    response_data = {"acao": "ajuda"}
-                else:
-                    response_data = asyncio.run(get_flow_response(prompt, st.session_state['user_name']))
-                acao = response_data.get('acao')
-                if acao == 'iniciar_criacao':
-                    entidade = response_data.get('entidade')
-                    if entidade in CAMPOS_CADASTRO:
-                        st.session_state.conversa_em_andamento = entidade
-                        st.session_state.dados_recolhidos = {}
-                        primeiro_campo = proximo_campo()
-                        adicionar_mensagem("assistant", f"Ótimo! Para criar um novo **{entidade}**, vamos começar. Qual é o **{primeiro_campo.replace('_', ' ')}**?")
-                    else:
-                        adicionar_mensagem("assistant", "Desculpe, não sei como criar essa entidade.")
-                elif acao in ['pesquisar_aparelho', 'pesquisar_movimentacoes']:
-                    executor = executar_pesquisa_aparelho if acao == 'pesquisar_aparelho' else executar_pesquisa_movimentacoes
-                    resultados = executor(response_data.get('filtros'))
-                    if isinstance(resultados, pd.DataFrame) and not resultados.empty:
-                        adicionar_mensagem("assistant", f"Encontrei {len(resultados)} resultado(s):")
-                        adicionar_mensagem("assistant", resultados)
-                    elif isinstance(resultados, str):
-                        adicionar_mensagem("assistant", resultados)
-                    else:
-                        adicionar_mensagem("assistant", "Não encontrei nenhum resultado com esses critérios.")
-                elif acao == 'ajuda':
-                    adicionar_mensagem("assistant", get_info_text())
-                elif acao == 'limpar_chat':
-                    st.session_state.messages = [{"role": "assistant", "content": "Chat limpo! Como posso ajudar a recomeçar?"}]
-                    st.session_state.pending_action = None
-                    st.rerun()
-                elif acao == 'logout':
-                    adicionar_mensagem("assistant", "A encerrar a sessão...")
-                    logout()
-                elif acao == 'saudacao':
-                    adicionar_mensagem("assistant", f"Olá {st.session_state['user_name']}! Sou o Flow. Diga `#info` para ver o que posso fazer.")
-                else:
-                    erro = response_data.get("dados", {}).get("erro", "Não consegui entender o seu pedido. Pode tentar reformular? Diga `#info` para ver exemplos.")
-                    adicionar_mensagem("assistant", f"Desculpe, ocorreu um problema: {erro}")
     
-    if st.session_state.pending_action:
-        action_data = st.session_state.pending_action
-        col1, col2, col3 = st.columns([1, 1, 5])
-        with col1:
-            if st.button("Sim, confirmo", type="primary"):
-                resultado = ""
-                acao_executar = action_data["acao"]
-                dados_executar = action_data["dados"]
-                if acao_executar == "criar_colaborador":
-                    resultado = executar_criar_colaborador(dados_executar)
-                elif acao_executar == "criar_aparelho":
-                    resultado = executar_criar_aparelho(dados_executar)
-                elif acao_executar == "criar_conta_gmail":
-                    resultado = executar_criar_conta_gmail(dados_executar)
-                
-                if "Erro:" in resultado or "Não foi possível" in resultado:
-                    adicionar_mensagem("assistant", f"❌ **Falha:** {resultado}")
+    # --- LÓGICA PARA NOVOS COMANDOS (chamada à API) ---
+    else:
+        with st.spinner("A pensar..."):
+            response_data = asyncio.run(get_flow_response(prompt, st.session_state['user_name']))
+            acao = response_data.get('acao')
+            
+            if acao == 'iniciar_criacao':
+                entidade = response_data.get('entidade')
+                if entidade in CAMPOS_CADASTRO:
+                    st.session_state.conversa_em_andamento = entidade
+                    st.session_state.dados_recolhidos = {}
+                    primeiro_campo = proximo_campo()
+                    adicionar_mensagem("assistant", f"Ótimo! Para criar um novo **{entidade}**, vamos começar. Qual é o **{primeiro_campo.replace('_', ' ')}**?")
                 else:
-                    adicionar_mensagem("assistant", f"✅ **Sucesso:** {resultado}")
-                st.session_state.pending_action = None
-                st.rerun()
-        with col2:
-            if st.button("Não, cancelar"):
-                adicionar_mensagem("assistant", "Ação cancelada pelo utilizador.")
-                st.session_state.pending_action = None
-                st.rerun()
-        with col3:
-            if st.button("Corrigir uma informação"):
-                st.session_state.entidade_em_correcao = action_data['acao'].split('_')[1]
-                st.session_state.dados_para_corrigir = action_data["dados"]
-                st.session_state.modo_correcao = True
-                st.session_state.pending_action = None
-                st.rerun()
-
-    if st.session_state.get('modo_correcao'):
-        dados_para_corrigir = st.session_state.dados_para_corrigir
-        campo_selecionado = st.selectbox(
-            "Qual campo deseja corrigir?",
-            options=dados_para_corrigir.keys(),
-            key="campo_correcao", index=None, placeholder="Selecione um campo..."
-        )
-        if campo_selecionado:
-            st.session_state.campo_para_corrigir = campo_selecionado
-            adicionar_mensagem("assistant", f"Entendido. Por favor, insira o novo valor para **{campo_selecionado.replace('_', ' ')}**.")
-            st.session_state.modo_correcao = False
-            st.session_state.dados_recolhidos = dados_para_corrigir
+                    adicionar_mensagem("assistant", "Desculpe, não sei como criar essa entidade.")
+            
+            elif acao in ['pesquisar_aparelho', 'pesquisar_movimentacoes']:
+                executor = executar_pesquisa_aparelho if acao == 'pesquisar_aparelho' else executar_pesquisa_movimentacoes
+                resultados = executor(response_data.get('filtros'))
+                if isinstance(resultados, pd.DataFrame) and not resultados.empty:
+                    adicionar_mensagem("assistant", f"Encontrei {len(resultados)} resultado(s):")
+                    adicionar_mensagem("assistant", resultados)
+                elif isinstance(resultados, str):
+                    adicionar_mensagem("assistant", resultados)
+                else:
+                    adicionar_mensagem("assistant", "Não encontrei nenhum resultado com esses critérios.")
+            
+            elif acao == 'logout':
+                adicionar_mensagem("assistant", "A encerrar a sessão...")
+                logout()
+            
+            elif acao == 'saudacao':
+                adicionar_mensagem("assistant", f"Olá {st.session_state['user_name']}! Sou o Flow. Diga `#info` para ver o que posso fazer.")
+            
+            else:
+                erro = response_data.get("dados", {}).get("erro", "Não consegui entender o seu pedido. Pode tentar reformular? Diga `#info` para ver exemplos.")
+                adicionar_mensagem("assistant", f"Desculpe, ocorreu um problema: {erro}")
             st.rerun()
-except Exception as e:
-    st.error(f"Ocorreu um erro crítico na página do assistente: {e}")
-    st.info("Se o problema persistir, verifique a configuração do banco de dados na página '⚙️ Configurações'.")
+
+# --- Botões de Confirmação e Correção ---
+if st.session_state.pending_action:
+    action_data = st.session_state.pending_action
+    col1, col2, col3 = st.columns([1, 1, 5])
+    
+    with col1:
+        if st.button("Sim, confirmo", type="primary"):
+            resultado = ""
+            acao_executar = action_data["acao"]
+            dados_executar = action_data["dados"]
+            
+            if acao_executar == "criar_colaborador": resultado = executar_criar_colaborador(dados_executar)
+            elif acao_executar == "criar_aparelho": resultado = executar_criar_aparelho(dados_executar)
+            elif acao_executar == "criar_conta_gmail": resultado = executar_criar_conta_gmail(dados_executar)
+
+            if "Erro:" in resultado or "Não foi possível" in resultado:
+                adicionar_mensagem("assistant", f"❌ **Falha:** {resultado}")
+            else:
+                adicionar_mensagem("assistant", f"✅ **Sucesso:** {resultado}")
+
+            st.session_state.pending_action = None
+            st.rerun()
+
+    with col2:
+        if st.button("Não, cancelar"):
+            reset_conversation_flow()
+            st.rerun()
+
+    with col3:
+        if st.button("Corrigir uma informação"):
+            st.session_state.entidade_em_correcao = action_data['acao'].split('_')[1]
+            st.session_state.dados_para_corrigir = action_data["dados"]
+            st.session_state.modo_correcao = True
+            st.session_state.pending_action = None
+            st.rerun()
+
+if st.session_state.get('modo_correcao'):
+    dados_para_corrigir = st.session_state.dados_para_corrigir
+    campo_selecionado = st.selectbox(
+        "Qual campo deseja corrigir?",
+        options=dados_para_corrigir.keys(),
+        key="campo_correcao", index=None, placeholder="Selecione um campo..."
+    )
+    if campo_selecionado:
+        st.session_state.campo_para_corrigir = campo_selecionado
+        adicionar_mensagem("assistant", f"Entendido. Por favor, insira o novo valor para **{campo_selecionado.replace('_', ' ')}**.")
+        st.session_state.modo_correcao = False
+        st.session_state.dados_recolhidos = dados_para_corrigir
+        st.rerun()
 
