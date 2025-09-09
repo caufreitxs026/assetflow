@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 from auth import show_login_form, logout
 from datetime import datetime, timedelta
+from sqlalchemy import text
 
 # --- Configuração inicial da página e do estado da sessão ---
 st.set_page_config(page_title="AssetFlow", layout="wide")
@@ -176,10 +177,13 @@ else:
     st.subheader("Análise Operacional")
     gcol1, gcol2 = st.columns(2)
     with gcol1:
-        st.markdown("###### Aparelhos por Status (Excluindo Baixados)")
-        df_status_filtrado = graficos['status'][graficos['status']['nome_status'] != 'Baixado/Inutilizado']
-        if not df_status_filtrado.empty:
-            fig = px.pie(df_status_filtrado, names='nome_status', values='quantidade', hole=.4)
+        # --- MUDANÇA AQUI ---
+        # O título agora reflete que todos os status estão incluídos.
+        st.markdown("###### Aparelhos por Status (Total)")
+        # A linha que filtra 'Baixado/Inutilizado' foi removida.
+        if not graficos['status'].empty:
+            # O gráfico agora usa o dataframe completo 'graficos['status']'.
+            fig = px.pie(graficos['status'], names='nome_status', values='quantidade', hole=.4)
             fig.update_traces(textposition='inside', textinfo='percent+label')
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -199,14 +203,14 @@ else:
     with acol1:
         st.markdown("###### Alerta: Manutenções Atrasadas (> 5 dias)")
         st.dataframe(acao_rapida['manut_atrasadas'], hide_index=True, use_container_width=True,
-                     column_config={
-                         "data_envio": st.column_config.DateColumn("Data Envio", format="DD/MM/YYYY")
-                     })
+                      column_config={
+                          "data_envio": st.column_config.DateColumn("Data de Envio", format="DD/MM/YYYY")
+                      })
     with acol2:
         st.markdown("###### Últimas 5 Movimentações")
         st.dataframe(acao_rapida['ultimas_mov'], hide_index=True, use_container_width=True,
-                     column_config={
-                         "data_movimentacao": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY HH:mm"),
-                         "nome_completo": "Colaborador"
-                     })
+                      column_config={
+                          "data_movimentacao": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY HH:mm"),
+                          "nome_completo": "Colaborador"
+                      })
 
