@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import json
-from auth import show_login_form
+from auth import show_login_form, logout
 from sqlalchemy import text
 
 # --- Verificação de Autenticação ---
@@ -33,7 +33,6 @@ with st.sidebar:
     st.write(f"Bem-vindo, **{st.session_state['user_name']}**!")
     st.write(f"Cargo: **{st.session_state['user_role']}**")
     if st.button("Logout", key="devolucoes_logout"):
-        from auth import logout
         logout()
     st.markdown("---")
     st.markdown(f"""
@@ -78,7 +77,6 @@ def carregar_aparelhos_em_uso():
     return df.to_dict('records')
 
 def processar_devolucao(aparelho_id, colaborador_id, nome_colaborador_devolveu, checklist_data, destino_final, observacoes):
-    """Processa a devolução, atualiza status e integra-se com a manutenção se necessário."""
     conn = get_db_connection()
     try:
         with conn.session as s:
@@ -98,7 +96,6 @@ def processar_devolucao(aparelho_id, colaborador_id, nome_colaborador_devolveu, 
             novo_status_id = s.execute(text("SELECT id FROM status WHERE nome_status = :nome"), {"nome": novo_status_nome}).scalar_one()
             checklist_json = json.dumps(checklist_data)
 
-            # Insere o novo registo no histórico com o snapshot do nome do colaborador que devolveu.
             query_hist = text("""
                 INSERT INTO historico_movimentacoes 
                 (data_movimentacao, aparelho_id, colaborador_id, status_id, localizacao_atual, observacoes, checklist_devolucao, colaborador_snapshot)
@@ -107,14 +104,13 @@ def processar_devolucao(aparelho_id, colaborador_id, nome_colaborador_devolveu, 
             s.execute(query_hist, {
                 "data": datetime.now(), "ap_id": aparelho_id, "status_id": novo_status_id,
                 "loc": localizacao, "obs": observacoes, "checklist": checklist_json, 
-                "col_snap": nome_colaborador_devolveu 
+                "col_snap": nome_colaborador_devolveu
             })
 
             s.execute(text("UPDATE aparelhos SET status_id = :status_id WHERE id = :ap_id"), 
                       {"status_id": novo_status_id, "ap_id": aparelho_id})
 
             if destino_final == "Enviar para Manutenção":
-                # Guarda o snapshot do nome na tabela de manutenções também
                 query_manut = text("""
                     INSERT INTO manutencoes (aparelho_id, colaborador_id_no_envio, data_envio, defeito_reportado, status_manutencao, colaborador_snapshot)
                     VALUES (:ap_id, :col_id, :data, :defeito, 'Em Andamento', :col_snap)
@@ -210,9 +206,16 @@ st.title("Fluxo de Devolução e Triagem")
 st.markdown("---")
 
 try:
-    tab1, tab2 = st.tabs(["Registar Devolução", "Histórico de Devoluções"])
+    option = st.radio(
+        "Selecione a operação:",
+        ("Registar Devolução", "Histórico de Devoluções"),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="devolucoes_tab_selector"
+    )
+    st.markdown("---")
 
-    with tab1:
+    if option == "Registar Devolução":
         st.subheader("1. Selecione o Aparelho a Ser Devolvido")
         aparelhos_em_uso = carregar_aparelhos_em_uso()
 
@@ -251,6 +254,7 @@ try:
                     cols = st.columns(2)
                     for i, item in enumerate(itens_checklist):
                         with cols[i % 2]:
+                            # Usar uma chave única para cada widget dentro do loop
                             entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{aparelho_id}")
                             estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}_{aparelho_id}", label_visibility="collapsed")
                             checklist_data[item] = {'entregue': entregue, 'estado': estado}
@@ -266,17 +270,16 @@ try:
                         key="destino_final"
                     )
 
-                    submitted = st.form_submit_button("Processar Devolução", use_container_width=True)
+                    submitted = st.form_submit_button("Processar Devolução", use_container_width=True, type="primary")
                     if submitted:
-                        # Passa o nome do colaborador para a função de processamento
                         if processar_devolucao(aparelho_id, colaborador_id, colaborador_nome, checklist_data, destino_final, observacoes):
                             st.cache_data.clear()
                             st.rerun()
 
-    with tab2:
+    elif option == "Histórico de Devoluções":
         st.subheader("Histórico Completo de Devoluções")
         
-        st.markdown("###### Filtros do Histórico")
+        st.markdown("<h6>Filtros do Histórico</h6>", unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
             data_inicio = st.date_input("Período de:", value=None, format="DD/MM/YYYY", key="hist_start")
@@ -299,13 +302,13 @@ try:
                 'observacoes': 'Observações'
             }, inplace=True)
             
-            st.markdown("###### Resultados")
+            st.markdown("<h6>Resultados</h6>", unsafe_allow_html=True)
             st.dataframe(df_para_exibir, use_container_width=True, hide_index=True, column_config={
                 "Data da Devolução": st.column_config.DatetimeColumn(format="DD/MM/YYYY HH:mm")
             })
 
             st.markdown("---")
-            st.markdown("##### Detalhes do Checklist da Devolução")
+            st.markdown("<h5>Detalhes do Checklist da Devolução</h5>", unsafe_allow_html=True)
 
             opcoes_detalhe = [
                 f"ID {row['id']}: {pd.to_datetime(row['data_movimentacao']).strftime('%d/%m/%Y %H:%M')} - {row['aparelho']} (Devolvido por: {row['colaborador_devolveu'] or 'N/A'})" 
@@ -339,5 +342,5 @@ try:
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de devoluções: {e}")
-    st.info("Se esta é a primeira configuração, por favor, vá até a página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
+    st.info("Verifique se o banco de dados está a funcionar corretamente.")
 
