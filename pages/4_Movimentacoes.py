@@ -167,9 +167,17 @@ st.markdown("---")
 try:
     aparelhos_list, colaboradores_list, status_list = carregar_dados_para_selects()
 
-    tab_cadastro, tab_consulta = st.tabs(["Registar Nova Movimentação", "Consultar Histórico"])
+    # --- Seletor de Abas com st.radio para manter o estado ---
+    option = st.radio(
+        "Selecione a operação:",
+        ("Registar Nova Movimentação", "Consultar Histórico"),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="movimentacoes_tab_selector"
+    )
+    st.markdown("---")
 
-    with tab_cadastro:
+    if option == "Registar Nova Movimentação":
         with st.form("form_movimentacao", clear_on_submit=True):
             st.subheader("Formulário de Movimentação")
             aparelhos_dict = {f"{ap['nome_marca']} {ap['nome_modelo']} (S/N: {ap['numero_serie']})": ap['id'] for ap in aparelhos_list}
@@ -210,7 +218,7 @@ try:
                         st.cache_data.clear()
                         st.rerun()
 
-    with tab_consulta:
+    elif option == "Consultar Histórico":
         st.subheader("Histórico de Movimentações")
         
         # --- FILTROS ---
