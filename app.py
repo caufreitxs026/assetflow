@@ -59,7 +59,6 @@ else:
         try:
             conn = get_db_connection()
             
-            # KPIs Ativos
             kpis_ativos = conn.query("""
                 SELECT COUNT(a.id), COALESCE(SUM(a.valor), 0)
                 FROM aparelhos a
@@ -67,13 +66,10 @@ else:
                 WHERE s.nome_status != 'Baixado/Inutilizado'
             """, ttl=600).iloc[0]
             
-            # KPIs Manutenção e Estoque
             kpis_manutencao = conn.query("SELECT COUNT(a.id), COALESCE(SUM(a.valor), 0) FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status = 'Em manutenção'", ttl=600).iloc[0]
             aparelhos_estoque = conn.query("SELECT COUNT(a.id) FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status = 'Em estoque'", ttl=600).iloc[0, 0] or 0
-            
             total_colaboradores = conn.query("SELECT COUNT(id) FROM colaboradores", ttl=600).iloc[0, 0] or 0
 
-            # --- NOVO KPI: Colaboradores com múltiplos aparelhos ---
             df_multiplos = conn.query("""
                 WITH AparelhosPorColaborador AS (
                     SELECT 
@@ -94,23 +90,24 @@ else:
             """, ttl=600)
             colaboradores_multiplos_aparelhos = len(df_multiplos)
 
-            # --- NOVA QUERY: Detalhes dos colaboradores com múltiplos aparelhos ---
             df_detalhes_multiplos = pd.DataFrame()
             if colaboradores_multiplos_aparelhos > 0:
-                # Garante que a lista não esteja vazia para evitar erro de sintaxe SQL com 'IN ()'
                 ids_colaboradores_list = df_multiplos['colaborador_id'].tolist()
                 if ids_colaboradores_list:
                     ids_colaboradores = tuple(ids_colaboradores_list)
+                    # --- QUERY ATUALIZADA ---
+                    # Adicionamos 'h.data_movimentacao' ao SELECT
                     df_detalhes_multiplos = conn.query(f"""
                         SELECT 
                             c.nome_completo,
                             setor.nome_setor,
                             ma.nome_marca || ' - ' || mo.nome_modelo as modelo_completo,
-                            a.numero_serie
+                            a.numero_serie,
+                            h.data_movimentacao
                         FROM aparelhos a
                         JOIN status s ON a.status_id = s.id
                         JOIN (
-                            SELECT aparelho_id, colaborador_id, ROW_NUMBER() OVER(PARTITION BY aparelho_id ORDER BY data_movimentacao DESC) as rn
+                            SELECT aparelho_id, colaborador_id, data_movimentacao, ROW_NUMBER() OVER(PARTITION BY aparelho_id ORDER BY data_movimentacao DESC) as rn
                             FROM historico_movimentacoes
                             WHERE colaborador_id IS NOT NULL
                         ) h ON a.id = h.aparelho_id AND h.rn = 1
@@ -119,10 +116,9 @@ else:
                         JOIN modelos mo ON a.modelo_id = mo.id
                         JOIN marcas ma ON mo.marca_id = ma.id
                         WHERE s.nome_status = 'Em uso' AND c.id IN {ids_colaboradores}
-                        ORDER BY c.nome_completo, modelo_completo;
+                        ORDER BY c.nome_completo, h.data_movimentacao;
                     """, ttl=600)
 
-            # Gráficos
             df_status = conn.query("SELECT s.nome_status, COUNT(a.id) as quantidade FROM aparelhos a JOIN status s ON a.status_id = s.id GROUP BY s.nome_status", ttl=600)
             df_setor = conn.query("""
                 SELECT s.nome_setor, COUNT(a.id) as quantidade
@@ -138,7 +134,6 @@ else:
                 GROUP BY s.nome_setor
             """, ttl=600)
 
-            # Painel de Ação Rápida
             data_limite = datetime.now() - timedelta(days=5)
             df_manut_atrasadas = conn.query("SELECT a.numero_serie, mo.nome_modelo, m.fornecedor, m.data_envio FROM manutencoes m JOIN aparelhos a ON m.aparelho_id = a.id JOIN modelos mo ON a.modelo_id = mo.id WHERE m.status_manutencao = 'Em Andamento' AND m.data_envio < :data_limite", params={"data_limite": data_limite}, ttl=600)
             df_ultimas_mov = conn.query("SELECT h.data_movimentacao, h.colaborador_snapshot as nome_completo, s.nome_status, a.numero_serie FROM historico_movimentacoes h JOIN status s ON h.status_id = s.id JOIN aparelhos a ON h.aparelho_id = a.id ORDER BY h.data_movimentacao DESC LIMIT 5", ttl=60)
@@ -157,7 +152,8 @@ else:
                 "acao_rapida": {"manut_atrasadas": df_manut_atrasadas, "ultimas_mov": df_ultimas_mov},
                 "detalhes": {"multiplos_aparelhos": df_detalhes_multiplos}
             }
-        except Exception:
+        except Exception as e:
+            st.error(f"Erro ao carregar dados do dashboard: {e}")
             return None
 
     # --- Conteúdo do Dashboard ---
@@ -199,18 +195,25 @@ else:
     col6.metric("Colaboradores com Múltiplos Aparelhos", f"{int(kpis['colaboradores_multiplos']):,}".replace(",", "."))
     
     if not detalhes['multiplos_aparelhos'].empty:
-        with st.expander("Alerta: Detalhes de Colaboradores com Múltiplos Aparelhos"):
+        with st.expander("🚨 Alerta: Detalhes de Colaboradores com Múltiplos Aparelhos"):
             grouped = detalhes['multiplos_aparelhos'].groupby('nome_completo')
             for nome, grupo in grouped:
                 setor = grupo['nome_setor'].iloc[0]
                 st.markdown(f"**Nome:** {nome} | **Setor:** {setor}")
+                
+                # --- UI ATUALIZADA ---
+                # Adicionamos a coluna 'data_movimentacao' e sua configuração
                 st.dataframe(
-                    grupo[['modelo_completo', 'numero_serie']],
+                    grupo[['modelo_completo', 'numero_serie', 'data_movimentacao']],
                     hide_index=True,
                     use_container_width=True,
                     column_config={
                         "modelo_completo": "Modelo do Aparelho",
-                        "numero_serie": "Número de Série"
+                        "numero_serie": "Número de Série",
+                        "data_movimentacao": st.column_config.DatetimeColumn(
+                            "Data da Entrega",
+                            format="DD/MM/YYYY HH:mm"
+                        )
                     }
                 )
     
@@ -221,7 +224,6 @@ else:
     with gcol1:
         st.markdown("###### Aparelhos por Status (Visão Total)")
         if not graficos['status'].empty:
-            # CORREÇÃO: O gráfico agora usa o dataframe completo 'graficos['status']', sem filtrar.
             fig = px.pie(graficos['status'], names='nome_status', values='quantidade', hole=.4)
             fig.update_traces(textposition='inside', textinfo='percent+label')
             st.plotly_chart(fig, use_container_width=True)
@@ -252,5 +254,4 @@ else:
                           "data_movimentacao": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY HH:mm"),
                           "nome_completo": "Colaborador"
                       })
-
 
