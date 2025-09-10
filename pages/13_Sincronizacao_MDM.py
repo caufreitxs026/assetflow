@@ -3,6 +3,7 @@ import pandas as pd
 import httpx
 from auth import show_login_form, logout
 from sqlalchemy import text
+from datetime import datetime
 
 # --- Autenticação e Permissão ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -52,21 +53,15 @@ def get_pulsus_data():
         st.error("A chave da API do Pulsus (PULSUS_API_KEY) não foi encontrada nos segredos do Streamlit.")
         return None
 
-    # Nota: Este é um URL padrão para APIs. Verifique na documentação do Pulsus se é o correto.
     url = "https://api.pulsus.mobi/v1/devices"
-    headers = {
-        "Authorization": f"Bearer {api_key}"
-    }
+    headers = {"Authorization": f"Bearer {api_key}"}
     
     try:
         with httpx.Client(timeout=30.0) as client:
             response = client.get(url, headers=headers)
-            response.raise_for_status() # Lança um erro para status 4xx ou 5xx
+            response.raise_for_status()
             data = response.json()
             
-            # Extrai os campos relevantes para um DataFrame
-            # Nota: Os nomes das colunas ('serial_number', 'user_name', etc.) podem precisar de ajuste
-            #       consoante a resposta real da API do Pulsus.
             records = []
             for device in data.get('devices', []):
                 records.append({
@@ -77,7 +72,6 @@ def get_pulsus_data():
                 })
             
             df = pd.DataFrame(records)
-            # Remove linhas onde o número de série está em falta, pois é a nossa chave principal
             df.dropna(subset=['numero_serie_pulsus'], inplace=True)
             return df
 
@@ -118,6 +112,60 @@ def get_assetflow_data():
     df['responsavel_assetflow'] = df['responsavel_assetflow'].fillna("Não atribuído")
     return df
 
+def sincronizar_responsavel(numero_serie, nome_responsavel_pulsus):
+    """Cria uma nova movimentação para atualizar o responsável de um aparelho no AssetFlow."""
+    conn = st.connection("supabase", type="sql")
+    try:
+        with conn.session as s:
+            s.begin()
+            
+            # 1. Encontrar o aparelho_id a partir do numero_serie
+            aparelho_id_res = s.execute(text("SELECT id FROM aparelhos WHERE numero_serie = :ns"), {"ns": numero_serie}).fetchone()
+            if not aparelho_id_res:
+                st.error(f"Aparelho com N/S {numero_serie} não encontrado no AssetFlow.")
+                s.rollback()
+                return False
+            aparelho_id = aparelho_id_res[0]
+
+            # 2. Encontrar o colaborador_id a partir do nome
+            colaborador_id = None
+            colaborador_snapshot = "Não atribuído"
+            if nome_responsavel_pulsus != "Não atribuído":
+                colab_res = s.execute(text("SELECT id, nome_completo FROM colaboradores WHERE nome_completo = :nome"), {"nome": nome_responsavel_pulsus}).fetchone()
+                if not colab_res:
+                    st.warning(f"Colaborador '{nome_responsavel_pulsus}' (do Pulsus) não encontrado no AssetFlow. Ação cancelada.")
+                    s.rollback()
+                    return False
+                colaborador_id = colab_res[0]
+                colaborador_snapshot = colab_res[1]
+
+            # 3. Encontrar o status_id para 'Em uso'
+            status_id_res = s.execute(text("SELECT id FROM status WHERE nome_status = 'Em uso'")).fetchone()
+            if not status_id_res:
+                st.error("Status 'Em uso' não encontrado na base de dados.")
+                s.rollback()
+                return False
+            status_em_uso_id = status_id_res[0]
+            
+            # 4. Atualizar o status do aparelho para 'Em uso'
+            s.execute(text("UPDATE aparelhos SET status_id = :sid WHERE id = :apid"), {"sid": status_em_uso_id, "apid": aparelho_id})
+
+            # 5. Criar um novo registo no histórico de movimentações
+            query_hist = text("""
+                INSERT INTO historico_movimentacoes (data_movimentacao, aparelho_id, colaborador_id, status_id, localizacao_atual, observacoes, colaborador_snapshot) 
+                VALUES (:data, :ap_id, :col_id, :status_id, :loc, :obs, :col_snap)
+            """)
+            s.execute(query_hist, {
+                "data": datetime.now(), "ap_id": aparelho_id, "col_id": colaborador_id, "status_id": status_em_uso_id,
+                "loc": "Sincronizado via MDM", "obs": f"Responsável atualizado para '{colaborador_snapshot}' com base nos dados do Pulsus.", "col_snap": colaborador_snapshot
+            })
+            s.commit()
+        st.toast(f"Aparelho {numero_serie} sincronizado com sucesso!", icon="🔄")
+        return True
+    except Exception as e:
+        st.error(f"Erro ao sincronizar aparelho {numero_serie}: {e}")
+        return False
+
 # --- UI da Página ---
 st.title("🔬 Sincronização e Auditoria MDM (Pulsus)")
 st.markdown("---")
@@ -134,66 +182,74 @@ if st.button("Comparar Inventários Agora", type="primary", use_container_width=
         st.success(f"Comparação concluída! Encontrados {len(df_assetflow)} aparelhos no AssetFlow e {len(df_pulsus)} no Pulsus.")
         st.markdown("---")
 
-        # Faz o merge dos dois dataframes usando o número de série como chave
-        df_merged = pd.merge(
-            df_assetflow, 
-            df_pulsus, 
-            left_on='numero_serie', 
-            right_on='numero_serie_pulsus',
-            how='outer'
-        )
+        df_merged = pd.merge(df_assetflow, df_pulsus, left_on='numero_serie', right_on='numero_serie_pulsus', how='outer')
 
-        # 1. Aparelhos Sincronizados e Corretos
-        df_sync = df_merged[
-            (df_merged['numero_serie'].notna()) & 
-            (df_merged['numero_serie_pulsus'].notna()) &
-            (df_merged['responsavel_assetflow'] == df_merged['responsavel_pulsus'])
-        ]
-        
-        # 2. Aparelhos com Responsáveis Divergentes
-        df_divergent = df_merged[
-            (df_merged['numero_serie'].notna()) & 
-            (df_merged['numero_serie_pulsus'].notna()) &
-            (df_merged['responsavel_assetflow'] != df_merged['responsavel_pulsus'])
-        ]
-
-        # 3. Aparelhos que só existem no AssetFlow (Fantasmas)
+        # Filtros para cada categoria
+        df_sync = df_merged[(df_merged['numero_serie'].notna()) & (df_merged['numero_serie_pulsus'].notna()) & (df_merged['responsavel_assetflow'] == df_merged['responsavel_pulsus'])]
+        df_divergent = df_merged[(df_merged['numero_serie'].notna()) & (df_merged['numero_serie_pulsus'].notna()) & (df_merged['responsavel_assetflow'] != df_merged['responsavel_pulsus'])]
         df_only_assetflow = df_merged[df_merged['numero_serie_pulsus'].isna()]
-
-        # 4. Aparelhos que só existem no Pulsus (Surpresas)
         df_only_pulsus = df_merged[df_merged['numero_serie'].isna()]
+        
+        # Armazena os resultados no estado da sessão para que os botões funcionem
+        st.session_state.df_divergent = df_divergent
+        st.session_state.df_only_assetflow = df_only_assetflow
+        st.session_state.df_only_pulsus = df_only_pulsus
+        st.session_state.df_sync = df_sync
 
-        # --- Exibição dos Resultados ---
-        st.subheader("Resultados da Auditoria")
+# --- Exibição dos Resultados (usa o estado da sessão para persistir) ---
+if 'df_divergent' in st.session_state:
+    st.subheader("Resultados da Auditoria")
 
-        # Abas para organizar os resultados
-        tab_diverg, tab_asset, tab_pulsus, tab_sync = st.tabs([
-            f"Divergências ({len(df_divergent)})", 
-            f"Apenas no AssetFlow ({len(df_only_assetflow)})", 
-            f"Apenas no Pulsus ({len(df_only_pulsus)})",
-            f"Sincronizados ({len(df_sync)})"
-        ])
+    tab_diverg, tab_asset, tab_pulsus, tab_sync = st.tabs([
+        f"⚠️ Divergências ({len(st.session_state.df_divergent)})", 
+        f"👻 Apenas no AssetFlow ({len(st.session_state.df_only_assetflow)})", 
+        f"✨ Apenas no Pulsus ({len(st.session_state.df_only_pulsus)})",
+        f"✅ Sincronizados ({len(st.session_state.df_sync)})"
+    ])
 
-        with tab_diverg:
-            st.warning("Estes aparelhos estão em ambos os sistemas, mas o responsável atribuído é diferente.")
-            st.dataframe(df_divergent[[
-                'numero_serie', 'modelo', 'responsavel_assetflow', 'responsavel_pulsus', 'ultimo_sync_pulsus'
-            ]], use_container_width=True, hide_index=True)
+    with tab_diverg:
+        st.warning("Estes aparelhos estão em ambos os sistemas, mas o responsável atribuído é diferente.")
+        if not st.session_state.df_divergent.empty:
+            # Cabeçalho da tabela manual
+            cols = st.columns([0.2, 0.3, 0.2, 0.2, 0.15])
+            cols[0].markdown("**N/S**")
+            cols[1].markdown("**Modelo**")
+            cols[2].markdown("**AssetFlow**")
+            cols[3].markdown("**Pulsus**")
+            cols[4].markdown("**Ação**")
 
-        with tab_asset:
-            st.info("Estes aparelhos estão no seu inventário (AssetFlow), mas não foram encontrados no MDM (Pulsus). Podem estar offline, desligados ou terem sido removidos do MDM.")
-            st.dataframe(df_only_assetflow[[
-                'numero_serie', 'modelo', 'nome_status', 'responsavel_assetflow'
-            ]], use_container_width=True, hide_index=True)
+            for index, row in st.session_state.df_divergent.iterrows():
+                cols = st.columns([0.2, 0.3, 0.2, 0.2, 0.15])
+                cols[0].write(row['numero_serie'])
+                cols[1].write(row['modelo'])
+                cols[2].write(row['responsavel_assetflow'])
+                cols[3].write(row['responsavel_pulsus'])
+                if cols[4].button("Sincronizar", key=f"sync_{row['numero_serie']}", help=f"Atualizar o AssetFlow para '{row['responsavel_pulsus']}'"):
+                    if sincronizar_responsavel(row['numero_serie'], row['responsavel_pulsus']):
+                        st.cache_data.clear()
+                        # Limpa os dataframes do estado para forçar um novo clique no botão principal
+                        for key in ['df_divergent', 'df_only_assetflow', 'df_only_pulsus', 'df_sync']:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        st.rerun()
+        else:
+            st.info("Nenhuma divergência de responsáveis encontrada.")
 
-        with tab_pulsus:
-            st.info("Estes aparelhos foram encontrados no MDM (Pulsus), mas não estão cadastrados no seu inventário (AssetFlow).")
-            st.dataframe(df_only_pulsus[[
-                'numero_serie_pulsus', 'imei_pulsus', 'responsavel_pulsus', 'ultimo_sync_pulsus'
-            ]], use_container_width=True, hide_index=True)
 
-        with tab_sync:
-            st.success("Estes aparelhos estão corretamente sincronizados entre os dois sistemas.")
-            st.dataframe(df_sync[[
-                'numero_serie', 'modelo', 'nome_status', 'responsavel_assetflow'
-            ]], use_container_width=True, hide_index=True)
+    with tab_asset:
+        st.info("Estes aparelhos estão no seu inventário (AssetFlow), mas não foram encontrados no MDM (Pulsus). Podem estar offline, desligados ou terem sido removidos do MDM.")
+        st.dataframe(st.session_state.df_only_assetflow[[
+            'numero_serie', 'modelo', 'nome_status', 'responsavel_assetflow'
+        ]], use_container_width=True, hide_index=True)
+
+    with tab_pulsus:
+        st.info("Estes aparelhos foram encontrados no MDM (Pulsus), mas não estão cadastrados no seu inventário (AssetFlow).")
+        st.dataframe(st.session_state.df_only_pulsus[[
+            'numero_serie_pulsus', 'imei_pulsus', 'responsavel_pulsus', 'ultimo_sync_pulsus'
+        ]], use_container_width=True, hide_index=True)
+
+    with tab_sync:
+        st.success("Estes aparelhos estão corretamente sincronizados entre os dois sistemas.")
+        st.dataframe(st.session_state.df_sync[[
+            'numero_serie', 'modelo', 'nome_status', 'responsavel_assetflow'
+        ]], use_container_width=True, hide_index=True)
