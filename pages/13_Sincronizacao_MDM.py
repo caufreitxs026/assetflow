@@ -44,16 +44,18 @@ with st.sidebar:
 
 # --- Funções da Página ---
 
-@st.cache_data(ttl=300) # Cache de 5 minutos
+@st.cache_data(ttl=300)
 def get_pulsus_data():
     """Busca os dados dos aparelhos na API do Pulsus MDM."""
-    try:
-        # A aplicação procura por esta chave exata no ficheiro de segredos
-        api_key = st.secrets["PULSUS_TOKEN"]
-    except KeyError:
-        st.error("A chave da API do Pulsus (PULSUS_TOKEN) não foi encontrada nos segredos do Streamlit. Verifique se o nome está correto e se o ficheiro foi salvo.")
+    # --- BLOCO DE DIAGNÓSTICO ---
+    # Vamos verificar exatamente o que o Streamlit está a ver.
+    if "PULSUS_TOKEN" not in st.secrets:
+        st.error("A chave da API do Pulsus (PULSUS_TOKEN) não foi encontrada nos segredos do Streamlit.")
+        # Esta linha irá mostrar-nos todas as chaves que a aplicação consegue encontrar.
+        st.warning(f"Diagnóstico: Chaves encontradas nos segredos: {list(st.secrets.keys())}")
         return None
-
+    
+    api_key = st.secrets["PULSUS_TOKEN"]
     url = "https://api.pulsus.mobi/v1/devices"
     headers = {"ApiToken": api_key}
     
@@ -193,6 +195,7 @@ if st.button("Comparar Inventários Agora", type="primary", use_container_width=
         st.session_state.df_divergent = df_merged[(df_merged['numero_serie'].notna()) & (df_merged['numero_serie_pulsus'].notna()) & (df_merged['responsavel_assetflow'] != df_merged['responsavel_pulsus'])]
         st.session_state.df_only_assetflow = df_merged[df_merged['numero_serie_pulsus'].isna()]
         st.session_state.df_only_pulsus = df_merged[df_merged['numero_serie'].isna()]
+        st.rerun() # Adicionado para garantir que as abas sejam renderizadas após o cálculo
 
 if 'df_divergent' in st.session_state:
     st.subheader("Resultados da Auditoria")
