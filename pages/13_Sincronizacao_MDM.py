@@ -48,11 +48,10 @@ with st.sidebar:
 def get_pulsus_data():
     """Busca os dados dos aparelhos na API do Pulsus MDM."""
     try:
-        # --- MUDANÇA AQUI: Procurando pela nova chave ---
+        # A aplicação procura por esta chave exata no ficheiro de segredos
         api_key = st.secrets["PULSUS_TOKEN"]
     except KeyError:
-        # --- MUDANÇA AQUI: Mensagem de erro atualizada ---
-        st.error("A chave da API do Pulsus (PULSUS_TOKEN) não foi encontrada nos segredos do Streamlit.")
+        st.error("A chave da API do Pulsus (PULSUS_TOKEN) não foi encontrada nos segredos do Streamlit. Verifique se o nome está correto e se o ficheiro foi salvo.")
         return None
 
     url = "https://api.pulsus.mobi/v1/devices"
