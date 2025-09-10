@@ -58,7 +58,9 @@ else:
     def carregar_dados_dashboard():
         try:
             conn = get_db_connection()
+            data_limite_30_dias = datetime.now() - timedelta(days=30)
             
+            # KPIs Ativos
             kpis_ativos = conn.query("""
                 SELECT COUNT(a.id), COALESCE(SUM(a.valor), 0)
                 FROM aparelhos a
@@ -66,9 +68,15 @@ else:
                 WHERE s.nome_status != 'Baixado/Inutilizado'
             """, ttl=600).iloc[0]
             
+            # KPIs Manutenção e Estoque
             kpis_manutencao = conn.query("SELECT COUNT(a.id), COALESCE(SUM(a.valor), 0) FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status = 'Em manutenção'", ttl=600).iloc[0]
             aparelhos_estoque = conn.query("SELECT COUNT(a.id) FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status = 'Em estoque'", ttl=600).iloc[0, 0] or 0
             total_colaboradores = conn.query("SELECT COUNT(id) FROM colaboradores", ttl=600).iloc[0, 0] or 0
+
+            # --- NOVOS KPIs de Atividade Recente ---
+            novos_aparelhos_30d = conn.query("SELECT COUNT(id) FROM aparelhos WHERE data_cadastro >= :data_limite", params={"data_limite": data_limite_30_dias}, ttl=600).iloc[0, 0] or 0
+            custo_manut_30d = conn.query("SELECT COALESCE(SUM(custo_reparo), 0) FROM manutencoes WHERE data_retorno >= :data_limite AND status_manutencao IN ('Concluída', 'Sem Reparo')", params={"data_limite": data_limite_30_dias}, ttl=600).iloc[0, 0] or 0
+
 
             df_multiplos = conn.query("""
                 WITH AparelhosPorColaborador AS (
@@ -95,8 +103,6 @@ else:
                 ids_colaboradores_list = df_multiplos['colaborador_id'].tolist()
                 if ids_colaboradores_list:
                     ids_colaboradores = tuple(ids_colaboradores_list)
-                    # --- QUERY ATUALIZADA ---
-                    # Adicionamos 'h.data_movimentacao' ao SELECT
                     df_detalhes_multiplos = conn.query(f"""
                         SELECT 
                             c.nome_completo,
@@ -119,6 +125,7 @@ else:
                         ORDER BY c.nome_completo, h.data_movimentacao;
                     """, ttl=600)
 
+            # Gráficos
             df_status = conn.query("SELECT s.nome_status, COUNT(a.id) as quantidade FROM aparelhos a JOIN status s ON a.status_id = s.id GROUP BY s.nome_status", ttl=600)
             df_setor = conn.query("""
                 SELECT s.nome_setor, COUNT(a.id) as quantidade
@@ -134,8 +141,9 @@ else:
                 GROUP BY s.nome_setor
             """, ttl=600)
 
-            data_limite = datetime.now() - timedelta(days=5)
-            df_manut_atrasadas = conn.query("SELECT a.numero_serie, mo.nome_modelo, m.fornecedor, m.data_envio FROM manutencoes m JOIN aparelhos a ON m.aparelho_id = a.id JOIN modelos mo ON a.modelo_id = mo.id WHERE m.status_manutencao = 'Em Andamento' AND m.data_envio < :data_limite", params={"data_limite": data_limite}, ttl=600)
+            # Painel de Ação Rápida
+            data_limite_5_dias = datetime.now() - timedelta(days=5)
+            df_manut_atrasadas = conn.query("SELECT a.numero_serie, mo.nome_modelo, m.fornecedor, m.data_envio FROM manutencoes m JOIN aparelhos a ON m.aparelho_id = a.id JOIN modelos mo ON a.modelo_id = mo.id WHERE m.status_manutencao = 'Em Andamento' AND m.data_envio < :data_limite", params={"data_limite": data_limite_5_dias}, ttl=600)
             df_ultimas_mov = conn.query("SELECT h.data_movimentacao, h.colaborador_snapshot as nome_completo, s.nome_status, a.numero_serie FROM historico_movimentacoes h JOIN status s ON h.status_id = s.id JOIN aparelhos a ON h.aparelho_id = a.id ORDER BY h.data_movimentacao DESC LIMIT 5", ttl=60)
 
             return {
@@ -146,7 +154,9 @@ else:
                     "aparelhos_manutencao": kpis_manutencao[0] or 0,
                     "valor_manutencao": kpis_manutencao[1] or 0, 
                     "aparelhos_estoque": aparelhos_estoque,
-                    "colaboradores_multiplos": colaboradores_multiplos_aparelhos
+                    "colaboradores_multiplos": colaboradores_multiplos_aparelhos,
+                    "novos_aparelhos_30d": novos_aparelhos_30d, # Novo
+                    "custo_manut_30d": custo_manut_30d # Novo
                 },
                 "graficos": {"status": df_status, "setor": df_setor},
                 "acao_rapida": {"manut_atrasadas": df_manut_atrasadas, "ultimas_mov": df_ultimas_mov},
@@ -189,20 +199,27 @@ else:
     col4.metric("Aparelhos em Estoque", f"{int(kpis['aparelhos_estoque']):,}".replace(",", "."))
     
     st.markdown("---")
+    
+    # --- NOVA SEÇÃO DE ATIVIDADE RECENTE ---
+    st.subheader("Atividade Recente (Últimos 30 dias)")
+    col_recent1, col_recent2 = st.columns(2)
+    col_recent1.metric("Novos Aparelhos Cadastrados", f"{int(kpis['novos_aparelhos_30d']):,}".replace(",", "."))
+    col_recent2.metric("Custo Total de Manutenções", f"R$ {kpis.get('custo_manut_30d', 0):,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
+
+
+    st.markdown("---")
     st.subheader("Indicadores de Alerta")
     col5, col6 = st.columns(2)
     col5.metric("Aparelhos em Manutenção", f"{int(kpis['aparelhos_manutencao']):,}".replace(",", "."))
     col6.metric("Colaboradores com Múltiplos Aparelhos", f"{int(kpis['colaboradores_multiplos']):,}".replace(",", "."))
     
     if not detalhes['multiplos_aparelhos'].empty:
-        with st.expander("Alerta: Detalhes de Colaboradores com Múltiplos Aparelhos"):
+        with st.expander("🚨 Alerta: Detalhes de Colaboradores com Múltiplos Aparelhos"):
             grouped = detalhes['multiplos_aparelhos'].groupby('nome_completo')
             for nome, grupo in grouped:
                 setor = grupo['nome_setor'].iloc[0]
                 st.markdown(f"**Nome:** {nome} | **Setor:** {setor}")
                 
-                # --- UI ATUALIZADA ---
-                # Adicionamos a coluna 'data_movimentacao' e sua configuração
                 st.dataframe(
                     grupo[['modelo_completo', 'numero_serie', 'data_movimentacao']],
                     hide_index=True,
@@ -254,5 +271,3 @@ else:
                           "data_movimentacao": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY HH:mm"),
                           "nome_completo": "Colaborador"
                       })
-
-
