@@ -195,7 +195,7 @@ else:
     col6.metric("Colaboradores com Múltiplos Aparelhos", f"{int(kpis['colaboradores_multiplos']):,}".replace(",", "."))
     
     if not detalhes['multiplos_aparelhos'].empty:
-        with st.expander("🚨 Alerta: Detalhes de Colaboradores com Múltiplos Aparelhos"):
+        with st.expander("Alerta: Detalhes de Colaboradores com Múltiplos Aparelhos"):
             grouped = detalhes['multiplos_aparelhos'].groupby('nome_completo')
             for nome, grupo in grouped:
                 setor = grupo['nome_setor'].iloc[0]
@@ -254,4 +254,5 @@ else:
                           "data_movimentacao": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY HH:mm"),
                           "nome_completo": "Colaborador"
                       })
+
 
