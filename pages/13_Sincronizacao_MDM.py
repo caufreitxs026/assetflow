@@ -48,16 +48,15 @@ with st.sidebar:
 def get_pulsus_data():
     """Busca os dados dos aparelhos na API do Pulsus MDM."""
     try:
-        api_key = st.secrets["PULSUS_API_KEY"]
+        # --- MUDANÇA AQUI: Procurando pela nova chave ---
+        api_key = st.secrets["PULSUS_TOKEN"]
     except KeyError:
-        st.error("A chave da API do Pulsus (PULSUS_API_KEY) não foi encontrada nos segredos do Streamlit.")
+        # --- MUDANÇA AQUI: Mensagem de erro atualizada ---
+        st.error("A chave da API do Pulsus (PULSUS_TOKEN) não foi encontrada nos segredos do Streamlit.")
         return None
 
     url = "https://api.pulsus.mobi/v1/devices"
-    # --- CORREÇÃO: O cabeçalho de autenticação do Pulsus é 'ApiToken' ---
-    headers = {
-        "ApiToken": api_key
-    }
+    headers = {"ApiToken": api_key}
     
     try:
         with httpx.Client(timeout=30.0) as client:
@@ -175,7 +174,6 @@ st.markdown("---")
 st.info("Esta ferramenta compara o inventário do **AssetFlow** com os dados do **Pulsus MDM** para identificar discrepâncias, aparelhos em falta ou não cadastrados.")
 
 if st.button("Comparar Inventários Agora", type="primary", use_container_width=True):
-    # Limpa os resultados antigos antes de uma nova busca
     for key in ['df_divergent', 'df_only_assetflow', 'df_only_pulsus', 'df_sync']:
         if key in st.session_state:
             del st.session_state[key]
@@ -190,20 +188,13 @@ if st.button("Comparar Inventários Agora", type="primary", use_container_width=
         st.success(f"Comparação concluída! Encontrados {len(df_assetflow)} aparelhos no AssetFlow e {len(df_pulsus)} no Pulsus.")
         st.markdown("---")
 
-        df_merged = pd.merge(
-            df_assetflow, 
-            df_pulsus, 
-            left_on='numero_serie', 
-            right_on='numero_serie_pulsus',
-            how='outer'
-        )
+        df_merged = pd.merge(df_assetflow, df_pulsus, left_on='numero_serie', right_on='numero_serie_pulsus', how='outer')
 
         st.session_state.df_sync = df_merged[(df_merged['numero_serie'].notna()) & (df_merged['numero_serie_pulsus'].notna()) & (df_merged['responsavel_assetflow'] == df_merged['responsavel_pulsus'])]
         st.session_state.df_divergent = df_merged[(df_merged['numero_serie'].notna()) & (df_merged['numero_serie_pulsus'].notna()) & (df_merged['responsavel_assetflow'] != df_merged['responsavel_pulsus'])]
         st.session_state.df_only_assetflow = df_merged[df_merged['numero_serie_pulsus'].isna()]
         st.session_state.df_only_pulsus = df_merged[df_merged['numero_serie'].isna()]
 
-# --- Exibição dos Resultados ---
 if 'df_divergent' in st.session_state:
     st.subheader("Resultados da Auditoria")
 
@@ -250,25 +241,18 @@ if 'df_divergent' in st.session_state:
                     st.rerun()
                 else:
                     st.info("Nenhum aparelho foi selecionado para sincronização.")
-
         else:
             st.info("Nenhuma divergência de responsáveis encontrada.")
 
     with tab_asset:
         st.info("Estes aparelhos estão no seu inventário (AssetFlow), mas não foram encontrados no MDM (Pulsus). Podem estar offline, desligados ou terem sido removidos do MDM.")
-        st.dataframe(st.session_state.df_only_assetflow[[
-            'numero_serie', 'modelo', 'nome_status', 'responsavel_assetflow'
-        ]], use_container_width=True, hide_index=True)
+        st.dataframe(st.session_state.df_only_assetflow[['numero_serie', 'modelo', 'nome_status', 'responsavel_assetflow']], use_container_width=True, hide_index=True)
 
     with tab_pulsus:
         st.info("Estes aparelhos foram encontrados no MDM (Pulsus), mas não estão cadastrados no seu inventário (AssetFlow).")
-        st.dataframe(st.session_state.df_only_pulsus[[
-            'numero_serie_pulsus', 'imei_pulsus', 'responsavel_pulsus', 'ultimo_sync_pulsus'
-        ]], use_container_width=True, hide_index=True)
+        st.dataframe(st.session_state.df_only_pulsus[['numero_serie_pulsus', 'imei_pulsus', 'responsavel_pulsus', 'ultimo_sync_pulsus']], use_container_width=True, hide_index=True)
 
     with tab_sync:
         st.success("Estes aparelhos estão corretamente sincronizados entre os dois sistemas.")
-        st.dataframe(st.session_state.df_sync[[
-            'numero_serie', 'modelo', 'nome_status', 'responsavel_assetflow'
-        ]], use_container_width=True, hide_index=True)
+        st.dataframe(st.session_state.df_sync[['numero_serie', 'modelo', 'nome_status', 'responsavel_assetflow']], use_container_width=True, hide_index=True)
 
