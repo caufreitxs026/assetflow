@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import re
-from auth import show_login_form
+from auth import show_login_form, logout
 from sqlalchemy import text
 import numpy as np
 
@@ -194,7 +194,6 @@ try:
     colaboradores_dict = {"Nenhum": None}
     colaboradores_dict.update({c['nome_completo']: c['id'] for c in colaboradores_list})
 
-    # --- Seletor de Abas com st.radio para manter o estado ---
     option = st.radio(
         "Selecione a operação:",
         ("Cadastrar Nova Conta", "Consultar Contas"),
@@ -231,7 +230,6 @@ try:
     elif option == "Consultar Contas":
         st.subheader("Contas Registradas")
         
-        # --- FILTROS ---
         col_filtro1, col_filtro2 = st.columns(2)
         with col_filtro1:
             setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()))
@@ -242,7 +240,6 @@ try:
         if setor_filtro_nome != "Todos":
             setor_id_filtro = setores_dict.get(setor_filtro_nome)
 
-        # --- ORDENAÇÃO ---
         sort_options = {
             "Email (A-Z)": "cg.email ASC",
             "Setor (A-Z)": "s.nome_setor ASC",
@@ -256,7 +253,6 @@ try:
             setor_id=setor_id_filtro
         )
         
-        # --- LÓGICA DE GESTÃO DO ESTADO PARA EDIÇÃO ---
         session_state_key = f"original_contas_df_{sort_selection}_{termo_pesquisa}_{setor_filtro_nome}"
         if session_state_key not in st.session_state:
             for key in list(st.session_state.keys()):
