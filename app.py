@@ -24,6 +24,7 @@ else:
         .logo-text { font-family: 'Courier New', monospace; font-size: 28px; font-weight: bold; padding-top: 20px; }
         .logo-asset { color: #003366; } .logo-flow { color: #E30613; }
         @media (prefers-color-scheme: dark) { .logo-asset { color: #FFFFFF; } .logo-flow { color: #FF4B4B; } }
+        
         /* Estilos para o footer na barra lateral */
         .sidebar-footer { text-align: center; padding-top: 20px; padding-bottom: 20px; }
         .sidebar-footer a { margin-right: 15px; text-decoration: none; }
@@ -31,51 +32,37 @@ else:
         .sidebar-footer img:hover { filter: grayscale(0) opacity(1); }
         @media (prefers-color-scheme: dark) { .sidebar-footer img { filter: grayscale(1) opacity(0.6) invert(1); } .sidebar-footer img:hover { filter: opacity(1) invert(1); } }
 
-        /* Estilo para o cartão de métrica personalizado */
-        .metric-card {
-            background-color: #f0f2f6;
-            border-radius: 8px;
-            padding: 20px;
-            text-align: center;
-            border: 1px solid #e6e6e6;
-            margin-bottom: 10px;
-        }
-        @media (prefers-color-scheme: dark) {
-            .metric-card {
-                background-color: #1E1E1E;
-                border: 1px solid #333;
-            }
-        }
-        .metric-card h3 {
-            margin: 0 0 5px 0;
-            color: #5a5a5a;
-            font-size: 1rem;
-        }
-        @media (prefers-color-scheme: dark) {
-            .metric-card h3 { color: #a0a0a0; }
-        }
-        .metric-card p {
-            font-size: 2rem;
-            font-weight: bold;
-            margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
+        /* --- NOVO: CSS PARA O ALERTA A PISCAR --- */
         /* Animação do ponto a piscar */
         @keyframes pulse {
-            0% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(227, 6, 19, 0.7); }
-            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(227, 6, 19, 0); }
-            100% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(227, 6, 19, 0); }
+            0% { 
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(227, 6, 19, 0.7);
+            }
+            70% { 
+                transform: scale(1);
+                box-shadow: 0 0 0 10px rgba(227, 6, 19, 0);
+            }
+            100% { 
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(227, 6, 19, 0);
+            }
         }
+        /* Estilo do ponto vermelho */
         .blinking-dot {
-            height: 15px;
-            width: 15px;
+            height: 12px;
+            width: 12px;
             background-color: #E30613;
             border-radius: 50%;
             display: inline-block;
             margin-left: 10px;
             animation: pulse 1.5s infinite;
+            vertical-align: middle; /* Alinha o ponto com o texto */
+        }
+        /* Ajuste para o texto do expander */
+        .st-emotion-cache-115fc4b p {
+            display: flex;
+            align-items: center;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -106,8 +93,9 @@ else:
         try:
             conn = get_db_connection()
             
+            # KPIs Ativos
             kpis_ativos = conn.query("SELECT COUNT(a.id), COALESCE(SUM(a.valor), 0) FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status != 'Baixado/Inutilizado'").iloc[0]
-            kpis_manutencao = conn.query("SELECT COUNT(a.id), COALESCE(SUM(a.valor), 0) FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status = 'Em manutenção'").iloc[0]
+            kpis_manutencao = conn.query("SELECT COUNT(a.id) FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status = 'Em manutenção'").iloc[0, 0] or 0
             aparelhos_estoque = conn.query("SELECT COUNT(a.id) FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status = 'Em estoque'").iloc[0, 0] or 0
             total_colaboradores = conn.query("SELECT COUNT(id) FROM colaboradores").iloc[0, 0] or 0
 
@@ -126,7 +114,6 @@ else:
                 ids_colaboradores_list = df_multiplos_ids['colaborador_id'].tolist()
                 if ids_colaboradores_list:
                     ids_colaboradores_tuple = tuple(ids_colaboradores_list)
-                    # Adiciona uma verificação para garantir que a tupla não esteja vazia, o que causaria um erro de SQL
                     if ids_colaboradores_tuple:
                         df_detalhes_multiplos = conn.query(f"""
                             SELECT c.nome_completo, setor.nome_setor, ma.nome_marca || ' - ' || mo.nome_modelo as modelo_completo, a.numero_serie, h.data_movimentacao
@@ -162,7 +149,7 @@ else:
             return {
                 "kpis": {
                     "total_aparelhos": kpis_ativos[0] or 0, "valor_total": kpis_ativos[1] or 0,
-                    "total_colaboradores": total_colaboradores, "aparelhos_manutencao": kpis_manutencao[0] or 0,
+                    "total_colaboradores": total_colaboradores, "aparelhos_manutencao": kpis_manutencao,
                     "aparelhos_estoque": aparelhos_estoque, "colaboradores_multiplos": colaboradores_multiplos_aparelhos_count
                 },
                 "graficos": {"status": df_status, "setor": df_setor},
@@ -193,7 +180,7 @@ else:
     
     if dados is None:
         st.warning("Não foi possível carregar os dados do dashboard. As tabelas da base de dados podem não ter sido inicializadas.")
-        st.info("Por favor, vá à página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados'.")
+        st.info("Por favor, vá à página 'Configurações' e clique em 'Inicializar Banco de Dados'.")
         st.stop()
 
     kpis = dados['kpis']
@@ -213,14 +200,15 @@ else:
     
     col5, col6 = st.columns(2)
     
-    # --- LÓGICA ATUALIZADA: Usando st.expander ---
     with col5:
-        blinking_dot_manut = "<span class='blinking-dot'></span>" if int(kpis['aparelhos_manutencao']) > 0 else ""
-        label_manut = f"Aparelhos em Manutenção: **{int(kpis['aparelhos_manutencao'])}**"
+        num_manutencao = int(kpis['aparelhos_manutencao'])
+        label_manut = f"Aparelhos em Manutenção: **{num_manutencao}**"
         
-        if int(kpis['aparelhos_manutencao']) > 0:
-            with st.expander(label_manut):
-                 st.dataframe(
+        if num_manutencao > 0:
+            # Constrói o HTML para o label do expander com o ponto a piscar
+            expander_label_html = f"<div>{label_manut}<span class='blinking-dot'></span></div>"
+            with st.expander(expander_label_html, expanded=False):
+                st.dataframe(
                     detalhes['manutencoes_em_andamento'],
                     hide_index=True, use_container_width=True,
                     column_config={
@@ -230,15 +218,15 @@ else:
                     }
                 )
         else:
-            st.metric("Aparelhos em Manutenção", int(kpis['aparelhos_manutencao']))
-
+            st.metric("Aparelhos em Manutenção", num_manutencao)
 
     with col6:
-        blinking_dot_multi = "<span class='blinking-dot'></span>" if int(kpis['colaboradores_multiplos']) > 0 else ""
-        label_multi = f"Colaboradores com Múltiplos Aparelhos: **{int(kpis['colaboradores_multiplos'])}**"
+        num_multiplos = int(kpis['colaboradores_multiplos'])
+        label_multi = f"Colaboradores com Múltiplos Aparelhos: **{num_multiplos}**"
 
-        if int(kpis['colaboradores_multiplos']) > 0:
-            with st.expander(f"🚨 {label_multi}"):
+        if num_multiplos > 0:
+            expander_label_html = f"<div>{label_multi}<span class='blinking-dot'></span></div>"
+            with st.expander(expander_label_html, expanded=False):
                 grouped = detalhes['multiplos_aparelhos'].groupby('nome_completo')
                 for nome, grupo in grouped:
                     setor = grupo['nome_setor'].iloc[0]
@@ -252,7 +240,7 @@ else:
                         }
                     )
         else:
-            st.metric("Colaboradores com Múltiplos Aparelhos", int(kpis['colaboradores_multiplos']))
+            st.metric("Colaboradores com Múltiplos Aparelhos", num_multiplos)
 
     st.markdown("---")
 
