@@ -24,7 +24,6 @@ else:
         .logo-text { font-family: 'Courier New', monospace; font-size: 28px; font-weight: bold; padding-top: 20px; }
         .logo-asset { color: #003366; } .logo-flow { color: #E30613; }
         @media (prefers-color-scheme: dark) { .logo-asset { color: #FFFFFF; } .logo-flow { color: #FF4B4B; } }
-        
         /* Estilos para o footer na barra lateral */
         .sidebar-footer { text-align: center; padding-top: 20px; padding-bottom: 20px; }
         .sidebar-footer a { margin-right: 15px; text-decoration: none; }
@@ -32,21 +31,51 @@ else:
         .sidebar-footer img:hover { filter: grayscale(0) opacity(1); }
         @media (prefers-color-scheme: dark) { .sidebar-footer img { filter: grayscale(1) opacity(0.6) invert(1); } .sidebar-footer img:hover { filter: opacity(1) invert(1); } }
 
-        /* --- NOVO: CSS PARA O ALERTA A PISCAR --- */
+        /* Estilo para o cartão de métrica personalizado */
+        .metric-card {
+            background-color: #f0f2f6;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid #e6e6e6;
+            margin-bottom: 10px; /* Adiciona espaço entre as linhas de métricas */
+        }
+        @media (prefers-color-scheme: dark) {
+            .metric-card {
+                background-color: #1E1E1E;
+                border: 1px solid #333;
+            }
+        }
+        .metric-card h3 {
+            margin: 0 0 5px 0;
+            color: #5a5a5a;
+            font-size: 1rem;
+        }
+        @media (prefers-color-scheme: dark) {
+            .metric-card h3 { color: #a0a0a0; }
+        }
+        .metric-card p {
+            font-size: 2rem;
+            font-weight: bold;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        /* Animação do ponto a piscar */
         @keyframes pulse {
-            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(227, 6, 19, 0.7); }
+            0% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(227, 6, 19, 0.7); }
             70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(227, 6, 19, 0); }
-            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(227, 6, 19, 0); }
+            100% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(227, 6, 19, 0); }
         }
         .blinking-dot {
-            height: 12px;
-            width: 12px;
+            height: 15px;
+            width: 15px;
             background-color: #E30613;
             border-radius: 50%;
             display: inline-block;
             margin-left: 10px;
             animation: pulse 1.5s infinite;
-            vertical-align: middle;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -69,16 +98,23 @@ else:
             """, unsafe_allow_html=True)
 
     # --- Funções do Banco de Dados para o Dashboard ---
+    def get_db_connection():
+        return st.connection("supabase", type="sql")
+
     @st.cache_data(ttl=600)
     def carregar_dados_dashboard():
         try:
             conn = get_db_connection()
             
+            # KPIs Ativos
             kpis_ativos = conn.query("SELECT COUNT(a.id), COALESCE(SUM(a.valor), 0) FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status != 'Baixado/Inutilizado'").iloc[0]
-            kpis_manutencao = conn.query("SELECT COUNT(a.id) FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status = 'Em manutenção'").iloc[0, 0] or 0
+            
+            # KPIs Manutenção e Estoque
+            kpis_manutencao = conn.query("SELECT COUNT(a.id), COALESCE(SUM(a.valor), 0) FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status = 'Em manutenção'").iloc[0]
             aparelhos_estoque = conn.query("SELECT COUNT(a.id) FROM aparelhos a JOIN status s ON a.status_id = s.id WHERE s.nome_status = 'Em estoque'").iloc[0, 0] or 0
             total_colaboradores = conn.query("SELECT COUNT(id) FROM colaboradores").iloc[0, 0] or 0
 
+            # KPI: Colaboradores com múltiplos aparelhos
             df_multiplos_ids = conn.query("""
                 WITH AparelhosPorColaborador AS (
                     SELECT h.colaborador_id FROM aparelhos a JOIN status s ON a.status_id = s.id
@@ -89,22 +125,20 @@ else:
             """)
             colaboradores_multiplos_aparelhos_count = len(df_multiplos_ids)
 
+            # Detalhes dos colaboradores e aparelhos
             df_detalhes_multiplos = pd.DataFrame()
             if not df_multiplos_ids.empty:
-                ids_colaboradores_list = df_multiplos_ids['colaborador_id'].tolist()
-                if ids_colaboradores_list:
-                    ids_colaboradores_tuple = tuple(ids_colaboradores_list)
-                    if ids_colaboradores_tuple:
-                        # Adiciona uma cláusula WHERE para evitar erro com tupla vazia
-                        df_detalhes_multiplos = conn.query(f"""
-                            SELECT c.nome_completo, setor.nome_setor, ma.nome_marca || ' - ' || mo.nome_modelo as modelo_completo, a.numero_serie, h.data_movimentacao
-                            FROM aparelhos a JOIN status s ON a.status_id = s.id
-                            JOIN (SELECT aparelho_id, colaborador_id, data_movimentacao, ROW_NUMBER() OVER(PARTITION BY aparelho_id ORDER BY data_movimentacao DESC) as rn FROM historico_movimentacoes WHERE colaborador_id IS NOT NULL) h ON a.id = h.aparelho_id AND h.rn = 1
-                            JOIN colaboradores c ON h.colaborador_id = c.id JOIN setores setor ON c.setor_id = setor.id JOIN modelos mo ON a.modelo_id = mo.id JOIN marcas ma ON mo.marca_id = ma.id
-                            WHERE s.nome_status = 'Em uso' AND c.id IN {ids_colaboradores_tuple}
-                            ORDER BY c.nome_completo, h.data_movimentacao;
-                        """)
+                ids_colaboradores = tuple(df_multiplos_ids['colaborador_id'].tolist())
+                df_detalhes_multiplos = conn.query(f"""
+                    SELECT c.nome_completo, setor.nome_setor, ma.nome_marca || ' - ' || mo.nome_modelo as modelo_completo, a.numero_serie, h.data_movimentacao
+                    FROM aparelhos a JOIN status s ON a.status_id = s.id
+                    JOIN (SELECT aparelho_id, colaborador_id, data_movimentacao, ROW_NUMBER() OVER(PARTITION BY aparelho_id ORDER BY data_movimentacao DESC) as rn FROM historico_movimentacoes WHERE colaborador_id IS NOT NULL) h ON a.id = h.aparelho_id AND h.rn = 1
+                    JOIN colaboradores c ON h.colaborador_id = c.id JOIN setores setor ON c.setor_id = setor.id JOIN modelos mo ON a.modelo_id = mo.id JOIN marcas ma ON mo.marca_id = ma.id
+                    WHERE s.nome_status = 'Em uso' AND c.id IN {ids_colaboradores}
+                    ORDER BY c.nome_completo, h.data_movimentacao;
+                """)
             
+            # Detalhes dos aparelhos em manutenção (para o novo modal)
             df_detalhes_manutencao = conn.query("""
                 SELECT a.numero_serie, mo.nome_modelo, m.fornecedor, m.data_envio, m.defeito_reportado
                 FROM manutencoes m
@@ -114,6 +148,7 @@ else:
                 ORDER BY m.data_envio ASC;
             """)
 
+            # Gráficos
             df_status = conn.query("SELECT s.nome_status, COUNT(a.id) as quantidade FROM aparelhos a JOIN status s ON a.status_id = s.id GROUP BY s.nome_status")
             df_setor = conn.query("""
                 SELECT s.nome_setor, COUNT(a.id) as quantidade
@@ -123,6 +158,7 @@ else:
                 WHERE st.nome_status = 'Em uso' GROUP BY s.nome_setor
             """)
 
+            # Painel de Ação Rápida
             data_limite = datetime.now() - timedelta(days=5)
             df_manut_atrasadas = conn.query("SELECT a.numero_serie, mo.nome_modelo, m.fornecedor, m.data_envio FROM manutencoes m JOIN aparelhos a ON m.aparelho_id = a.id JOIN modelos mo ON a.modelo_id = mo.id WHERE m.status_manutencao = 'Em Andamento' AND m.data_envio < :data_limite", params={"data_limite": data_limite})
             df_ultimas_mov = conn.query("SELECT h.data_movimentacao, h.colaborador_snapshot as nome_completo, s.nome_status, a.numero_serie FROM historico_movimentacoes h JOIN status s ON h.status_id = s.id JOIN aparelhos a ON h.aparelho_id = a.id ORDER BY h.data_movimentacao DESC LIMIT 5")
@@ -130,7 +166,7 @@ else:
             return {
                 "kpis": {
                     "total_aparelhos": kpis_ativos[0] or 0, "valor_total": kpis_ativos[1] or 0,
-                    "total_colaboradores": total_colaboradores, "aparelhos_manutencao": kpis_manutencao,
+                    "total_colaboradores": total_colaboradores, "aparelhos_manutencao": kpis_manutencao[0] or 0,
                     "aparelhos_estoque": aparelhos_estoque, "colaboradores_multiplos": colaboradores_multiplos_aparelhos_count
                 },
                 "graficos": {"status": df_status, "setor": df_setor},
@@ -179,44 +215,75 @@ else:
     st.markdown("---")
     st.subheader("Indicadores de Alerta")
     
-    # --- LÓGICA ATUALIZADA: Usando st.expander com título formatado via st.markdown ---
+    col5, col6 = st.columns(2)
     
-    num_manutencao = int(kpis['aparelhos_manutencao'])
-    if num_manutencao > 0:
-        label_manut_html = f"Aparelhos em Manutenção: **{num_manutencao}** <span class='blinking-dot'></span>"
-        with st.expander(label_manut_html, expanded=False):
+    # Cartão de Manutenção
+    with col5:
+        blinking_dot_manut = "<span class='blinking-dot'></span>" if int(kpis['aparelhos_manutencao']) > 0 else ""
+        st.markdown(f"""
+        <div class='metric-card'>
+            <h3>Aparelhos em Manutenção</h3>
+            <p>{int(kpis['aparelhos_manutencao'])}{blinking_dot_manut}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if int(kpis['aparelhos_manutencao']) > 0:
+            if st.button("Ver Detalhes", key="btn_manut", use_container_width=True):
+                st.session_state.show_manutencao_modal = True
+
+    # Cartão de Múltiplos Aparelhos
+    with col6:
+        blinking_dot_multi = "<span class='blinking-dot'></span>" if int(kpis['colaboradores_multiplos']) > 0 else ""
+        st.markdown(f"""
+        <div class='metric-card'>
+            <h3>Colaboradores com Múltiplos Aparelhos</h3>
+            <p>{int(kpis['colaboradores_multiplos'])}{blinking_dot_multi}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if int(kpis['colaboradores_multiplos']) > 0:
+            if st.button("Ver Detalhes", key="btn_multi", use_container_width=True):
+                st.session_state.show_multiplos_modal = True
+
+
+    # --- Lógica do Modal (Janela Pop-up) para Manutenções ---
+    if st.session_state.get("show_manutencao_modal", False):
+        with st.dialog("Detalhes de Aparelhos em Manutenção"):
             st.dataframe(
                 detalhes['manutencoes_em_andamento'],
-                hide_index=True, use_container_width=True,
+                hide_index=True,
+                use_container_width=True,
                 column_config={
-                    "numero_serie": "N/S", "nome_modelo": "Modelo", "fornecedor": "Fornecedor",
+                    "numero_serie": "N/S",
+                    "nome_modelo": "Modelo",
+                    "fornecedor": "Fornecedor",
                     "data_envio": st.column_config.DateColumn("Data de Envio", format="DD/MM/YYYY"),
                     "defeito_reportado": "Defeito Reportado"
                 }
             )
-    else:
-        st.metric("Aparelhos em Manutenção", num_manutencao)
+            if st.button("Fechar", key="close_manut_modal"):
+                st.session_state.show_manutencao_modal = False
+                st.rerun()
 
-    num_multiplos = int(kpis['colaboradores_multiplos'])
-    if num_multiplos > 0:
-        label_multi_html = f"Colaboradores com Múltiplos Aparelhos: **{num_multiplos}** <span class='blinking-dot'></span>"
-        with st.expander(f"🚨 {label_multi_html}", expanded=False):
+    # --- Lógica do Modal (Janela Pop-up) para Múltiplos Aparelhos ---
+    if st.session_state.get("show_multiplos_modal", False):
+        with st.dialog("Detalhes de Colaboradores com Múltiplos Aparelhos"):
             grouped = detalhes['multiplos_aparelhos'].groupby('nome_completo')
             for nome, grupo in grouped:
                 setor = grupo['nome_setor'].iloc[0]
                 st.markdown(f"**Nome:** {nome} | **Setor:** {setor}")
                 st.dataframe(
                     grupo[['modelo_completo', 'numero_serie', 'data_movimentacao']],
-                    hide_index=True, use_container_width=True,
+                    hide_index=True,
+                    use_container_width=True,
                     column_config={
-                        "modelo_completo": "Modelo do Aparelho", "numero_serie": "Número de Série",
+                        "modelo_completo": "Modelo do Aparelho",
+                        "numero_serie": "Número de Série",
                         "data_movimentacao": st.column_config.DatetimeColumn("Data da Entrega", format="DD/MM/YYYY HH:mm")
                     }
                 )
-    else:
-        st.metric("Colaboradores com Múltiplos Aparelhos", num_multiplos)
-
-
+            if st.button("Fechar", key="close_multi_modal"):
+                st.session_state.show_multiplos_modal = False
+                st.rerun()
+    
     st.markdown("---")
 
     st.subheader("Análise Operacional")
@@ -244,7 +311,9 @@ else:
     with acol1:
         st.markdown("###### Alerta: Manutenções Atrasadas (> 5 dias)")
         st.dataframe(acao_rapida['manut_atrasadas'], hide_index=True, use_container_width=True,
-                      column_config={"data_envio": st.column_config.DateColumn("Data de Envio", format="DD/MM/YYYY")})
+                      column_config={
+                          "data_envio": st.column_config.DateColumn("Data de Envio", format="DD/MM/YYYY")
+                      })
     with acol2:
         st.markdown("###### Últimas 5 Movimentações")
         st.dataframe(acao_rapida['ultimas_mov'], hide_index=True, use_container_width=True,
