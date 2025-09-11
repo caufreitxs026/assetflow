@@ -125,15 +125,17 @@ else:
             if not df_multiplos_ids.empty:
                 ids_colaboradores_list = df_multiplos_ids['colaborador_id'].tolist()
                 if ids_colaboradores_list:
-                    ids_colaboradores = tuple(ids_colaboradores_list)
-                    df_detalhes_multiplos = conn.query(f"""
-                        SELECT c.nome_completo, setor.nome_setor, ma.nome_marca || ' - ' || mo.nome_modelo as modelo_completo, a.numero_serie, h.data_movimentacao
-                        FROM aparelhos a JOIN status s ON a.status_id = s.id
-                        JOIN (SELECT aparelho_id, colaborador_id, data_movimentacao, ROW_NUMBER() OVER(PARTITION BY aparelho_id ORDER BY data_movimentacao DESC) as rn FROM historico_movimentacoes WHERE colaborador_id IS NOT NULL) h ON a.id = h.aparelho_id AND h.rn = 1
-                        JOIN colaboradores c ON h.colaborador_id = c.id JOIN setores setor ON c.setor_id = setor.id JOIN modelos mo ON a.modelo_id = mo.id JOIN marcas ma ON mo.marca_id = ma.id
-                        WHERE s.nome_status = 'Em uso' AND c.id IN {ids_colaboradores}
-                        ORDER BY c.nome_completo, h.data_movimentacao;
-                    """)
+                    ids_colaboradores_tuple = tuple(ids_colaboradores_list)
+                    # Adiciona uma verificação para garantir que a tupla não esteja vazia, o que causaria um erro de SQL
+                    if ids_colaboradores_tuple:
+                        df_detalhes_multiplos = conn.query(f"""
+                            SELECT c.nome_completo, setor.nome_setor, ma.nome_marca || ' - ' || mo.nome_modelo as modelo_completo, a.numero_serie, h.data_movimentacao
+                            FROM aparelhos a JOIN status s ON a.status_id = s.id
+                            JOIN (SELECT aparelho_id, colaborador_id, data_movimentacao, ROW_NUMBER() OVER(PARTITION BY aparelho_id ORDER BY data_movimentacao DESC) as rn FROM historico_movimentacoes WHERE colaborador_id IS NOT NULL) h ON a.id = h.aparelho_id AND h.rn = 1
+                            JOIN colaboradores c ON h.colaborador_id = c.id JOIN setores setor ON c.setor_id = setor.id JOIN modelos mo ON a.modelo_id = mo.id JOIN marcas ma ON mo.marca_id = ma.id
+                            WHERE s.nome_status = 'Em uso' AND c.id IN {ids_colaboradores_tuple}
+                            ORDER BY c.nome_completo, h.data_movimentacao;
+                        """)
             
             df_detalhes_manutencao = conn.query("""
                 SELECT a.numero_serie, mo.nome_modelo, m.fornecedor, m.data_envio, m.defeito_reportado
@@ -211,61 +213,46 @@ else:
     
     col5, col6 = st.columns(2)
     
-    # Cartão de Manutenção
+    # --- LÓGICA ATUALIZADA: Usando st.expander ---
     with col5:
         blinking_dot_manut = "<span class='blinking-dot'></span>" if int(kpis['aparelhos_manutencao']) > 0 else ""
-        st.markdown(f"""
-        <div class='metric-card'>
-            <h3>Aparelhos em Manutenção</h3>
-            <p>{int(kpis['aparelhos_manutencao'])}{blinking_dot_manut}</p>
-        </div>
-        """, unsafe_allow_html=True)
+        label_manut = f"Aparelhos em Manutenção: **{int(kpis['aparelhos_manutencao'])}**"
+        
         if int(kpis['aparelhos_manutencao']) > 0:
-            if st.button("Ver Detalhes", key="btn_manut", use_container_width=True):
-                st.session_state.show_manutencao_details = not st.session_state.get("show_manutencao_details", False)
+            with st.expander(label_manut):
+                 st.dataframe(
+                    detalhes['manutencoes_em_andamento'],
+                    hide_index=True, use_container_width=True,
+                    column_config={
+                        "numero_serie": "N/S", "nome_modelo": "Modelo", "fornecedor": "Fornecedor",
+                        "data_envio": st.column_config.DateColumn("Data de Envio", format="DD/MM/YYYY"),
+                        "defeito_reportado": "Defeito Reportado"
+                    }
+                )
+        else:
+            st.metric("Aparelhos em Manutenção", int(kpis['aparelhos_manutencao']))
 
-    # Cartão de Múltiplos Aparelhos
+
     with col6:
         blinking_dot_multi = "<span class='blinking-dot'></span>" if int(kpis['colaboradores_multiplos']) > 0 else ""
-        st.markdown(f"""
-        <div class='metric-card'>
-            <h3>Colaboradores com Múltiplos Aparelhos</h3>
-            <p>{int(kpis['colaboradores_multiplos'])}{blinking_dot_multi}</p>
-        </div>
-        """, unsafe_allow_html=True)
+        label_multi = f"Colaboradores com Múltiplos Aparelhos: **{int(kpis['colaboradores_multiplos'])}**"
+
         if int(kpis['colaboradores_multiplos']) > 0:
-            if st.button("Ver Detalhes", key="btn_multi", use_container_width=True):
-                st.session_state.show_multiplos_details = not st.session_state.get("show_multiplos_details", False)
-
-
-    # --- Lógica para exibir os detalhes abaixo dos alertas ---
-    if st.session_state.get("show_manutencao_details", False):
-        st.subheader("Detalhes de Aparelhos em Manutenção")
-        st.dataframe(
-            detalhes['manutencoes_em_andamento'],
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "numero_serie": "N/S", "nome_modelo": "Modelo", "fornecedor": "Fornecedor",
-                "data_envio": st.column_config.DateColumn("Data de Envio", format="DD/MM/YYYY"),
-                "defeito_reportado": "Defeito Reportado"
-            }
-        )
-
-    if st.session_state.get("show_multiplos_details", False):
-        st.subheader("Detalhes de Colaboradores com Múltiplos Aparelhos")
-        grouped = detalhes['multiplos_aparelhos'].groupby('nome_completo')
-        for nome, grupo in grouped:
-            setor = grupo['nome_setor'].iloc[0]
-            st.markdown(f"**Nome:** {nome} | **Setor:** {setor}")
-            st.dataframe(
-                grupo[['modelo_completo', 'numero_serie', 'data_movimentacao']],
-                hide_index=True, use_container_width=True,
-                column_config={
-                    "modelo_completo": "Modelo do Aparelho", "numero_serie": "Número de Série",
-                    "data_movimentacao": st.column_config.DatetimeColumn("Data da Entrega", format="DD/MM/YYYY HH:mm")
-                }
-            )
+            with st.expander(f"🚨 {label_multi}"):
+                grouped = detalhes['multiplos_aparelhos'].groupby('nome_completo')
+                for nome, grupo in grouped:
+                    setor = grupo['nome_setor'].iloc[0]
+                    st.markdown(f"**Nome:** {nome} | **Setor:** {setor}")
+                    st.dataframe(
+                        grupo[['modelo_completo', 'numero_serie', 'data_movimentacao']],
+                        hide_index=True, use_container_width=True,
+                        column_config={
+                            "modelo_completo": "Modelo do Aparelho", "numero_serie": "Número de Série",
+                            "data_movimentacao": st.column_config.DatetimeColumn("Data da Entrega", format="DD/MM/YYYY HH:mm")
+                        }
+                    )
+        else:
+            st.metric("Colaboradores com Múltiplos Aparelhos", int(kpis['colaboradores_multiplos']))
 
     st.markdown("---")
 
@@ -302,3 +289,4 @@ else:
                           "data_movimentacao": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY HH:mm"),
                           "nome_completo": "Colaborador"
                       })
+
