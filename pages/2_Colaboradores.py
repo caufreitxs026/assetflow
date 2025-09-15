@@ -281,7 +281,7 @@ try:
     
     option = st.radio(
         "Selecione a operação:",
-        ("Cadastrar Novo Colaborador", "Consultar Colaboradores", "Log de Desligamentos"),
+        ("Cadastrar Novo Colaborador", "Consultar Colaboradores", "Log de Excluídos"),
         horizontal=True,
         label_visibility="collapsed",
         key="colab_tab_selector"
@@ -340,7 +340,7 @@ try:
         setores_options = list(setores_dict.keys())
         
         if 'colabs_para_excluir' in st.session_state and st.session_state.colabs_para_excluir:
-            st.warning("⚠️ **Atenção!** Você está prestes a **excluir permanentemente** os seguintes colaboradores inativos. Esta ação não pode ser desfeita e os seus dados serão movidos para o log de desligamentos.")
+            st.warning("**Atenção!** Você está prestes a **excluir permanentemente** os seguintes colaboradores inativos. Esta ação não pode ser desfeita e os seus dados serão movidos para o Log de Excluídos.")
             
             for col_id_to_delete in st.session_state.colabs_para_excluir:
                 original_df = st.session_state[session_state_key]
@@ -423,7 +423,7 @@ try:
                 else:
                     st.info("Nenhuma alteração foi detetada.")
 
-    elif option == "Log de Desligamentos":
+    elif option == "Log de Excluídos":
         st.subheader("Histórico de Colaboradores Excluídos")
         log_df = carregar_log_desligados()
         if log_df.empty:
@@ -448,4 +448,3 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de colaboradores: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
-
