@@ -218,7 +218,7 @@ def inativar_colaborador(col_id):
         return False
 
 def excluir_colaborador_permanentemente(col_id):
-    """Move o colaborador para o log e depois o exclui permanentemente, desvinculando contas."""
+    """Move o colaborador para o log e depois o exclui permanentemente, desvinculando todas as referências."""
     try:
         conn = get_db_connection()
         with conn.session as s:
@@ -249,9 +249,10 @@ def excluir_colaborador_permanentemente(col_id):
             })
 
             # --- CORREÇÃO AQUI ---
-            # 3. Desvincula o colaborador de quaisquer contas Gmail associadas
-            query_unlink_gmail = text("UPDATE contas_gmail SET colaborador_id = NULL WHERE colaborador_id = :id")
-            s.execute(query_unlink_gmail, {"id": col_id})
+            # 3. Desvincula o colaborador de todas as tabelas referenciadas
+            s.execute(text("UPDATE contas_gmail SET colaborador_id = NULL WHERE colaborador_id = :id"), {"id": col_id})
+            s.execute(text("UPDATE historico_movimentacoes SET colaborador_id = NULL WHERE colaborador_id = :id"), {"id": col_id})
+            s.execute(text("UPDATE manutencoes SET colaborador_id_no_envio = NULL WHERE colaborador_id_no_envio = :id"), {"id": col_id})
 
             # 4. Exclui o colaborador da tabela principal
             query_delete = text("DELETE FROM colaboradores WHERE id = :id")
@@ -342,10 +343,10 @@ try:
             st.warning("⚠️ **Atenção!** Você está prestes a **excluir permanentemente** os seguintes colaboradores inativos. Esta ação não pode ser desfeita e os seus dados serão movidos para o log de desligamentos.")
             
             for col_id_to_delete in st.session_state.colabs_para_excluir:
-                # Acessa o dataframe original para garantir que o nome seja encontrado
                 original_df = st.session_state[session_state_key]
-                nome_colaborador = original_df.loc[original_df['id'] == col_id_to_delete, 'nome_completo'].iloc[0]
-                st.markdown(f"- **{nome_colaborador}** (ID: {col_id_to_delete})")
+                nome_colaborador_row = original_df.loc[original_df['id'] == col_id_to_delete, 'nome_completo']
+                if not nome_colaborador_row.empty:
+                    st.markdown(f"- **{nome_colaborador_row.iloc[0]}** (ID: {col_id_to_delete})")
 
             confirm_col1, confirm_col2 = st.columns(2)
             if confirm_col1.button("Confirmar Exclusão Definitiva", type="primary", use_container_width=True):
@@ -374,7 +375,7 @@ try:
                 },
                 hide_index=True, num_rows="dynamic", key="colaboradores_editor", use_container_width=True
             )
-            st.info("Para desligar um colaborador, altere o seu status para 'Inativo' ou, se já estiver inativo, remova a linha da tabela para iniciar a exclusão permanente.", icon="ℹ️")
+            st.info("Para desligar um colaborador, altere o seu status para 'Inativo' ou, se já estiver inativo, remova a linha da tabela para iniciar a exclusão permanente.")
             
             if st.button("Salvar Alterações", use_container_width=True, key="save_colabs_changes"):
                 original_df = st.session_state[session_state_key]
