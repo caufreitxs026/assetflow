@@ -218,12 +218,12 @@ def inativar_colaborador(col_id):
         return False
 
 def excluir_colaborador_permanentemente(col_id):
-    """Move o colaborador para o log e depois o exclui permanentemente."""
+    """Move o colaborador para o log e depois o exclui permanentemente, desvinculando contas."""
     try:
         conn = get_db_connection()
         with conn.session as s:
             s.begin()
-            # 1. Pega os dados do colaborador que será excluído
+            # 1. Pega os dados do colaborador
             query_select = text("""
                 SELECT c.id, c.codigo, c.nome_completo, c.cpf, c.gmail, s.nome_setor, c.data_cadastro
                 FROM colaboradores c
@@ -248,7 +248,12 @@ def excluir_colaborador_permanentemente(col_id):
                 "data_cad": colaborador.data_cadastro
             })
 
-            # 3. Exclui o colaborador da tabela principal
+            # --- CORREÇÃO AQUI ---
+            # 3. Desvincula o colaborador de quaisquer contas Gmail associadas
+            query_unlink_gmail = text("UPDATE contas_gmail SET colaborador_id = NULL WHERE colaborador_id = :id")
+            s.execute(query_unlink_gmail, {"id": col_id})
+
+            # 4. Exclui o colaborador da tabela principal
             query_delete = text("DELETE FROM colaboradores WHERE id = :id")
             s.execute(query_delete, {"id": col_id})
             
@@ -302,7 +307,6 @@ try:
     elif option == "Consultar Colaboradores":
         st.subheader("Colaboradores Registrados")
         
-        # --- FILTROS ---
         col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
         with col_filtro1:
             setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()))
@@ -334,12 +338,13 @@ try:
 
         setores_options = list(setores_dict.keys())
         
-        # Lógica de confirmação de exclusão
         if 'colabs_para_excluir' in st.session_state and st.session_state.colabs_para_excluir:
             st.warning("⚠️ **Atenção!** Você está prestes a **excluir permanentemente** os seguintes colaboradores inativos. Esta ação não pode ser desfeita e os seus dados serão movidos para o log de desligamentos.")
             
             for col_id_to_delete in st.session_state.colabs_para_excluir:
-                nome_colaborador = st.session_state[session_state_key].loc[st.session_state[session_state_key]['id'] == col_id_to_delete, 'nome_completo'].iloc[0]
+                # Acessa o dataframe original para garantir que o nome seja encontrado
+                original_df = st.session_state[session_state_key]
+                nome_colaborador = original_df.loc[original_df['id'] == col_id_to_delete, 'nome_completo'].iloc[0]
                 st.markdown(f"- **{nome_colaborador}** (ID: {col_id_to_delete})")
 
             confirm_col1, confirm_col2 = st.columns(2)
@@ -393,7 +398,7 @@ try:
 
                 if colabs_para_excluir_perm:
                     st.session_state.colabs_para_excluir = colabs_para_excluir_perm
-                    changes_made = True # Para forçar o rerun e mostrar a confirmação
+                    changes_made = True
                 
                 original_df_indexed = original_df.set_index('id')
                 edited_df_indexed = edited_df.set_index('id')
@@ -438,7 +443,6 @@ try:
                     "data_exclusao": st.column_config.DatetimeColumn("Data de Exclusão", format="DD/MM/YYYY HH:mm")
                 }
             )
-
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de colaboradores: {e}")
