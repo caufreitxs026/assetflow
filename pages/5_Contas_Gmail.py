@@ -52,7 +52,6 @@ with st.sidebar:
     st.write(f"Bem-vindo, **{st.session_state['user_name']}**!")
     st.write(f"Cargo, **{st.session_state['user_role']}**!")
     if st.button("Logout", key="gmail_logout"):
-        from auth import logout
         logout()
     st.markdown("---")
     st.markdown(
@@ -67,7 +66,6 @@ with st.sidebar:
 
 # --- Funções do Banco de Dados ---
 def get_db_connection():
-    """Retorna uma conexão ao banco de dados Supabase."""
     return st.connection("supabase", type="sql")
 
 def validar_formato_gmail(email):
@@ -76,10 +74,11 @@ def validar_formato_gmail(email):
     return re.match(padrao, email) is not None
 
 @st.cache_data(ttl=30)
-def carregar_setores_e_colaboradores():
+def carregar_setores_e_colaboradores_ativos():
     conn = get_db_connection()
     setores_df = conn.query("SELECT id, nome_setor FROM setores ORDER BY nome_setor;")
-    colaboradores_df = conn.query("SELECT id, nome_completo FROM colaboradores ORDER BY nome_completo;")
+    # --- MUDANÇA AQUI: Carrega apenas colaboradores ativos ---
+    colaboradores_df = conn.query("SELECT id, nome_completo FROM colaboradores WHERE status = 'Ativo' ORDER BY nome_completo;")
     return setores_df.to_dict('records'), colaboradores_df.to_dict('records')
 
 def adicionar_conta(email, senha, tel_rec, email_rec, setor_id, col_id):
@@ -117,25 +116,19 @@ def adicionar_conta(email, senha, tel_rec, email_rec, setor_id, col_id):
 
 @st.cache_data(ttl=30)
 def carregar_contas(order_by="cg.email ASC", search_term=None, setor_id=None):
-    """Carrega as contas com filtros de pesquisa e setor."""
     conn = get_db_connection()
-    
     params = {}
     where_clauses = []
-
     if setor_id:
         where_clauses.append("s.id = :setor_id")
         params["setor_id"] = setor_id
-    
     if search_term:
         search_like = f"%{search_term}%"
         where_clauses.append("(cg.email ILIKE :search OR c.nome_completo ILIKE :search)")
         params["search"] = search_like
-
     where_sql = ""
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
-
     query = f"""
         SELECT 
             cg.id, cg.email, cg.senha, cg.telefone_recuperacao, 
@@ -189,7 +182,7 @@ st.title("Gestão de Contas Gmail")
 st.markdown("---")
 
 try:
-    setores_list, colaboradores_list = carregar_setores_e_colaboradores()
+    setores_list, colaboradores_list = carregar_setores_e_colaboradores_ativos()
     setores_dict = {s['nome_setor']: s['id'] for s in setores_list}
     colaboradores_dict = {"Nenhum": None}
     colaboradores_dict.update({c['nome_completo']: c['id'] for c in colaboradores_list})
@@ -261,10 +254,11 @@ try:
             st.session_state[session_state_key] = contas_df.copy()
 
         setores_options = list(setores_dict.keys())
-        colaboradores_options = list(colaboradores_dict.keys())
+        # --- MUDANÇA AQUI: A lista de seleção agora também mostra apenas os ativos ---
+        colaboradores_options_select = list(colaboradores_dict.keys())
 
         edited_df = st.data_editor(
-            contas_df,
+            st.session_state[session_state_key],
             column_config={
                 "id": st.column_config.NumberColumn("ID", disabled=True),
                 "email": st.column_config.TextColumn("E-mail", disabled=True),
@@ -272,7 +266,7 @@ try:
                 "telefone_recuperacao": st.column_config.TextColumn("Telefone Recuperação"),
                 "email_recuperacao": st.column_config.TextColumn("E-mail Recuperação"),
                 "nome_setor": st.column_config.SelectboxColumn("Setor", options=setores_options),
-                "colaborador": st.column_config.SelectboxColumn("Colaborador", options=colaboradores_options),
+                "colaborador": st.column_config.SelectboxColumn("Colaborador", options=colaboradores_options_select),
             },
             hide_index=True,
             num_rows="dynamic",
@@ -284,14 +278,12 @@ try:
             original_df = st.session_state[session_state_key]
             changes_made = False
 
-            # Lógica para Exclusão
             deleted_ids = set(original_df['id']) - set(edited_df['id'])
             for conta_id in deleted_ids:
                 if excluir_conta(conta_id):
                     st.toast(f"Conta ID {conta_id} excluída!", icon="🗑️")
                     changes_made = True
 
-            # Lógica para Atualização
             original_df_indexed = original_df.set_index('id')
             edited_df_indexed = edited_df.set_index('id')
             common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
@@ -299,7 +291,6 @@ try:
             for conta_id in common_ids:
                 original_row = original_df_indexed.loc[conta_id]
                 edited_row = edited_df_indexed.loc[conta_id]
-
                 if not original_row.equals(edited_row):
                     novo_setor_id = setores_dict.get(edited_row['nome_setor'])
                     novo_col_id = colaboradores_dict.get(edited_row['colaborador'])
