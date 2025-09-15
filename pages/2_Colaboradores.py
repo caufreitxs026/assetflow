@@ -114,7 +114,8 @@ def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
         return False
 
 @st.cache_data(ttl=30)
-def carregar_colaboradores(order_by="c.nome_completo ASC", search_term=None, setor_id=None):
+def carregar_colaboradores(order_by="c.nome_completo ASC", search_term=None, setor_id=None, status_filter=None):
+    """Carrega os colaboradores, permitindo a ordenação e filtros dinâmicos."""
     conn = get_db_connection()
     params = {}
     where_clauses = []
@@ -122,6 +123,11 @@ def carregar_colaboradores(order_by="c.nome_completo ASC", search_term=None, set
     if setor_id:
         where_clauses.append("s.id = :setor_id")
         params["setor_id"] = setor_id
+    
+    # --- NOVO: Adiciona o filtro de status à query ---
+    if status_filter and status_filter != "Todos":
+        where_clauses.append("c.status = :status")
+        params["status"] = status_filter
     
     if search_term:
         search_like = f"%{search_term}%"
@@ -148,7 +154,6 @@ def carregar_colaboradores(order_by="c.nome_completo ASC", search_term=None, set
     """
     df = conn.query(query, params=params)
     
-    # --- NOVO: Adiciona a coluna visual de status ---
     df['Status Visual'] = df['status'].apply(lambda s: '🟢' if s == 'Ativo' else '🔴')
 
     for col in ['codigo', 'nome_completo', 'cpf', 'gmail', 'nome_setor', 'status']:
@@ -255,10 +260,13 @@ try:
     elif option == "Consultar Colaboradores":
         st.subheader("Colaboradores Registrados")
         
-        col_filtro1, col_filtro2 = st.columns(2)
+        # --- FILTROS ATUALIZADOS ---
+        col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
         with col_filtro1:
             setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()))
         with col_filtro2:
+            status_filtro = st.selectbox("Filtrar por Status:", ["Todos", "Ativo", "Inativo"])
+        with col_filtro3:
             termo_pesquisa = st.text_input("Pesquisar por Nome, Código ou Gmail:")
         
         setor_id_filtro = None
@@ -276,10 +284,11 @@ try:
         colaboradores_df = carregar_colaboradores(
             order_by=sort_options[sort_selection],
             search_term=termo_pesquisa,
-            setor_id=setor_id_filtro
+            setor_id=setor_id_filtro,
+            status_filter=status_filtro # Passa o novo filtro
         )
         
-        session_state_key = f"original_colabs_df_{sort_selection}_{termo_pesquisa}_{setor_filtro_nome}"
+        session_state_key = f"original_colabs_df_{sort_selection}_{termo_pesquisa}_{setor_filtro_nome}_{status_filtro}"
         if session_state_key not in st.session_state:
             for key in list(st.session_state.keys()):
                 if key.startswith('original_colabs_df_'):
@@ -290,17 +299,17 @@ try:
         
         edited_df = st.data_editor(
             st.session_state[session_state_key],
-            # --- NOVO: Define a ordem das colunas para ter o status visual na frente ---
+            # A coluna 'Status Visual' é para exibição e não pode ser editada. A 'status' é o controle real.
+            disabled=["Status Visual", "id"],
             column_order=("Status Visual", "codigo", "nome_completo", "cpf", "gmail", "nome_setor", "status"),
             column_config={
-                "id": None, # Oculta a coluna de ID
+                "id": None, 
                 "Status Visual": st.column_config.TextColumn("Status", help="🟢 Ativo | 🔴 Inativo", width="small"),
                 "codigo": st.column_config.TextColumn("Código", required=True),
                 "nome_completo": st.column_config.TextColumn("Nome Completo", required=True),
                 "cpf": st.column_config.TextColumn("CPF", required=True),
                 "gmail": st.column_config.TextColumn("Gmail"),
                 "nome_setor": st.column_config.SelectboxColumn("Setor", options=setores_options, required=True),
-                # --- NOVO: Renomeia a coluna de edição para maior clareza ---
                 "status": st.column_config.SelectboxColumn("Alterar Status", options=["Ativo", "Inativo"], required=True)
             },
             hide_index=True,
@@ -328,7 +337,6 @@ try:
                 original_row = original_df_indexed.loc[col_id]
                 edited_row = edited_df_indexed.loc[col_id]
 
-                # Compara as colunas relevantes, ignorando a visual
                 original_data = original_row.drop('Status Visual')
                 edited_data = edited_row.drop('Status Visual')
 
