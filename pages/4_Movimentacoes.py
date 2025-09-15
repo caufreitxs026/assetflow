@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
-from auth import show_login_form
+from auth import show_login_form, logout
 from sqlalchemy import text
 
 # --- Verificação de Autenticação ---
@@ -32,7 +32,6 @@ with st.sidebar:
     st.write(f"Bem-vindo, **{st.session_state['user_name']}**!")
     st.write(f"Cargo: **{st.session_state['user_role']}**")
     if st.button("Logout", key="mov_logout"):
-        from auth import logout
         logout()
     st.markdown("---")
     st.markdown(f"""
@@ -48,7 +47,7 @@ def get_db_connection():
 
 @st.cache_data(ttl=30)
 def carregar_dados_para_selects():
-    """Carrega aparelhos, colaboradores e status para as caixas de seleção."""
+    """Carrega aparelhos, colaboradores ATIVOS e status para as caixas de seleção."""
     conn = get_db_connection()
     aparelhos_df = conn.query("""
         SELECT a.id, a.numero_serie, mo.nome_modelo, ma.nome_marca
@@ -58,7 +57,8 @@ def carregar_dados_para_selects():
         WHERE a.status_id != (SELECT id FROM status WHERE nome_status = 'Baixado/Inutilizado')
         ORDER BY ma.nome_marca, mo.nome_modelo, a.numero_serie
     """)
-    colaboradores_df = conn.query("SELECT id, nome_completo FROM colaboradores ORDER BY nome_completo")
+    # --- MUDANÇA AQUI: Apenas colaboradores com status 'Ativo' são carregados ---
+    colaboradores_df = conn.query("SELECT id, nome_completo FROM colaboradores WHERE status = 'Ativo' ORDER BY nome_completo")
     status_df = conn.query("SELECT id, nome_status FROM status ORDER BY nome_status")
     return aparelhos_df.to_dict('records'), colaboradores_df.to_dict('records'), status_df.to_dict('records')
 
@@ -74,7 +74,7 @@ def registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_st
             if novo_status_nome == "Em manutenção":
                 query_last_user = text("""
                     SELECT colaborador_id, colaborador_snapshot FROM historico_movimentacoes 
-                    WHERE aparelho_id = :ap_id AND colaborador_id IS NOT NULL 
+                    WHERE aparelho_id = :ap_id AND (colaborador_id IS NOT NULL OR colaborador_snapshot IS NOT NULL)
                     ORDER BY data_movimentacao DESC LIMIT 1
                 """)
                 ultimo_colaborador = s.execute(query_last_user, {"ap_id": aparelho_id}).fetchone()
@@ -115,7 +115,6 @@ def registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_st
 
 @st.cache_data(ttl=30)
 def carregar_historico_completo(status_filter=None, start_date=None, end_date=None, search_term=None):
-    """Carrega o histórico completo de movimentações, com filtros avançados."""
     conn = get_db_connection()
     query = """
         SELECT 
@@ -130,33 +129,22 @@ def carregar_historico_completo(status_filter=None, start_date=None, end_date=No
     """
     params = {}
     where_clauses = []
-
     if status_filter and status_filter != "Todos":
         where_clauses.append("s.nome_status = :status")
         params['status'] = status_filter
-    
     if start_date:
         where_clauses.append("CAST(h.data_movimentacao AS DATE) >= :start_date")
         params['start_date'] = start_date
     if end_date:
         where_clauses.append("CAST(h.data_movimentacao AS DATE) <= :end_date")
         params['end_date'] = end_date
-
     if search_term:
         search_like = f"%{search_term}%"
-        where_clauses.append("""
-            (a.numero_serie ILIKE :search OR 
-             mo.nome_modelo ILIKE :search OR 
-             h.colaborador_snapshot ILIKE :search OR 
-             h.observacoes ILIKE :search)
-        """)
+        where_clauses.append("(a.numero_serie ILIKE :search OR mo.nome_modelo ILIKE :search OR h.colaborador_snapshot ILIKE :search OR h.observacoes ILIKE :search)")
         params['search'] = search_like
-
     if where_clauses:
         query += " WHERE " + " AND ".join(where_clauses)
-    
     query += " ORDER BY h.data_movimentacao DESC"
-    
     df = conn.query(query, params=params)
     return df
 
@@ -167,7 +155,6 @@ st.markdown("---")
 try:
     aparelhos_list, colaboradores_list, status_list = carregar_dados_para_selects()
 
-    # --- Seletor de Abas com st.radio para manter o estado ---
     option = st.radio(
         "Selecione a operação:",
         ("Registar Nova Movimentação", "Consultar Histórico"),
@@ -181,23 +168,13 @@ try:
         with st.form("form_movimentacao", clear_on_submit=True):
             st.subheader("Formulário de Movimentação")
             aparelhos_dict = {f"{ap['nome_marca']} {ap['nome_modelo']} (S/N: {ap['numero_serie']})": ap['id'] for ap in aparelhos_list}
-            aparelho_selecionado_str = st.selectbox(
-                "Selecione o Aparelho*",
-                options=aparelhos_dict.keys(),
-                index=None, placeholder="Selecione...",
-                help="Clique na lista e comece a digitar para pesquisar."
-            )
-
+            aparelho_selecionado_str = st.selectbox("Selecione o Aparelho*", options=aparelhos_dict.keys(), index=None, placeholder="Selecione...")
+            
             colaboradores_dict = {col['nome_completo']: col['id'] for col in colaboradores_list}
             opcoes_colaborador_com_nenhum = {"Nenhum": None}
             opcoes_colaborador_com_nenhum.update(colaboradores_dict)
             
-            colaborador_selecionado_str = st.selectbox(
-                "Atribuir ao Colaborador",
-                options=opcoes_colaborador_com_nenhum.keys(),
-                index=0,
-                help="Clique na lista e comece a digitar para pesquisar."
-            )
+            colaborador_selecionado_str = st.selectbox("Atribuir ao Colaborador", options=opcoes_colaborador_com_nenhum.keys(), index=0)
             
             status_dict = {s['nome_status']: s['id'] for s in status_list}
             novo_status_str = st.selectbox("Novo Status do Aparelho*", options=status_dict.keys())
@@ -221,32 +198,21 @@ try:
     elif option == "Consultar Histórico":
         st.subheader("Histórico de Movimentações")
         
-        # --- FILTROS ---
         col_filtro1, col_filtro2 = st.columns(2)
         with col_filtro1:
             search_term = st.text_input("Pesquisar por N/S, Modelo, Colaborador ou Obs:")
             status_options = ["Todos"] + [s['nome_status'] for s in status_list]
             status_filtro = st.selectbox("Filtrar por Status:", status_options)
-
         with col_filtro2:
             data_inicio = st.date_input("Período de:", value=None, format="DD/MM/YYYY")
             data_fim = st.date_input("Até:", value=None, format="DD/MM/YYYY")
 
-        historico_df = carregar_historico_completo(
-            status_filter=status_filtro, 
-            start_date=data_inicio, 
-            end_date=data_fim,
-            search_term=search_term
-        )
+        historico_df = carregar_historico_completo(status_filter=status_filtro, start_date=data_inicio, end_date=data_fim, search_term=search_term)
         
         st.dataframe(historico_df, use_container_width=True, hide_index=True, column_config={
             "data_movimentacao": st.column_config.DatetimeColumn("Data e Hora", format="DD/MM/YYYY HH:mm"),
-            "numero_serie": "N/S do Aparelho",
-            "nome_modelo": "Modelo",
-            "colaborador": "Colaborador",
-            "nome_status": "Status Registado",
-            "localizacao_atual": "Localização",
-            "observacoes": "Observações"
+            "numero_serie": "N/S do Aparelho", "nome_modelo": "Modelo", "colaborador": "Colaborador",
+            "nome_status": "Status Registado", "localizacao_atual": "Localização", "observacoes": "Observações"
         })
 
 except Exception as e:
