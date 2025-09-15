@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
-from auth import show_login_form
+from auth import show_login_form, logout
 from sqlalchemy import text
 import numpy as np
 
@@ -67,7 +67,6 @@ with st.sidebar:
 
 # --- Funções do DB ---
 def get_db_connection():
-    """Retorna uma conexão ao banco de dados Supabase."""
     return st.connection("supabase", type="sql")
 
 @st.cache_data(ttl=30)
@@ -85,7 +84,6 @@ def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
         with conn.session as s:
             s.begin()
             
-            # 1. Verifica se o CPF já existe
             query_check_cpf = text("SELECT 1 FROM colaboradores WHERE cpf = :cpf")
             cpf_existe = s.execute(query_check_cpf, {"cpf": cpf}).fetchone()
             if cpf_existe:
@@ -93,7 +91,6 @@ def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
                 s.rollback()
                 return False
 
-            # 2. Verifica se o CÓDIGO já existe PARA AQUELE SETOR
             query_check_codigo = text("SELECT 1 FROM colaboradores WHERE codigo = :codigo AND setor_id = :setor_id")
             codigo_existe = s.execute(query_check_codigo, {"codigo": str(codigo), "setor_id": setor_id}).fetchone()
             if codigo_existe:
@@ -102,8 +99,8 @@ def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
                 return False
 
             query_insert = text("""
-                INSERT INTO colaboradores (nome_completo, cpf, gmail, setor_id, data_cadastro, codigo) 
-                VALUES (:nome, :cpf, :gmail, :setor_id, :data, :codigo)
+                INSERT INTO colaboradores (nome_completo, cpf, gmail, setor_id, data_cadastro, codigo, status) 
+                VALUES (:nome, :cpf, :gmail, :setor_id, :data, :codigo, 'Ativo')
             """)
             s.execute(query_insert, {
                 "nome": nome, "cpf": cpf, "gmail": gmail, 
@@ -118,9 +115,7 @@ def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
 
 @st.cache_data(ttl=30)
 def carregar_colaboradores(order_by="c.nome_completo ASC", search_term=None, setor_id=None):
-    """Carrega os colaboradores, permitindo a ordenação e filtros dinâmicos."""
     conn = get_db_connection()
-    
     params = {}
     where_clauses = []
 
@@ -145,7 +140,7 @@ def carregar_colaboradores(order_by="c.nome_completo ASC", search_term=None, set
         order_clause = f"ORDER BY {order_by}"
 
     query = f"""
-        SELECT c.id, c.codigo, c.nome_completo, c.cpf, c.gmail, s.nome_setor
+        SELECT c.id, c.codigo, c.nome_completo, c.cpf, c.gmail, s.nome_setor, c.status
         FROM colaboradores c
         LEFT JOIN setores s ON c.setor_id = s.id
         {where_sql}
@@ -153,12 +148,12 @@ def carregar_colaboradores(order_by="c.nome_completo ASC", search_term=None, set
     """
     df = conn.query(query, params=params)
     
-    for col in ['codigo', 'nome_completo', 'cpf', 'gmail', 'nome_setor']:
+    for col in ['codigo', 'nome_completo', 'cpf', 'gmail', 'nome_setor', 'status']:
         if col in df.columns:
             df[col] = df[col].fillna('')
     return df
 
-def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id):
+def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id, status):
     try:
         conn = get_db_connection()
         with conn.session as s:
@@ -180,12 +175,12 @@ def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id):
 
             query = text("""
                 UPDATE colaboradores SET codigo = :codigo, nome_completo = :nome, 
-                cpf = :cpf, gmail = :gmail, setor_id = :setor_id 
+                cpf = :cpf, gmail = :gmail, setor_id = :setor_id, status = :status 
                 WHERE id = :id
             """)
             s.execute(query, {
                 "codigo": str(codigo), "nome": nome, "cpf": cpf, 
-                "gmail": gmail, "setor_id": setor_id, "id": col_id
+                "gmail": gmail, "setor_id": setor_id, "status": status, "id": col_id
             })
             s.commit()
         return True
@@ -193,19 +188,32 @@ def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id):
         st.error(f"Erro ao atualizar o colaborador ID {col_id}: {e}")
         return False
 
-def excluir_colaborador(col_id):
+def inativar_colaborador(col_id):
+    """Muda o status do colaborador para 'Inativo' em vez de excluir."""
     try:
         conn = get_db_connection()
         with conn.session as s:
-            query = text("DELETE FROM colaboradores WHERE id = :id")
-            s.execute(query, {"id": col_id})
+            # Verifica se o colaborador ainda possui aparelhos 'Em uso'
+            query_check = text("""
+                SELECT 1 FROM aparelhos a
+                JOIN status s ON a.status_id = s.id
+                JOIN (
+                    SELECT aparelho_id, colaborador_id, ROW_NUMBER() OVER(PARTITION BY aparelho_id ORDER BY data_movimentacao DESC) as rn
+                    FROM historico_movimentacoes
+                ) h ON a.id = h.aparelho_id AND h.rn = 1
+                WHERE s.nome_status = 'Em uso' AND h.colaborador_id = :col_id
+            """)
+            tem_aparelho = s.execute(query_check, {"col_id": col_id}).fetchone()
+            if tem_aparelho:
+                st.error(f"Erro: Não é possível inativar o colaborador, pois ele ainda possui aparelhos 'Em uso' associados. Por favor, processe a devolução primeiro.")
+                return False
+
+            query_update = text("UPDATE colaboradores SET status = 'Inativo' WHERE id = :id")
+            s.execute(query_update, {"id": col_id})
             s.commit()
         return True
     except Exception as e:
-        if 'foreign key constraint' in str(e).lower():
-            st.error(f"Erro: Não é possível excluir o colaborador ID {col_id}, pois ele possui aparelhos ou outros registos associados.")
-        else:
-            st.error(f"Erro ao excluir o colaborador ID {col_id}: {e}")
+        st.error(f"Erro ao inativar o colaborador ID {col_id}: {e}")
         return False
 
 # --- UI ---
@@ -216,16 +224,14 @@ try:
     setores_list = carregar_setores()
     setores_dict = {s['nome_setor']: s['id'] for s in setores_list}
     
-    # --- Seletor de Abas com st.radio para manter o estado ---
     option = st.radio(
         "Selecione a operação:",
         ("Cadastrar Novo Colaborador", "Consultar Colaboradores"),
         horizontal=True,
         label_visibility="collapsed",
-        key="colab_tab_selector" # Chave para que o Streamlit se lembre da seleção
+        key="colab_tab_selector"
     )
-    
-    st.markdown("---") # Linha divisória
+    st.markdown("---")
 
     if option == "Cadastrar Novo Colaborador":
         with st.form("form_novo_colaborador", clear_on_submit=True):
@@ -240,7 +246,6 @@ try:
                 setor_id = setores_dict.get(setor_selecionado_nome)
                 if adicionar_colaborador(novo_nome, novo_cpf, novo_gmail, setor_id, novo_codigo):
                     st.cache_data.clear()
-                    # Limpa chaves de estado para forçar recarregamento na outra aba
                     for key in list(st.session_state.keys()):
                         if key.startswith('original_colabs_df_'):
                             del st.session_state[key]
@@ -249,7 +254,6 @@ try:
     elif option == "Consultar Colaboradores":
         st.subheader("Colaboradores Registrados")
         
-        # --- FILTROS ---
         col_filtro1, col_filtro2 = st.columns(2)
         with col_filtro1:
             setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()))
@@ -260,11 +264,11 @@ try:
         if setor_filtro_nome != "Todos":
             setor_id_filtro = setores_dict.get(setor_filtro_nome)
 
-        # --- ORDENAÇÃO ---
         sort_options = {
             "Nome (A-Z)": "c.nome_completo ASC",
             "Código (Crescente)": "codigo ASC",
-            "Setor (A-Z)": "s.nome_setor ASC"
+            "Setor (A-Z)": "s.nome_setor ASC",
+            "Status (A-Z)": "c.status ASC"
         }
         sort_selection = st.selectbox("Organizar por:", options=sort_options.keys())
 
@@ -274,7 +278,6 @@ try:
             setor_id=setor_id_filtro
         )
         
-        # --- LÓGICA DE GESTÃO DO ESTADO PARA EDIÇÃO ---
         session_state_key = f"original_colabs_df_{sort_selection}_{termo_pesquisa}_{setor_filtro_nome}"
         if session_state_key not in st.session_state:
             for key in list(st.session_state.keys()):
@@ -285,32 +288,32 @@ try:
         setores_options = list(setores_dict.keys())
         
         edited_df = st.data_editor(
-            colaboradores_df,
+            st.session_state[session_state_key],
             column_config={
                 "id": st.column_config.NumberColumn("ID", disabled=True),
                 "codigo": st.column_config.TextColumn("Código", required=True),
                 "nome_completo": st.column_config.TextColumn("Nome Completo", required=True),
                 "cpf": st.column_config.TextColumn("CPF", required=True),
                 "gmail": st.column_config.TextColumn("Gmail"),
-                "nome_setor": st.column_config.SelectboxColumn(
-                    "Setor", options=setores_options, required=True
-                ),
+                "nome_setor": st.column_config.SelectboxColumn("Setor", options=setores_options, required=True),
+                "status": st.column_config.SelectboxColumn("Status", options=["Ativo", "Inativo"], required=True)
             },
             hide_index=True,
             num_rows="dynamic",
             key="colaboradores_editor",
             use_container_width=True
         )
+        st.info("Para desligar um colaborador, altere o seu status para 'Inativo' ou remova a linha e clique em 'Salvar Alterações'.", icon="ℹ️")
         
         if st.button("Salvar Alterações", use_container_width=True, key="save_colabs_changes"):
             original_df = st.session_state[session_state_key]
             changes_made = False
 
-            # Lógica para Exclusão
+            # Lógica para Inativação/Exclusão
             deleted_ids = set(original_df['id']) - set(edited_df['id'])
             for col_id in deleted_ids:
-                if excluir_colaborador(col_id):
-                    st.toast(f"Colaborador ID {col_id} excluído!", icon="🗑️")
+                if inativar_colaborador(col_id):
+                    st.toast(f"Colaborador ID {col_id} inativado!", icon="🗑️")
                     changes_made = True
 
             # Lógica para Atualização
@@ -324,7 +327,7 @@ try:
 
                 if not original_row.equals(edited_row):
                     novo_setor_id = setores_dict.get(edited_row['nome_setor'])
-                    if atualizar_colaborador(col_id, edited_row['codigo'], edited_row['nome_completo'], edited_row['cpf'], edited_row['gmail'], novo_setor_id):
+                    if atualizar_colaborador(col_id, edited_row['codigo'], edited_row['nome_completo'], edited_row['cpf'], edited_row['gmail'], novo_setor_id, edited_row['status']):
                         st.toast(f"Colaborador '{edited_row['nome_completo']}' atualizado!", icon="✅")
                         changes_made = True
 
