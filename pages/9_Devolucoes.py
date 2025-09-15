@@ -52,18 +52,13 @@ def carregar_aparelhos_em_uso():
     query = """
         WITH UltimaMovimentacao AS (
             SELECT
-                h.aparelho_id,
-                h.colaborador_id,
+                h.aparelho_id, h.colaborador_id,
                 ROW_NUMBER() OVER(PARTITION BY h.aparelho_id ORDER BY h.data_movimentacao DESC) as rn
             FROM historico_movimentacoes h
         )
         SELECT
-            a.id as aparelho_id,
-            a.numero_serie,
-            mo.nome_modelo,
-            ma.nome_marca,
-            c.id as colaborador_id,
-            c.nome_completo as colaborador_nome
+            a.id as aparelho_id, a.numero_serie, mo.nome_modelo, ma.nome_marca,
+            c.id as colaborador_id, c.nome_completo as colaborador_nome
         FROM aparelhos a
         JOIN status s ON a.status_id = s.id
         LEFT JOIN UltimaMovimentacao um ON a.id = um.aparelho_id AND um.rn = 1
@@ -134,62 +129,40 @@ def processar_devolucao(aparelho_id, colaborador_id, nome_colaborador_devolveu, 
 
 @st.cache_data(ttl=30)
 def carregar_historico_devolucoes(start_date=None, end_date=None):
-    """
-    Carrega o histórico de devoluções.
-    Dá prioridade ao nome guardado no 'snapshot', mas como fallback,
-    procura o nome do colaborador do registo anterior para dados antigos.
-    """
     conn = get_db_connection()
-    
     query = """
         WITH HistoricoComNomePrevio AS (
             SELECT
-                h.id,
-                h.data_movimentacao,
-                h.aparelho_id,
-                h.status_id,
-                h.localizacao_atual,
-                h.observacoes,
-                h.checklist_devolucao,
-                h.colaborador_snapshot,
-                -- Pega o ID do colaborador da movimentação anterior para o mesmo aparelho
+                h.id, h.data_movimentacao, h.aparelho_id, h.status_id, h.localizacao_atual,
+                h.observacoes, h.checklist_devolucao, h.colaborador_snapshot,
                 LAG(h.colaborador_id) OVER (PARTITION BY h.aparelho_id ORDER BY h.data_movimentacao) as prev_colaborador_id
             FROM historico_movimentacoes h
         )
         SELECT
-            h_prev.id,
-            h_prev.data_movimentacao,
+            h_prev.id, h_prev.data_movimentacao,
             ma.nome_marca || ' ' || mo.nome_modelo AS aparelho,
             a.numero_serie,
-            -- COALESCE dá prioridade ao snapshot, mas usa o nome do colaborador anterior se o snapshot for nulo
             COALESCE(h_prev.colaborador_snapshot, c.nome_completo) AS colaborador_devolveu,
             s.nome_status AS destino_final,
-            h_prev.localizacao_atual,
-            h_prev.observacoes,
-            h_prev.checklist_devolucao
+            h_prev.localizacao_atual, h_prev.observacoes, h_prev.checklist_devolucao
         FROM HistoricoComNomePrevio h_prev
         JOIN aparelhos a ON h_prev.aparelho_id = a.id
         JOIN status s ON h_prev.status_id = s.id
         JOIN modelos mo ON a.modelo_id = mo.id
         JOIN marcas ma ON mo.marca_id = ma.id
         LEFT JOIN colaboradores c ON h_prev.prev_colaborador_id = c.id
-        WHERE 
-            h_prev.checklist_devolucao IS NOT NULL
+        WHERE h_prev.checklist_devolucao IS NOT NULL
     """
-    
     params = {}
     conditions = []
-
     if start_date:
         conditions.append("CAST(h_prev.data_movimentacao AS DATE) >= :start_date")
         params['start_date'] = start_date
     if end_date:
         conditions.append("CAST(h_prev.data_movimentacao AS DATE) <= :end_date")
         params['end_date'] = end_date
-
     if conditions:
         query += " AND " + " AND ".join(conditions)
-    
     query += " ORDER BY h_prev.data_movimentacao DESC"
     
     df = conn.query(query, params=params)
@@ -198,7 +171,6 @@ def carregar_historico_devolucoes(start_date=None, end_date=None):
         df['checklist_detalhes'] = df['checklist_devolucao'].apply(
             lambda x: json.loads(x) if isinstance(x, str) and x.strip() else (x if isinstance(x, dict) else {})
         )
-    
     return df
 
 # --- Interface Principal ---
@@ -239,10 +211,9 @@ try:
                 aparelho_selecionado_data = aparelhos_dict[aparelho_selecionado_str]
                 aparelho_id = aparelho_selecionado_data['aparelho_id']
                 colaborador_id = aparelho_selecionado_data['colaborador_id']
-                colaborador_nome = aparelho_selecionado_data['colaborador_nome'] # Captura o nome para o snapshot
+                colaborador_nome = aparelho_selecionado_data['colaborador_nome']
 
                 st.markdown("---")
-
                 st.subheader("2. Realize a Inspeção e Decida o Destino Final")
                 with st.form("form_devolucao"):
                     st.markdown("##### Checklist de Devolução")
@@ -254,7 +225,6 @@ try:
                     cols = st.columns(2)
                     for i, item in enumerate(itens_checklist):
                         with cols[i % 2]:
-                            # Usar uma chave única para cada widget dentro do loop
                             entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{aparelho_id}")
                             estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}_{aparelho_id}", label_visibility="collapsed")
                             checklist_data[item] = {'entregue': entregue, 'estado': estado}
@@ -266,8 +236,7 @@ try:
                     destino_final = st.radio(
                         "Selecione o destino do aparelho após a inspeção:",
                         ["Devolver ao Estoque", "Enviar para Manutenção", "Baixar/Inutilizado"],
-                        horizontal=True,
-                        key="destino_final"
+                        horizontal=True, key="destino_final"
                     )
 
                     submitted = st.form_submit_button("Processar Devolução", use_container_width=True, type="primary")
@@ -293,12 +262,9 @@ try:
         else:
             df_para_exibir = historico_df.drop(columns=['id', 'checklist_devolucao', 'checklist_detalhes'], errors='ignore').copy()
             df_para_exibir.rename(columns={
-                'data_movimentacao': 'Data da Devolução',
-                'aparelho': 'Aparelho',
-                'numero_serie': 'N/S do Aparelho',
-                'colaborador_devolveu': 'Devolvido por',
-                'destino_final': 'Destino Final',
-                'localizacao_atual': 'Localização Pós-Devolução',
+                'data_movimentacao': 'Data da Devolução', 'aparelho': 'Aparelho',
+                'numero_serie': 'N/S do Aparelho', 'colaborador_devolveu': 'Devolvido por',
+                'destino_final': 'Destino Final', 'localizacao_atual': 'Localização Pós-Devolução',
                 'observacoes': 'Observações'
             }, inplace=True)
             
@@ -324,9 +290,7 @@ try:
 
             if linha_selecionada_str:
                 selected_id = int(linha_selecionada_str.split(':')[0].replace('ID ', ''))
-                
                 linha_selecionada_data = historico_df[historico_df['id'] == selected_id].iloc[0]
-                
                 checklist_info = linha_selecionada_data.get('checklist_detalhes', {})
                 
                 if isinstance(checklist_info, dict) and checklist_info:
