@@ -148,6 +148,9 @@ def carregar_colaboradores(order_by="c.nome_completo ASC", search_term=None, set
     """
     df = conn.query(query, params=params)
     
+    # --- NOVO: Adiciona a coluna visual de status ---
+    df['Status Visual'] = df['status'].apply(lambda s: '🟢' if s == 'Ativo' else '🔴')
+
     for col in ['codigo', 'nome_completo', 'cpf', 'gmail', 'nome_setor', 'status']:
         if col in df.columns:
             df[col] = df[col].fillna('')
@@ -189,11 +192,9 @@ def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id, status):
         return False
 
 def inativar_colaborador(col_id):
-    """Muda o status do colaborador para 'Inativo' em vez de excluir."""
     try:
         conn = get_db_connection()
         with conn.session as s:
-            # Verifica se o colaborador ainda possui aparelhos 'Em uso'
             query_check = text("""
                 SELECT 1 FROM aparelhos a
                 JOIN status s ON a.status_id = s.id
@@ -231,7 +232,7 @@ try:
         label_visibility="collapsed",
         key="colab_tab_selector"
     )
-    st.markdown("---")
+    st.markdown("---") 
 
     if option == "Cadastrar Novo Colaborador":
         with st.form("form_novo_colaborador", clear_on_submit=True):
@@ -289,34 +290,36 @@ try:
         
         edited_df = st.data_editor(
             st.session_state[session_state_key],
+            # --- NOVO: Define a ordem das colunas para ter o status visual na frente ---
+            column_order=("Status Visual", "codigo", "nome_completo", "cpf", "gmail", "nome_setor", "status"),
             column_config={
-                "id": st.column_config.NumberColumn("ID", disabled=True),
+                "id": None, # Oculta a coluna de ID
+                "Status Visual": st.column_config.TextColumn("Status", help="🟢 Ativo | 🔴 Inativo", width="small"),
                 "codigo": st.column_config.TextColumn("Código", required=True),
                 "nome_completo": st.column_config.TextColumn("Nome Completo", required=True),
                 "cpf": st.column_config.TextColumn("CPF", required=True),
                 "gmail": st.column_config.TextColumn("Gmail"),
                 "nome_setor": st.column_config.SelectboxColumn("Setor", options=setores_options, required=True),
-                "status": st.column_config.SelectboxColumn("Status", options=["Ativo", "Inativo"], required=True)
+                # --- NOVO: Renomeia a coluna de edição para maior clareza ---
+                "status": st.column_config.SelectboxColumn("Alterar Status", options=["Ativo", "Inativo"], required=True)
             },
             hide_index=True,
             num_rows="dynamic",
             key="colaboradores_editor",
             use_container_width=True
         )
-        st.info("Para desligar um colaborador, altere o seu status para 'Inativo' ou remova a linha e clique em 'Salvar Alterações'.", icon="ℹ️")
+        st.info("Para desligar um colaborador, altere o seu status para 'Inativo' ou remova a linha da tabela e clique em 'Salvar Alterações'.", icon="ℹ️")
         
         if st.button("Salvar Alterações", use_container_width=True, key="save_colabs_changes"):
             original_df = st.session_state[session_state_key]
             changes_made = False
 
-            # Lógica para Inativação/Exclusão
             deleted_ids = set(original_df['id']) - set(edited_df['id'])
             for col_id in deleted_ids:
                 if inativar_colaborador(col_id):
                     st.toast(f"Colaborador ID {col_id} inativado!", icon="🗑️")
                     changes_made = True
 
-            # Lógica para Atualização
             original_df_indexed = original_df.set_index('id')
             edited_df_indexed = edited_df.set_index('id')
             common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
@@ -325,7 +328,11 @@ try:
                 original_row = original_df_indexed.loc[col_id]
                 edited_row = edited_df_indexed.loc[col_id]
 
-                if not original_row.equals(edited_row):
+                # Compara as colunas relevantes, ignorando a visual
+                original_data = original_row.drop('Status Visual')
+                edited_data = edited_row.drop('Status Visual')
+
+                if not original_data.equals(edited_data):
                     novo_setor_id = setores_dict.get(edited_row['nome_setor'])
                     if atualizar_colaborador(col_id, edited_row['codigo'], edited_row['nome_completo'], edited_row['cpf'], edited_row['gmail'], novo_setor_id, edited_row['status']):
                         st.toast(f"Colaborador '{edited_row['nome_completo']}' atualizado!", icon="✅")
