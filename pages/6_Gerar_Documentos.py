@@ -159,24 +159,28 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
     (Art. 462, § 1º da CLT). Autorizo o uso dos meus dados para este fim, de acordo com a LGPD.
     """
 
-    # --- HTML ATUALIZADO COM A LOGO ---
     html_string = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <meta charset="UTF-8">
         <style>
-            @page {{ size: A4; margin: 1.5cm; }}
+            /* --- AJUSTES AQUI --- */
+            @page {{ size: A4; margin: 1cm; }} /* Margem da folha reduzida */
             body {{ font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.3; color: #333; }}
             
-            .header {{ text-align: center; margin-bottom: 20px; }}
-            h1 {{ color: #003366; font-size: 16pt; margin: 0; padding-top: 10px; }}
+            .header {{ 
+                text-align: center; 
+                margin-bottom: 20px;
+                padding-top: 40px; /* Adiciona espaço para a logo não sobrepor o título */
+            }}
+            h1 {{ color: #003366; font-size: 16pt; margin: 0; }}
 
             .logo {{
                 position: absolute;
-                top: 0.5cm;
-                left: 0.5cm;
-                width: 150px; /* Ajuste o tamanho conforme necessário */
+                top: 0cm; /* Move a logo para o topo da margem */
+                left: 0cm;  /* Move a logo para a esquerda da margem */
+                width: 150px; 
             }}
             
             .section {{ margin-bottom: 8px; }}
@@ -317,7 +321,6 @@ try:
 
                     submitted = st.form_submit_button("Gerar PDF", use_container_width=True, type="primary")
                     if submitted:
-                        # Carrega a logo antes de gerar o PDF
                         logo_string = carregar_logo_base64()
                         if logo_string:
                             pdf_bytes = gerar_pdf_termo(dados_termo_editaveis, checklist_data, logo_string)
