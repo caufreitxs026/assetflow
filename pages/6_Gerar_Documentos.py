@@ -209,7 +209,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
         <div class="section">
             <div class="section-title">DADOS DA MOVIMENTAÇÃO</div>
             <table class="info-table">
-                <tr><td>CÓDIGO DO COLABORADOR:</td><td>{dados.get('codigo_colaborador', '')}</td></tr>
+                <tr><td>CÓDIGO:</td><td>{dados.get('codigo_colaborador', '')}</td></tr>
                 <tr><td>DATA:</td><td>{dados.get('data_movimentacao_formatada', '')}</td></tr>
             </table>
         </div>
@@ -344,4 +344,5 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página: {e}")
     st.info("Verifique se o banco de dados está inicializado e se há movimentações do tipo 'Em uso' registadas.")
+
 
