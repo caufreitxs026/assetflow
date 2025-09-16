@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from auth import show_login_form
+from auth import show_login_form, logout
 from sqlalchemy import text
 from weasyprint import HTML
 
@@ -65,15 +65,23 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-# --- Funções do DB ---
+# --- Funções do DB e Auxiliares ---
 def get_db_connection():
     return st.connection("supabase", type="sql")
+
+@st.cache_data(ttl=3600)
+def carregar_logo_base64():
+    """Lê a string Base64 da logo a partir de um ficheiro para manter o código limpo."""
+    try:
+        with open("logo.b64", "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        st.error("Ficheiro 'logo.b64' não encontrado. Por favor, crie o ficheiro com o código Base64 da sua logo.")
+        return ""
 
 @st.cache_data(ttl=30)
 def carregar_movimentacoes_entrega():
     conn = get_db_connection()
-    # CORREÇÃO: Esta query agora busca a ÚLTIMA movimentação de cada aparelho
-    # e SÓ inclui na lista se o STATUS ATUAL do aparelho for 'Em uso'.
     query = """
         WITH LatestMovements AS (
             SELECT
@@ -85,25 +93,14 @@ def carregar_movimentacoes_entrega():
                 aparelho_id
         )
         SELECT
-            h.id,
-            h.data_movimentacao,
-            a.numero_serie,
-            c.nome_completo
-        FROM
-            historico_movimentacoes h
-        JOIN
-            LatestMovements lm ON h.aparelho_id = lm.aparelho_id AND h.data_movimentacao = lm.last_move_date
-        JOIN
-            aparelhos a ON h.aparelho_id = a.id
-        JOIN
-            status s ON a.status_id = s.id -- Junção com o status ATUAL do aparelho
-        LEFT JOIN
-            colaboradores c ON h.colaborador_id = c.id
-        WHERE
-            s.nome_status = 'Em uso' -- Filtra pelo status ATUAL do aparelho
-            AND c.id IS NOT NULL
-        ORDER BY
-            h.data_movimentacao DESC;
+            h.id, h.data_movimentacao, a.numero_serie, c.nome_completo
+        FROM historico_movimentacoes h
+        JOIN LatestMovements lm ON h.aparelho_id = lm.aparelho_id AND h.data_movimentacao = lm.last_move_date
+        JOIN aparelhos a ON h.aparelho_id = a.id
+        JOIN status s ON a.status_id = s.id
+        LEFT JOIN colaboradores c ON h.colaborador_id = c.id
+        WHERE s.nome_status = 'Em uso' AND c.id IS NOT NULL AND c.status = 'Ativo'
+        ORDER BY h.data_movimentacao DESC;
     """
     df = conn.query(query)
     return df.to_dict('records')
@@ -111,7 +108,6 @@ def carregar_movimentacoes_entrega():
 @st.cache_data(ttl=30)
 def buscar_dados_termo(mov_id):
     conn = get_db_connection()
-    # Query agora busca o código do colaborador
     query = """
         SELECT
             c.nome_completo, c.cpf, s.nome_setor, c.gmail, c.codigo as codigo_colaborador,
@@ -135,13 +131,12 @@ def carregar_setores_nomes():
     return df['nome_setor'].tolist()
 
 
-def gerar_pdf_termo(dados, checklist_data):
-    """Gera o PDF a partir de um template HTML usando WeasyPrint."""
+def gerar_pdf_termo(dados, checklist_data, logo_string):
+    """Gera o PDF a partir de um template HTML, agora incluindo a logo."""
     
     data_mov = dados.get('data_movimentacao')
     if isinstance(data_mov, str):
         try:
-            # Tenta converter a string de volta para datetime e formata
             data_formatada = datetime.strptime(data_mov, '%d/%m/%Y %H:%M').strftime('%d/%m/%Y %H:%M')
         except ValueError:
             data_formatada = data_mov 
@@ -152,7 +147,6 @@ def gerar_pdf_termo(dados, checklist_data):
     
     dados['data_movimentacao_formatada'] = data_formatada
 
-    # Constrói a parte do checklist da tabela HTML
     checklist_html = ""
     for item, detalhes in checklist_data.items():
         entregue_str = 'SIM' if detalhes['entregue'] else 'NÃO'
@@ -165,7 +159,7 @@ def gerar_pdf_termo(dados, checklist_data):
     (Art. 462, § 1º da CLT). Autorizo o uso dos meus dados para este fim, de acordo com a LGPD.
     """
 
-    # AJUSTE: Troca de 'protocolo' por 'codigo_colaborador' e do label.
+    # --- HTML ATUALIZADO COM A LOGO ---
     html_string = f"""
     <!DOCTYPE html>
     <html>
@@ -175,14 +169,21 @@ def gerar_pdf_termo(dados, checklist_data):
             @page {{ size: A4; margin: 1.5cm; }}
             body {{ font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.3; color: #333; }}
             
-            .header {{ text-align: center; margin-bottom: 15px; border-bottom: 2px solid #003366; padding-bottom: 8px; }}
-            h1 {{ color: #003366; font-size: 18pt; margin: 0; }}
+            .header {{ text-align: center; margin-bottom: 20px; }}
+            h1 {{ color: #003366; font-size: 16pt; margin: 0; padding-top: 10px; }}
+
+            .logo {{
+                position: absolute;
+                top: 0.5cm;
+                left: 0.5cm;
+                width: 150px; /* Ajuste o tamanho conforme necessário */
+            }}
             
-            .section {{ margin-bottom: 10px; }}
+            .section {{ margin-bottom: 8px; }}
             .section-title {{ background-color: #003366; color: white; padding: 4px 8px; font-weight: bold; font-size: 11pt; border-radius: 4px;}}
             
             .info-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; }}
-            .info-table td {{ padding: 4px; border: none; }}
+            .info-table td {{ padding: 3px; border: none; }}
             .info-table td:first-child {{ font-weight: bold; width: 25%; }}
             
             .checklist-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; }}
@@ -190,20 +191,21 @@ def gerar_pdf_termo(dados, checklist_data):
             .checklist-table th {{ background-color: #f2f2f2; text-align: center; border-bottom: 2px solid #ccc;}}
             .checklist-table td:nth-child(2), .checklist-table td:nth-child(3) {{ text-align: center; }}
             
-            .disclaimer {{ font-size: 8pt; text-align: justify; margin-top: 8px; padding: 0 5px; }}
+            .disclaimer {{ font-size: 8pt; text-align: justify; margin-top: 5px; padding: 0 5px; }}
             
-            .signature {{ margin-top: 30px; text-align: center; }} 
+            .signature {{ margin-top: 25px; text-align: center; }} 
             .signature-line {{ border-top: 1px solid #000; width: 350px; margin: 0 auto; padding-top: 5px; }}
         </style>
     </head>
     <body>
+        <img src="{logo_string}" class="logo">
         <div class="header">
             <h1>TERMO DE RESPONSABILIDADE</h1>
         </div>
         <div class="section">
             <div class="section-title">DADOS DA MOVIMENTAÇÃO</div>
             <table class="info-table">
-                <tr><td>CÓDIGO:</td><td>{dados.get('codigo_colaborador', '')}</td></tr>
+                <tr><td>CÓDIGO DO COLABORADOR:</td><td>{dados.get('codigo_colaborador', '')}</td></tr>
                 <tr><td>DATA:</td><td>{dados.get('data_movimentacao_formatada', '')}</td></tr>
             </table>
         </div>
@@ -238,7 +240,6 @@ def gerar_pdf_termo(dados, checklist_data):
             <p class="disclaimer">{texto_termos_resumido}</p>
         </div>
         <div class="signature">
-            <br>
             <div class="signature-line">{dados.get('nome_completo', '')}</div>
         </div>
     </body>
@@ -278,7 +279,6 @@ try:
                 with st.form("checkout_form"):
                     dados_termo_editaveis = dados_termo_original.copy()
 
-                    # AJUSTE: Troca de 'Protocolo' por 'Código do Colaborador'.
                     dados_termo_editaveis['codigo_colaborador'] = st.text_input("Código do Colaborador", value=dados_termo_original.get('codigo_colaborador', ''))
                     data_str = dados_termo_original['data_movimentacao'].strftime('%d/%m/%Y %H:%M')
                     dados_termo_editaveis['data_movimentacao'] = st.text_input("Data", value=data_str)
@@ -317,13 +317,16 @@ try:
 
                     submitted = st.form_submit_button("Gerar PDF", use_container_width=True, type="primary")
                     if submitted:
-                        pdf_bytes = gerar_pdf_termo(dados_termo_editaveis, checklist_data)
-                        
-                        safe_name = "".join(c for c in dados_termo_editaveis.get('nome_completo', 'termo') if c.isalnum() or c in " ").rstrip()
-                        pdf_filename = f"Termo_{safe_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
-                        
-                        st.session_state['pdf_para_download'] = {"data": pdf_bytes, "filename": pdf_filename}
-                        st.rerun()
+                        # Carrega a logo antes de gerar o PDF
+                        logo_string = carregar_logo_base64()
+                        if logo_string:
+                            pdf_bytes = gerar_pdf_termo(dados_termo_editaveis, checklist_data, logo_string)
+                            
+                            safe_name = "".join(c for c in dados_termo_editaveis.get('nome_completo', 'termo') if c.isalnum() or c in " ").rstrip()
+                            pdf_filename = f"Termo_{safe_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                            
+                            st.session_state['pdf_para_download'] = {"data": pdf_bytes, "filename": pdf_filename}
+                            st.rerun()
     
     if 'pdf_para_download' in st.session_state and st.session_state['pdf_para_download']:
         pdf_info = st.session_state.pop('pdf_para_download')
@@ -338,3 +341,4 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página: {e}")
     st.info("Verifique se o banco de dados está inicializado e se há movimentações do tipo 'Em uso' registadas.")
+
