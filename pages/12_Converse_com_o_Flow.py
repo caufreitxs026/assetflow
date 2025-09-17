@@ -181,16 +181,96 @@ def consultar_gmail(filtros):
     return conn.query(query, params=params)
 
 def executar_criar_colaborador(dados):
-    #... (código da função sem alterações)
-    pass
+    if not dados or not all(k in dados for k in ['nome_completo', 'codigo', 'cpf', 'nome_setor']):
+        return "Não foi possível criar o colaborador. Faltam informações essenciais (nome, código, CPF e setor)."
+    conn = get_db_connection()
+    try:
+        with conn.session as s:
+            s.begin()
+            setor_id_res = s.execute(text("SELECT id FROM setores WHERE nome_setor ILIKE :nome LIMIT 1"), {"nome": f"%{dados['nome_setor']}%"}).fetchone()
+            if not setor_id_res:
+                s.rollback()
+                return f"Erro: O setor '{dados['nome_setor']}' não foi encontrado."
+            setor_id = setor_id_res[0]
+            
+            q_check = text("SELECT 1 FROM colaboradores WHERE (cpf = :cpf AND cpf IS NOT NULL AND cpf != '') OR (codigo = :codigo AND setor_id = :setor_id)")
+            existe = s.execute(q_check, {"cpf": dados.get('cpf'), "codigo": dados.get('codigo'), "setor_id": setor_id}).fetchone()
+            if existe:
+                s.rollback()
+                return "Erro: Já existe um colaborador com este CPF ou com este código neste setor."
+
+            s.execute(
+                text("INSERT INTO colaboradores (nome_completo, codigo, cpf, gmail, setor_id, data_cadastro, status) VALUES (:nome, :codigo, :cpf, :gmail, :setor_id, :data, 'Ativo')"),
+                {"nome": dados['nome_completo'], "codigo": dados.get('codigo'), "cpf": dados.get('cpf'), "gmail": dados.get('gmail'), "setor_id": setor_id, "data": date.today()}
+            )
+            s.commit()
+        st.cache_data.clear()
+        return f"Colaborador '{dados['nome_completo']}' criado com sucesso!"
+    except Exception as e:
+        return f"Ocorreu um erro inesperado ao criar o colaborador: {e}"
 
 def executar_criar_aparelho(dados):
-    #... (código da função sem alterações)
-    pass
+    if not dados or not all(k in dados for k in ['marca', 'modelo', 'numero_serie', 'valor']):
+        return "Faltam informações para criar o aparelho (Marca, Modelo, N/S, Valor)."
+    conn = get_db_connection()
+    try:
+        with conn.session as s:
+            s.begin()
+            query_modelo = text("SELECT mo.id FROM modelos mo JOIN marcas ma ON mo.marca_id = ma.id WHERE ma.nome_marca ILIKE :marca AND mo.nome_modelo ILIKE :modelo")
+            modelo_id_result = s.execute(query_modelo, {"marca": dados['marca'], "modelo": dados['modelo']}).fetchone()
+            if not modelo_id_result:
+                s.rollback()
+                return f"Erro: O modelo '{dados['marca']} - {dados['modelo']}' não foi encontrado. Cadastre-o primeiro."
+            
+            modelo_id = modelo_id_result[0]
+            status_id = s.execute(text("SELECT id FROM status WHERE nome_status = 'Em estoque'")).scalar_one()
+            
+            q_aparelho = text("INSERT INTO aparelhos (numero_serie, imei1, imei2, valor, modelo_id, status_id, data_cadastro) VALUES (:ns, :i1, :i2, :val, :mid, :sid, :data) RETURNING id")
+            result = s.execute(q_aparelho, {"ns": dados['numero_serie'], "i1": dados.get('imei1'), "i2": dados.get('imei2'), "val": float(dados['valor']), "mid": modelo_id, "sid": status_id, "data": date.today()})
+            aparelho_id = result.scalar_one()
+            
+            q_hist = text("INSERT INTO historico_movimentacoes (data_movimentacao, aparelho_id, status_id, localizacao_atual, observacoes) VALUES (:data, :apid, :sid, :loc, :obs)")
+            s.execute(q_hist, {"data": datetime.now(), "apid": aparelho_id, "sid": status_id, "loc": "Estoque Interno", "obs": "Entrada via assistente Flow."})
+            
+            s.commit()
+        st.cache_data.clear()
+        return f"Aparelho '{dados['marca']} {dados['modelo']}' (N/S: {dados['numero_serie']}) criado com sucesso!"
+    except Exception as e:
+        if 'unique constraint' in str(e).lower():
+            return f"Erro: Já existe um aparelho com o Número de Série '{dados['numero_serie']}'."
+        return f"Ocorreu um erro inesperado: {e}"
 
 def executar_criar_conta_gmail(dados):
-    #... (código da função sem alterações)
-    pass
+    if not dados or not dados.get('email'):
+        return "Não foi possível criar a conta. O e-mail é obrigatório."
+    conn = get_db_connection()
+    try:
+        with conn.session as s:
+            s.begin()
+            setor_id, colaborador_id = None, None
+            if dados.get('nome_setor'):
+                setor_res = s.execute(text("SELECT id FROM setores WHERE nome_setor ILIKE :nome LIMIT 1"), {"nome": f"%{dados['nome_setor']}%"}).fetchone()
+                if setor_res: setor_id = setor_res[0]
+            if dados.get('nome_colaborador'):
+                colab_res = s.execute(text("SELECT id FROM colaboradores WHERE nome_completo ILIKE :nome AND status = 'Ativo' LIMIT 1"), {"nome": f"%{dados['nome_colaborador']}%"}).fetchone()
+                if colab_res: colaborador_id = colab_res[0]
+
+            query_check = text("SELECT 1 FROM contas_gmail WHERE email = :email")
+            existe = s.execute(query_check, {"email": dados['email']}).fetchone()
+            if existe:
+                s.rollback()
+                return f"Erro: A conta Gmail '{dados['email']}' já existe."
+
+            query = text("INSERT INTO contas_gmail (email, senha, telefone_recuperacao, email_recuperacao, setor_id, colaborador_id) VALUES (:email, :senha, :tel, :email_rec, :sid, :cid)")
+            s.execute(query, {
+                "email": dados['email'], "senha": dados.get('senha'), "tel": dados.get('telefone_recuperacao'),
+                "email_rec": dados.get('email_recuperacao'), "sid": setor_id, "cid": colaborador_id
+            })
+            s.commit()
+        st.cache_data.clear()
+        return f"Conta Gmail '{dados['email']}' criada com sucesso!"
+    except Exception as e:
+        return f"Ocorreu um erro inesperado ao criar a conta: {e}"
 
 # --- Lógica do Chatbot ---
 schema = {
@@ -235,7 +315,7 @@ async def get_flow_response(prompt, user_name):
     contextual_prompt = f"O utilizador '{user_name}' pediu: {prompt}. Traduza este pedido para uma das ações JSON disponíveis no schema. Foque-se apenas nas ações de gestão de inventário e comandos do chat."
     
     chatHistory = [
-        {"role": "user", "parts": [{"text": "Você é o Flow, um assistente especialista em gestão de ativos. Sua única função é traduzir os pedidos do utilizador para um formato JSON estruturado, de acordo com o schema fornecido. Suas funções são: 'iniciar_criacao', 'consultar_colaborador', 'consultar_aparelho', 'consultar_movimentacoes', 'consultar_gmail', e comandos de chat. NÃO responda a perguntas de conhecimento geral."}]},
+        {"role": "user", "parts": [{"text": "Você é o Flow, um assistente especialista em gestão de ativos. Sua única função é traduzir os pedidos do utilizador para um formato JSON estruturado. Suas funções são: 'iniciar_criacao' (para pedidos como 'criar', 'cadastrar', 'adicionar'), 'consultar_colaborador', 'consultar_aparelho', 'consultar_movimentacoes', 'consultar_gmail', e comandos de chat ('limpar chat', 'logout', 'saudacao', 'cancelar'). Se não entender, use 'desconhecido'."}]},
         {"role": "model", "parts": [{"text": "Entendido. Foco total em traduzir pedidos de gestão de ativos para JSON."}]},
         {"role": "user", "parts": [{"text": contextual_prompt}]}
     ]
@@ -300,7 +380,18 @@ def reset_conversation_flow():
     st.session_state.pop('pending_action', None)
     st.session_state.messages.append({"role": "assistant", "content": "Ok, ação cancelada. Como posso ajudar agora?"})
 
-# --- UI ---
+def apresentar_resumo():
+    entidade = st.session_state.get('conversa_em_andamento')
+    if not entidade: return
+    dados = st.session_state.dados_recolhidos
+    resumo = f"Perfeito! Recolhi as informações. Por favor, confirme os dados para criar o **{entidade}**:\n"
+    for key, value in dados.items():
+        resumo += f"- **{key.replace('_', ' ').title()}:** {value}\n"
+    st.session_state.messages.append({"role": "assistant", "content": resumo})
+    st.session_state.pending_action = {"acao": f"criar_{entidade}", "dados": dados}
+    st.session_state.conversa_em_andamento = None
+
+# --- UI e Lógica Principal do Chat ---
 st.markdown("""<div class="flow-title"><span class="icon">💬</span><h1><span class="text-chat">Converse com o </span><span class="text-flow">Flow</span></h1></div>""", unsafe_allow_html=True)
 st.markdown("---")
 st.info("Sou o Flow, seu assistente especialista. Diga `#info` para ver os comandos.")
@@ -308,74 +399,90 @@ st.info("Sou o Flow, seu assistente especialista. Diga `#info` para ver os coman
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": f"Olá {st.session_state['user_name']}! Como posso ajudar?"}]
 
-# --- LÓGICA DE RENDERIZAÇÃO E PROCESSAMENTO ---
-async def process_and_display():
-    # 1. Exibe o histórico de mensagens
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            if isinstance(message["content"], pd.DataFrame):
-                st.dataframe(message["content"], hide_index=True, use_container_width=True)
-            elif isinstance(message["content"], dict) and 'info' in message["content"]:
-                 st.write("**Informações do Aparelho:**")
-                 st.dataframe(message["content"]["info"], hide_index=True, use_container_width=True)
-                 st.write("**Histórico de Movimentações:**")
-                 st.dataframe(message["content"]["historico"], hide_index=True, use_container_width=True,
-                              column_config={"data_movimentacao": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY HH:mm")})
-            else:
-                st.markdown(message["content"], unsafe_allow_html=True)
-
-    # 2. Lógica de Resposta do Assistente (só executa se houver um novo prompt)
-    if 'new_prompt' in st.session_state and st.session_state.new_prompt:
-        user_prompt = st.session_state.new_prompt
-        del st.session_state.new_prompt # Limpa o prompt para não processar de novo
-        prompt_lower = user_prompt.strip().lower()
-
-        # Comandos universais
-        if prompt_lower == '#info':
-            st.session_state.messages.append({"role": "assistant", "content": get_info_text()})
-        elif prompt_lower == 'limpar chat':
-            reset_chat_state()
-        elif prompt_lower in ['cancelar', 'voltar', 'menu']:
-            if st.session_state.get('conversa_em_andamento'):
-                reset_conversation_flow()
-            else:
-                st.session_state.messages.append({"role": "assistant", "content": "Não há nenhuma ação em andamento para cancelar."})
+# Exibe o histórico de mensagens
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        if isinstance(message["content"], pd.DataFrame):
+            st.dataframe(message["content"], hide_index=True, use_container_width=True)
+        elif isinstance(message["content"], dict) and 'info' in message["content"]:
+            st.write("**Informações do Aparelho:**")
+            st.dataframe(message["content"]["info"], hide_index=True, use_container_width=True)
+            st.write("**Histórico de Movimentações:**")
+            st.dataframe(message["content"]["historico"], hide_index=True, use_container_width=True,
+                         column_config={"data_movimentacao": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY HH:mm")})
         else:
-            with st.spinner("A pensar..."):
-                response_data = await get_flow_response(user_prompt, st.session_state['user_name'])
-                acao = response_data.get('acao')
-                filtros = response_data.get('filtros')
-                
-                resultados = None
-                if acao == 'consultar_colaborador': resultados = consultar_colaborador(filtros)
-                elif acao == 'consultar_aparelho': resultados = consultar_aparelho_completo(filtros)
-                elif acao == 'consultar_movimentacoes': resultados = consultar_movimentacoes(filtros)
-                elif acao == 'consultar_gmail': resultados = consultar_gmail(filtros)
-                elif acao == 'logout': 
-                    st.session_state.messages.append({"role": "assistant", "content": "A encerrar a sessão..."})
-                    logout()
-                elif acao == 'saudacao': 
-                    st.session_state.messages.append({"role": "assistant", "content": f"Olá {st.session_state['user_name']}! Sou o Flow. Diga `#info` para ver o que posso fazer."})
-                else: 
-                    erro = response_data.get("filtros", {}).get("erro", "Não consegui entender o seu pedido.")
-                    st.session_state.messages.append({"role": "assistant", "content": f"Desculpe, ocorreu um problema: {erro}"})
+            st.markdown(message["content"], unsafe_allow_html=True)
 
-                if isinstance(resultados, (pd.DataFrame, dict, str)):
-                    if isinstance(resultados, pd.DataFrame) and resultados.empty:
-                        st.session_state.messages.append({"role": "assistant", "content": "Não encontrei nenhum resultado com esses critérios."})
-                    elif isinstance(resultados, dict) and resultados["info"].empty:
-                        st.session_state.messages.append({"role": "assistant", "content": "Não encontrei nenhum resultado com esses critérios."})
-                    else:
-                        st.session_state.messages.append({"role": "assistant", "content": resultados})
-        
-        st.rerun()
+# Lógica de processamento e resposta
+async def handle_response(user_prompt):
+    prompt_lower = user_prompt.strip().lower()
 
-# 3. Captura o input do utilizador
-if prompt := st.chat_input("Como posso ajudar?"):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    st.session_state.new_prompt = prompt # Guarda o novo prompt para ser processado no rerun
+    # Comandos universais
+    if prompt_lower == '#info':
+        st.session_state.messages.append({"role": "assistant", "content": get_info_text()})
+    elif prompt_lower == 'limpar chat':
+        reset_chat_state()
+    elif prompt_lower in ['cancelar', 'voltar', 'menu']:
+        if st.session_state.get('conversa_em_andamento'):
+            reset_conversation_flow()
+        else:
+            st.session_state.messages.append({"role": "assistant", "content": "Não há nenhuma ação em andamento para cancelar."})
+    
+    # Lógica de conversa para cadastro
+    elif st.session_state.get('conversa_em_andamento'):
+        entidade = st.session_state.conversa_em_andamento
+        campos = CAMPOS_CADASTRO.get(entidade, [])
+        campo_atual = next((c for c in campos if c not in st.session_state.dados_recolhidos), None)
+        if campo_atual:
+            st.session_state.dados_recolhidos[campo_atual] = user_prompt
+            proximo_campo = next((c for c in campos if c not in st.session_state.dados_recolhidos), None)
+            if proximo_campo:
+                st.session_state.messages.append({"role": "assistant", "content": f"Entendido. Agora, qual é o **{proximo_campo.replace('_', ' ')}**?"})
+            else:
+                apresentar_resumo()
+    
+    # Lógica para novos comandos (chamada à API)
+    else:
+        with st.spinner("A pensar..."):
+            response_data = await get_flow_response(user_prompt, st.session_state['user_name'])
+            acao = response_data.get('acao')
+            filtros = response_data.get('filtros')
+            entidade = response_data.get('entidade')
+            
+            resultados = None
+            if acao == 'iniciar_criacao':
+                if entidade in CAMPOS_CADASTRO:
+                    st.session_state.conversa_em_andamento = entidade
+                    st.session_state.dados_recolhidos = {}
+                    primeiro_campo = CAMPOS_CADASTRO[entidade][0]
+                    st.session_state.messages.append({"role": "assistant", "content": f"Ótimo! Para criar um novo **{entidade}**, vamos começar. Qual é o **{primeiro_campo.replace('_', ' ')}**?"})
+                else:
+                    st.session_state.messages.append({"role": "assistant", "content": "Desculpe, não sei como criar essa entidade."})
+            elif acao == 'consultar_colaborador': resultados = consultar_colaborador(filtros)
+            elif acao == 'consultar_aparelho': resultados = consultar_aparelho_completo(filtros)
+            elif acao == 'consultar_movimentacoes': resultados = consultar_movimentacoes(filtros)
+            elif acao == 'consultar_gmail': resultados = consultar_gmail(filtros)
+            elif acao == 'logout':
+                st.session_state.messages.append({"role": "assistant", "content": "A encerrar a sessão..."})
+                logout()
+            elif acao == 'saudacao':
+                st.session_state.messages.append({"role": "assistant", "content": f"Olá {st.session_state['user_name']}! Sou o Flow. Diga `#info` para ver o que posso fazer."})
+            else:
+                erro = response_data.get("filtros", {}).get("erro", "Não consegui entender o seu pedido.")
+                st.session_state.messages.append({"role": "assistant", "content": f"Desculpe, ocorreu um problema: {erro}"})
+
+            if isinstance(resultados, (pd.DataFrame, dict, str)):
+                if isinstance(resultados, pd.DataFrame) and resultados.empty:
+                    st.session_state.messages.append({"role": "assistant", "content": "Não encontrei nenhum resultado com esses critérios."})
+                elif isinstance(resultados, dict) and resultados.get("info", pd.DataFrame()).empty:
+                    st.session_state.messages.append({"role": "assistant", "content": "Não encontrei nenhum resultado com esses critérios."})
+                else:
+                    st.session_state.messages.append({"role": "assistant", "content": resultados})
     st.rerun()
 
-# Executa o processamento
-asyncio.run(process_and_display())
+# Captura o input do utilizador
+if prompt := st.chat_input("Como posso ajudar?"):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    # O rerun vai disparar a lógica acima
+    st.rerun()
 
