@@ -6,7 +6,6 @@ import asyncio
 import httpx
 from datetime import date, datetime
 from sqlalchemy import text
-import time
 
 # --- Autenticação e Configuração da Página ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -16,95 +15,57 @@ if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
 st.markdown("""
 <style>
     /* Estilos da Logo Principal */
-    .logo-text {
-        font-family: 'Courier New', monospace;
-        font-size: 28px;
-        font-weight: bold;
-        padding-top: 20px;
-    }
-    .logo-asset { color: #003366; }
-    .logo-flow { color: #E30613; }
-    @media (prefers-color-scheme: dark) {
-        .logo-asset { color: #FFFFFF; }
-        .logo-flow { color: #FF4B4B; }
-    }
+    .logo-text { font-family: 'Courier New', monospace; font-size: 28px; font-weight: bold; padding-top: 20px; }
+    .logo-asset { color: #003366; } .logo-flow { color: #E30613; }
+    @media (prefers-color-scheme: dark) { .logo-asset { color: #FFFFFF; } .logo-flow { color: #FF4B4B; } }
     /* Estilos para o footer na barra lateral */
-    .sidebar-footer {
-        text-align: center;
-        padding-top: 20px;
-        padding-bottom: 20px;
-    }
+    .sidebar-footer { text-align: center; padding-top: 20px; padding-bottom: 20px; }
     .sidebar-footer a { margin-right: 15px; text-decoration: none; }
-    .sidebar-footer img {
-        width: 25px; height: 25px; filter: grayscale(1) opacity(0.5);
-        transition: filter 0.3s;
-    }
+    .sidebar-footer img { width: 25px; height: 25px; filter: grayscale(1) opacity(0.5); transition: filter 0.3s; }
     .sidebar-footer img:hover { filter: grayscale(0) opacity(1); }
-    @media (prefers-color-scheme: dark) {
-        .sidebar-footer img { filter: grayscale(1) opacity(0.6) invert(1); }
-        .sidebar-footer img:hover { filter: opacity(1) invert(1); }
+    @media (prefers-color-scheme: dark) { .sidebar-footer img { filter: grayscale(1) opacity(0.6) invert(1); } .sidebar-footer img:hover { filter: opacity(1) invert(1); } }
+    /* Estilos para a Logo do Chat */
+    .flow-title { display: flex; align-items: center; padding-bottom: 10px; }
+    .flow-title .icon { font-size: 2.5em; margin-right: 15px; }
+    .flow-title h1 { font-family: 'Courier New', monospace; font-size: 3em; font-weight: bold; margin: 0; padding: 0; line-height: 1; }
+    .flow-title .text-chat { color: #003366; } .flow-title .text-flow { color: #E30613; }
+    @media (prefers-color-scheme: dark) { .flow-title .text-chat { color: #FFFFFF; } .flow-title .text-flow { color: #FF4B4B; } }
+    /* Estilo para as fontes da pesquisa Google */
+    .source-link {
+        font-size: 0.8rem;
+        color: #888;
+        text-decoration: none;
+        margin-right: 10px;
     }
-    /* --- Estilos para a Logo do Chat --- */
-    .flow-title {
-        display: flex;
-        align-items: center;
-        padding-bottom: 10px;
-    }
-    .flow-title .icon {
-        font-size: 2.5em;
-        margin-right: 15px;
-    }
-    .flow-title h1 {
-        font-family: 'Courier New', monospace;
-        font-size: 3em;
-        font-weight: bold;
-        margin: 0;
-        padding: 0;
-        line-height: 1;
-    }
-    .flow-title .text-chat { color: #003366; }
-    .flow-title .text-flow { color: #E30613; }
-    @media (prefers-color-scheme: dark) {
-        .flow-title .text-chat { color: #FFFFFF; }
-        .flow-title .text-flow { color: #FF4B4B; }
+    .source-link:hover {
+        text-decoration: underline;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # --- Header (Logo no canto superior esquerdo) ---
-st.markdown(
-    """
-    <div class="logo-text">
-        <span class="logo-asset">ASSET</span><span class="logo-flow">FLOW</span>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown("""<div class="logo-text"><span class="logo-asset">ASSET</span><span class="logo-flow">FLOW</span></div>""", unsafe_allow_html=True)
 
 # --- Barra Lateral ---
 with st.sidebar:
     st.write(f"Bem-vindo, **{st.session_state['user_name']}**!")
     st.write(f"Cargo: **{st.session_state['user_role']}**")
     if st.button("Logout", key="flow_logout"):
-        from auth import logout
         logout()
     st.markdown("---")
-    st.markdown(
-        f"""
+    st.markdown(f"""
         <div class="sidebar-footer">
             <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg"></a>
             <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg"></a>
         </div>
-        """,
-        unsafe_allow_html=True
-    )
+        """, unsafe_allow_html=True)
 
 # --- Funções do Executor de Ações ---
 def get_db_connection():
-    """Retorna uma conexão ao banco de dados Supabase."""
     return st.connection("supabase", type="sql")
 
 def executar_pesquisa_aparelho(filtros):
+    # ... (código existente da função)
     if not filtros:
         return "Por favor, forneça um critério de pesquisa, como o nome do colaborador ou o número de série."
     conn = get_db_connection()
@@ -144,6 +105,7 @@ def executar_pesquisa_aparelho(filtros):
     return df
 
 def executar_criar_colaborador(dados):
+    # ... (código existente da função)
     if not dados or not all(k in dados for k in ['nome_completo', 'codigo', 'cpf', 'nome_setor']):
         return "Não foi possível criar o colaborador. Faltam informações essenciais (nome, código, CPF e setor)."
     conn = get_db_connection()
@@ -163,7 +125,7 @@ def executar_criar_colaborador(dados):
                 return "Erro: Já existe um colaborador com este CPF ou com este código neste setor."
 
             s.execute(
-                text("INSERT INTO colaboradores (nome_completo, codigo, cpf, gmail, setor_id, data_cadastro) VALUES (:nome, :codigo, :cpf, :gmail, :setor_id, :data)"),
+                text("INSERT INTO colaboradores (nome_completo, codigo, cpf, gmail, setor_id, data_cadastro, status) VALUES (:nome, :codigo, :cpf, :gmail, :setor_id, :data, 'Ativo')"),
                 {"nome": dados['nome_completo'], "codigo": dados.get('codigo'), "cpf": dados.get('cpf'), "gmail": dados.get('gmail'), "setor_id": setor_id, "data": date.today()}
             )
             s.commit()
@@ -173,6 +135,7 @@ def executar_criar_colaborador(dados):
         return f"Ocorreu um erro inesperado ao criar o colaborador: {e}"
 
 def executar_criar_aparelho(dados):
+    # ... (código existente da função)
     if not dados or not all(k in dados for k in ['marca', 'modelo', 'numero_serie', 'valor']):
         return "Faltam informações para criar o aparelho (Marca, Modelo, N/S, Valor)."
     conn = get_db_connection()
@@ -204,6 +167,7 @@ def executar_criar_aparelho(dados):
         return f"Ocorreu um erro inesperado: {e}"
 
 def executar_pesquisa_movimentacoes(filtros):
+    # ... (código existente da função)
     if not filtros:
         return "Por favor, forneça um critério de pesquisa (colaborador, N/S ou data)."
     conn = get_db_connection()
@@ -236,6 +200,7 @@ def executar_pesquisa_movimentacoes(filtros):
     return df
 
 def executar_criar_conta_gmail(dados):
+    # ... (código existente da função)
     if not dados or not dados.get('email'):
         return "Não foi possível criar a conta. O e-mail é obrigatório."
     conn = get_db_connection()
@@ -247,7 +212,7 @@ def executar_criar_conta_gmail(dados):
                 setor_res = s.execute(text("SELECT id FROM setores WHERE nome_setor ILIKE :nome LIMIT 1"), {"nome": f"%{dados['nome_setor']}%"}).fetchone()
                 if setor_res: setor_id = setor_res[0]
             if dados.get('nome_colaborador'):
-                colab_res = s.execute(text("SELECT id FROM colaboradores WHERE nome_completo ILIKE :nome LIMIT 1"), {"nome": f"%{dados['nome_colaborador']}%"}).fetchone()
+                colab_res = s.execute(text("SELECT id FROM colaboradores WHERE nome_completo ILIKE :nome AND status = 'Ativo' LIMIT 1"), {"nome": f"%{dados['nome_colaborador']}%"}).fetchone()
                 if colab_res: colaborador_id = colab_res[0]
 
             query_check = text("SELECT 1 FROM contas_gmail WHERE email = :email")
@@ -268,20 +233,39 @@ def executar_criar_conta_gmail(dados):
         return f"Ocorreu um erro inesperado ao criar a conta: {e}"
 
 # --- Lógica do Chatbot ---
+# ATUALIZADO: Adicionada a ação 'pesquisar_na_web'
 schema = {
     "type": "OBJECT",
-    "properties": { "acao": { "type": "STRING", "enum": ["iniciar_criacao", "fornecer_dado", "pesquisar_aparelho", "pesquisar_movimentacoes", "limpar_chat", "logout", "saudacao", "desconhecido"] }, "entidade": {"type": "STRING", "enum": ["colaborador", "aparelho", "conta_gmail"]}, "dados": { "type": "OBJECT", "properties": { "valor_dado": {"type": "STRING"} } }, "filtros": { "type": "OBJECT", "properties": { "nome_colaborador": {"type": "STRING"}, "numero_serie": {"type": "STRING"}, "data": {"type": "STRING"} } } },
+    "properties": { "acao": { "type": "STRING", "enum": ["iniciar_criacao", "fornecer_dado", "pesquisar_aparelho", "pesquisar_movimentacoes", "pesquisar_na_web", "limpar_chat", "logout", "saudacao", "desconhecido", "cancelar"] }, "entidade": {"type": "STRING", "enum": ["colaborador", "aparelho", "conta_gmail"]}, "dados": { "type": "OBJECT", "properties": { "valor_dado": {"type": "STRING"} } }, "filtros": { "type": "OBJECT", "properties": { "nome_colaborador": {"type": "STRING"}, "numero_serie": {"type": "STRING"}, "data": {"type": "STRING"} } } },
     "required": ["acao"]
 }
 
-async def get_flow_response(prompt, user_name, current_action=None):
-    if current_action:
-        contextual_prompt = f"O utilizador '{user_name}' está no meio de um processo de criação ({current_action}) e forneceu a seguinte informação: {prompt}. Interprete este dado como o valor para o campo que está a ser solicitado."
-    else:
-        contextual_prompt = f"O utilizador '{user_name}' pediu: {prompt}"
+async def make_api_call(apiUrl, payload):
+    """Função genérica para fazer chamadas à API com retentativa."""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(apiUrl, headers={'Content-Type': 'application/json'}, json=payload, timeout=45)
+                if response.status_code == 503 and attempt < max_retries - 1:
+                    await asyncio.sleep(1 + attempt)
+                    continue
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 503 and attempt < max_retries - 1:
+                continue
+            return {"error": f"Erro na API ({e.response.status_code}). Verifique o nome do modelo e a chave da API."}
+        except Exception as e:
+            return {"error": f"Ocorreu um erro de comunicação: {e}"}
+    return {"error": "O serviço de IA está temporariamente indisponível (Erro 503). Por favor, tente mais tarde."}
+
+async def get_flow_response(prompt, user_name):
+    """Interpreta o pedido do utilizador para uma ação estruturada."""
+    contextual_prompt = f"O utilizador '{user_name}' pediu: {prompt}. Palavras como 'cancelar', 'voltar' ou 'menu' devem ser interpretadas como a ação 'cancelar'. Se o pedido não corresponder a nenhuma das funções de gestão de inventário (criar ou pesquisar), classifique a ação como 'pesquisar_na_web'."
     
     chatHistory = [
-        {"role": "user", "parts": [{"text": "Você é o Flow, um assistente para um sistema de gestão de ativos. Sua função é interpretar os pedidos do utilizador e traduzi-los para um formato JSON estruturado, de acordo com o schema fornecido. Se o utilizador iniciar um processo de criação (ex: 'criar aparelho'), a sua ação deve ser 'iniciar_criacao' e a entidade correspondente. Se o utilizador fornecer um dado no meio de uma conversa, a sua ação deve ser 'fornecer_dado'. Seja conciso e direto."}]},
+        {"role": "user", "parts": [{"text": "Você é o Flow, um assistente para um sistema de gestão de ativos. Sua função é interpretar os pedidos do utilizador e traduzi-los para um formato JSON estruturado. Suas funções são: 'iniciar_criacao', 'pesquisar_aparelho', 'pesquisar_movimentacoes'. Se o pedido for um comando de chat ('limpar chat', 'logout', 'saudacao', 'cancelar'), use a ação correspondente. Se for uma pergunta de conhecimento geral (ex: 'qual a capital do Brasil?'), use a ação 'pesquisar_na_web'. Se não entender, use 'desconhecido'."}]},
         {"role": "model", "parts": [{"text": "Entendido. Estou pronto para processar os pedidos e retornar o JSON correspondente."}]},
         {"role": "user", "parts": [{"text": contextual_prompt}]}
     ]
@@ -294,51 +278,70 @@ async def get_flow_response(prompt, user_name, current_action=None):
 
     apiUrl = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={apiKey}"
     
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(apiUrl, headers={'Content-Type': 'application/json'}, json=payload, timeout=45)
-                if response.status_code == 503 and attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)
-                    continue
-                response.raise_for_status()
-                result = response.json()
-                if result.get('candidates'):
-                    json_text = result['candidates'][0]['content']['parts'][0]['text']
-                    return json.loads(json_text)
-                else:
-                    return {"acao": "desconhecido", "dados": {"erro": f"Resposta inesperada da API: {result}"}}
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 503:
-                continue
-            return {"acao": "desconhecido", "dados": {"erro": f"Erro na API ({e.response.status_code}). Verifique o nome do modelo e a chave da API."}}
-        except Exception as e:
-            return {"acao": "desconhecido", "dados": {"erro": f"Ocorreu um erro de comunicação: {e}"}}
-            
-    return {"acao": "desconhecido", "dados": {"erro": "O serviço de IA está temporariamente indisponível (Erro 503). Por favor, tente mais tarde."}}
+    result = await make_api_call(apiUrl, payload)
+
+    if result.get("error"):
+        return {"acao": "desconhecido", "dados": {"erro": result["error"]}}
+    if result.get('candidates'):
+        json_text = result['candidates'][0]['content']['parts'][0]['text']
+        return json.loads(json_text)
+    return {"acao": "desconhecido", "dados": {"erro": f"Resposta inesperada da API: {result}"}}
+
+async def get_grounded_response(prompt):
+    """Busca uma resposta na web usando o Google Search grounding."""
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "tools": [{"google_search": {}}]
+    }
+    try:
+        apiKey = st.secrets["GEMINI_API_KEY"]
+    except KeyError:
+        return {"text": "Chave de API não configurada.", "sources": []}
+    
+    apiUrl = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={apiKey}"
+    
+    result = await make_api_call(apiUrl, payload)
+
+    if result.get("error"):
+        return {"text": result["error"], "sources": []}
+    
+    candidate = result.get('candidates', [{}])[0]
+    text_response = candidate.get('content', {}).get('parts', [{}])[0].get('text', "Não consegui encontrar uma resposta.")
+    
+    sources = []
+    grounding_metadata = candidate.get('groundingMetadata', {})
+    if grounding_metadata and grounding_metadata.get('groundingAttributions'):
+        sources = [
+            {"uri": attr['web']['uri'], "title": attr['web']['title']}
+            for attr in grounding_metadata['groundingAttributions']
+            if 'web' in attr and attr.get('web')
+        ]
+    return {"text": text_response, "sources": sources}
 
 def get_info_text():
     return """
-    Olá! Sou o Flow, o seu assistente. Veja como me pode usar:
+    Olá! Sou o Flow, o seu assistente. Agora estou mais poderoso!
 
-    **1. Para Pesquisar:**
-    - **Aparelhos:** Diga "pesquisar aparelho do [nome do colaborador]" ou "encontrar aparelho com n/s [número de série]".
-    - **Movimentações:** Diga "mostrar histórico do [nome do colaborador]", "ver movimentações do aparelho [número de série]" ou "o que aconteceu em [data no formato AAAA-MM-DD]?".
+    **1. Perguntas sobre o Inventário:**
+    - "pesquisar aparelho do João Silva"
+    - "encontrar aparelho com n/s ABC123"
+    - "mostrar histórico do aparelho XYZ"
+    
+    **2. Perguntas Gerais (com acesso à Internet!):**
+    - "qual o preço do novo iPhone?"
+    - "quem ganhou o último campeonato brasileiro?"
+    - "resuma as notícias de tecnologia de hoje"
 
-    **2. Para Criar Novos Registos (Fluxo Guiado):**
-    - **Colaborador:** Comece por dizer "criar colaborador".
-    - **Aparelho:** Comece por dizer "criar aparelho".
-    - **Conta Gmail:** Comece por dizer "criar conta gmail".
-    - Eu irei guiá-lo passo a passo, pedindo cada informação necessária.
+    **3. Para Criar Novos Registos (Fluxo Guiado):**
+    - "criar colaborador"
+    - "adicionar novo aparelho"
+    - "cadastrar conta gmail"
 
-    **3. Comandos do Chat:**
-    - **`#info`:** Mostra esta mensagem de ajuda.
-    - **`limpar chat`:** Apaga o histórico da nossa conversa.
-    - **`cancelar` ou `voltar`:** Interrompe a ação atual (como um cadastro) e volta ao início.
-    - **`encerrar chat` ou `logout`:** Faz o logout do sistema.
-
-    Estou aqui para ajudar a tornar a sua gestão mais rápida e fácil!
+    **4. Comandos do Chat:**
+    - `#info`: Mostra esta mensagem.
+    - `limpar chat`: Apaga o histórico da conversa.
+    - `cancelar` ou `voltar`: Interrompe a ação atual.
+    - `logout`: Faz o logout do sistema.
     """
 
 CAMPOS_CADASTRO = {
@@ -363,23 +366,14 @@ def reset_conversation_flow():
     st.session_state.pending_action = None
     st.session_state.campo_para_corrigir = None
     st.session_state.modo_correcao = False
-    adicionar_mensagem("assistant", "Ok, ação cancelada. Estou pronto para um novo comando!")
+    adicionar_mensagem("assistant", "Ok, ação cancelada. Como posso ajudar agora?")
 
 # --- Interface do Chatbot ---
-st.markdown(
-    """
-    <div class="flow-title">
-        <span class="icon">💬</span>
-        <h1><span class="text-chat">Converse com o </span><span class="text-flow">Flow</span></h1>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown("""<div class="flow-title"><span class="icon">💬</span><h1><span class="text-chat">Converse com o </span><span class="text-flow">Flow</span></h1></div>""", unsafe_allow_html=True)
 st.markdown("---")
 st.info("Sou o Flow, seu assistente inteligente. Diga `#info` para ver os comandos.")
 
-if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": f"Olá {st.session_state['user_name']}! Como posso ajudar?"}]
+if "messages" not in st.session_state: st.session_state.messages = [{"role": "assistant", "content": f"Olá {st.session_state['user_name']}! Como posso ajudar?"}]
 if "pending_action" not in st.session_state: st.session_state.pending_action = None
 if "conversa_em_andamento" not in st.session_state: st.session_state.conversa_em_andamento = None
 if "dados_recolhidos" not in st.session_state: st.session_state.dados_recolhidos = {}
@@ -429,9 +423,9 @@ if prompt := st.chat_input("Como posso ajudar?"):
     adicionar_mensagem("user", prompt)
     prompt_lower = prompt.strip().lower()
 
-    # --- LÓGICA DE COMANDOS UNIVERSAIS ---
     if prompt_lower == '#info':
         adicionar_mensagem("assistant", get_info_text())
+        st.rerun()
     elif prompt_lower == 'limpar chat':
         reset_chat_state()
         st.rerun()
@@ -441,8 +435,6 @@ if prompt := st.chat_input("Como posso ajudar?"):
             st.rerun()
         else:
             adicionar_mensagem("assistant", "Não há nenhuma ação em andamento para cancelar. Como posso ajudar?")
-    
-    # --- LÓGICA CONTEXTUAL (se estiver no meio de uma ação) ---
     elif st.session_state.conversa_em_andamento:
         with st.spinner("..."):
             campo_atual = proximo_campo()
@@ -454,8 +446,6 @@ if prompt := st.chat_input("Como posso ajudar?"):
                 else:
                     apresentar_resumo()
                     st.rerun()
-    
-    # --- LÓGICA PARA NOVOS COMANDOS (chamada à API) ---
     else:
         with st.spinner("A pensar..."):
             response_data = asyncio.run(get_flow_response(prompt, st.session_state['user_name']))
@@ -482,12 +472,26 @@ if prompt := st.chat_input("Como posso ajudar?"):
                 else:
                     adicionar_mensagem("assistant", "Não encontrei nenhum resultado com esses critérios.")
             
+            elif acao == 'pesquisar_na_web':
+                with st.spinner("A pesquisar na web..."):
+                    grounded_response = asyncio.run(get_grounded_response(prompt))
+                    resposta = grounded_response['text']
+                    fontes = grounded_response['sources']
+                    if fontes:
+                        resposta += "\n\n**Fontes:**\n"
+                        for i, fonte in enumerate(fontes):
+                            resposta += f"<a href='{fonte['uri']}' target='_blank' class='source-link'>{i+1}. {fonte['title']}</a> "
+                    adicionar_mensagem("assistant", resposta)
+
             elif acao == 'logout':
                 adicionar_mensagem("assistant", "A encerrar a sessão...")
                 logout()
             
             elif acao == 'saudacao':
                 adicionar_mensagem("assistant", f"Olá {st.session_state['user_name']}! Sou o Flow. Diga `#info` para ver o que posso fazer.")
+
+            elif acao == 'cancelar':
+                reset_conversation_flow()
             
             else:
                 erro = response_data.get("dados", {}).get("erro", "Não consegui entender o seu pedido. Pode tentar reformular? Diga `#info` para ver exemplos.")
@@ -497,7 +501,7 @@ if prompt := st.chat_input("Como posso ajudar?"):
 # --- Botões de Confirmação e Correção ---
 if st.session_state.pending_action:
     action_data = st.session_state.pending_action
-    col1, col2, col3 = st.columns([1, 1, 5])
+    col1, col2, col3 = st.columns([1.2, 1, 5])
     
     with col1:
         if st.button("Sim, confirmo", type="primary"):
@@ -523,7 +527,7 @@ if st.session_state.pending_action:
             st.rerun()
 
     with col3:
-        if st.button("Corrigir uma informação"):
+        if st.button("Corrigir"):
             st.session_state.entidade_em_correcao = action_data['acao'].split('_')[1]
             st.session_state.dados_para_corrigir = action_data["dados"]
             st.session_state.modo_correcao = True
@@ -543,4 +547,3 @@ if st.session_state.get('modo_correcao'):
         st.session_state.modo_correcao = False
         st.session_state.dados_recolhidos = dados_para_corrigir
         st.rerun()
-
