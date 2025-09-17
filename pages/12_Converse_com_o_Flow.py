@@ -51,7 +51,6 @@ with st.sidebar:
     st.write(f"Bem-vindo, **{st.session_state['user_name']}**!")
     st.write(f"Cargo: **{st.session_state['user_role']}**")
     if st.button("Logout", key="flow_logout"):
-        from auth import logout
         logout()
     st.markdown("---")
     st.markdown(f"""
@@ -66,7 +65,6 @@ def get_db_connection():
     return st.connection("supabase", type="sql")
 
 def executar_pesquisa_aparelho(filtros):
-    # ... (código existente da função, sem alterações)
     if not filtros:
         return "Por favor, forneça um critério de pesquisa, como o nome do colaborador ou o número de série."
     conn = get_db_connection()
@@ -106,7 +104,6 @@ def executar_pesquisa_aparelho(filtros):
     return df
 
 def executar_criar_colaborador(dados):
-    # ... (código existente da função, sem alterações)
     if not dados or not all(k in dados for k in ['nome_completo', 'codigo', 'cpf', 'nome_setor']):
         return "Não foi possível criar o colaborador. Faltam informações essenciais (nome, código, CPF e setor)."
     conn = get_db_connection()
@@ -136,7 +133,6 @@ def executar_criar_colaborador(dados):
         return f"Ocorreu um erro inesperado ao criar o colaborador: {e}"
 
 def executar_criar_aparelho(dados):
-    # ... (código existente da função, sem alterações)
     if not dados or not all(k in dados for k in ['marca', 'modelo', 'numero_serie', 'valor']):
         return "Faltam informações para criar o aparelho (Marca, Modelo, N/S, Valor)."
     conn = get_db_connection()
@@ -168,7 +164,6 @@ def executar_criar_aparelho(dados):
         return f"Ocorreu um erro inesperado: {e}"
 
 def executar_pesquisa_movimentacoes(filtros):
-    # ... (código existente da função, sem alterações)
     if not filtros:
         return "Por favor, forneça um critério de pesquisa (colaborador, N/S ou data)."
     conn = get_db_connection()
@@ -201,7 +196,6 @@ def executar_pesquisa_movimentacoes(filtros):
     return df
 
 def executar_criar_conta_gmail(dados):
-    # ... (código existente da função, sem alterações)
     if not dados or not dados.get('email'):
         return "Não foi possível criar a conta. O e-mail é obrigatório."
     conn = get_db_connection()
@@ -364,7 +358,8 @@ def reset_conversation_flow():
     st.session_state.pending_action = None
     st.session_state.campo_para_corrigir = None
     st.session_state.modo_correcao = False
-    adicionar_mensagem("assistant", "Ok, ação cancelada. Como posso ajudar agora?")
+    st.session_state.messages.append({"role": "assistant", "content": "Ok, ação cancelada. Como posso ajudar agora?"})
+
 
 # --- Interface do Chatbot ---
 st.markdown("""<div class="flow-title"><span class="icon">💬</span><h1><span class="text-chat">Converse com o </span><span class="text-flow">Flow</span></h1></div>""", unsafe_allow_html=True)
@@ -398,58 +393,37 @@ def apresentar_resumo():
     resumo = f"Perfeito! Recolhi as informações. Por favor, confirme os dados para criar o **{entidade}**:\n"
     for key, value in dados.items():
         resumo += f"- **{key.replace('_', ' ').title()}:** {value}\n"
-    st.session_state.messages.append({"role": "assistant", "content": resumo})
+    adicionar_mensagem("assistant", resumo)
     st.session_state.pending_action = {"acao": f"criar_{entidade}", "dados": dados}
     st.session_state.conversa_em_andamento = None
     st.session_state.campo_para_corrigir = None
     st.session_state.entidade_em_correcao = None
 
-# --- Loop Principal da UI ---
-# Exibe o histórico de mensagens primeiro
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        if isinstance(message["content"], pd.DataFrame):
-            st.dataframe(message["content"], hide_index=True, use_container_width=True)
-        else:
-            st.markdown(message["content"], unsafe_allow_html=True)
-
-# Lógica de processamento do input
-if prompt := st.chat_input("Como posso ajudar?"):
+async def handle_prompt(prompt):
     adicionar_mensagem("user", prompt)
-    st.rerun() # Roda novamente para exibir a mensagem do usuário imediatamente
-
-# --- Lógica de Resposta do Assistente (executa no rerun) ---
-# Verifica se a última mensagem foi do usuário para evitar respostas duplicadas
-if st.session_state.messages[-1]["role"] == "user":
-    user_prompt = st.session_state.messages[-1]["content"]
-    prompt_lower = user_prompt.strip().lower()
+    prompt_lower = prompt.strip().lower()
 
     if prompt_lower == '#info':
         adicionar_mensagem("assistant", get_info_text())
-        st.rerun()
     elif prompt_lower == 'limpar chat':
         reset_chat_state()
-        st.rerun()
     elif prompt_lower in ['cancelar', 'voltar', 'menu']:
         if st.session_state.conversa_em_andamento or st.session_state.pending_action:
             reset_conversation_flow()
-            st.rerun()
         else:
             adicionar_mensagem("assistant", "Não há nenhuma ação em andamento para cancelar. Como posso ajudar?")
-            st.rerun()
     elif st.session_state.conversa_em_andamento:
         campo_atual = proximo_campo()
         if campo_atual:
-            st.session_state.dados_recolhidos[campo_atual] = user_prompt
+            st.session_state.dados_recolhidos[campo_atual] = prompt
             proximo = proximo_campo()
             if proximo:
                 adicionar_mensagem("assistant", f"Entendido. Agora, qual é o **{proximo.replace('_', ' ')}**?")
             else:
                 apresentar_resumo()
-            st.rerun()
     else:
         with st.spinner("A pensar..."):
-            response_data = asyncio.run(get_flow_response(user_prompt, st.session_state['user_name']))
+            response_data = await get_flow_response(prompt, st.session_state['user_name'])
             acao = response_data.get('acao')
             
             if acao == 'iniciar_criacao':
@@ -475,7 +449,7 @@ if st.session_state.messages[-1]["role"] == "user":
             
             elif acao == 'pesquisar_na_web':
                 with st.spinner("A pesquisar na web..."):
-                    grounded_response = asyncio.run(get_grounded_response(user_prompt))
+                    grounded_response = await get_grounded_response(prompt)
                     resposta = grounded_response['text']
                     fontes = grounded_response['sources']
                     if fontes:
@@ -497,9 +471,22 @@ if st.session_state.messages[-1]["role"] == "user":
             else:
                 erro = response_data.get("dados", {}).get("erro", "Não consegui entender o seu pedido. Pode tentar reformular? Diga `#info` para ver exemplos.")
                 adicionar_mensagem("assistant", f"Desculpe, ocorreu um problema: {erro}")
-        st.rerun()
+    
+# --- Loop Principal da UI ---
+# Exibe o histórico de mensagens
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        if isinstance(message["content"], pd.DataFrame):
+            st.dataframe(message["content"], hide_index=True, use_container_width=True)
+        else:
+            st.markdown(message["content"], unsafe_allow_html=True)
 
-# --- Botões de Confirmação e Correção ---
+# Lógica de processamento do input
+if prompt := st.chat_input("Como posso ajudar?"):
+    asyncio.run(handle_prompt(prompt))
+    st.rerun()
+
+# Botões de confirmação e correção são renderizados após o loop principal
 if st.session_state.pending_action:
     action_data = st.session_state.pending_action
     col1, col2, col3 = st.columns([1.2, 1, 5])
@@ -548,3 +535,4 @@ if st.session_state.get('modo_correcao'):
         st.session_state.modo_correcao = False
         st.session_state.dados_recolhidos = dados_para_corrigir
         st.rerun()
+
