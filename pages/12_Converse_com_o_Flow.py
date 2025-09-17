@@ -65,7 +65,6 @@ def get_db_connection():
     return st.connection("supabase", type="sql")
 
 def executar_pesquisa_aparelho(filtros):
-    # ... (código existente da função)
     if not filtros:
         return "Por favor, forneça um critério de pesquisa, como o nome do colaborador ou o número de série."
     conn = get_db_connection()
@@ -105,7 +104,6 @@ def executar_pesquisa_aparelho(filtros):
     return df
 
 def executar_criar_colaborador(dados):
-    # ... (código existente da função)
     if not dados or not all(k in dados for k in ['nome_completo', 'codigo', 'cpf', 'nome_setor']):
         return "Não foi possível criar o colaborador. Faltam informações essenciais (nome, código, CPF e setor)."
     conn = get_db_connection()
@@ -135,7 +133,6 @@ def executar_criar_colaborador(dados):
         return f"Ocorreu um erro inesperado ao criar o colaborador: {e}"
 
 def executar_criar_aparelho(dados):
-    # ... (código existente da função)
     if not dados or not all(k in dados for k in ['marca', 'modelo', 'numero_serie', 'valor']):
         return "Faltam informações para criar o aparelho (Marca, Modelo, N/S, Valor)."
     conn = get_db_connection()
@@ -167,7 +164,6 @@ def executar_criar_aparelho(dados):
         return f"Ocorreu um erro inesperado: {e}"
 
 def executar_pesquisa_movimentacoes(filtros):
-    # ... (código existente da função)
     if not filtros:
         return "Por favor, forneça um critério de pesquisa (colaborador, N/S ou data)."
     conn = get_db_connection()
@@ -200,7 +196,6 @@ def executar_pesquisa_movimentacoes(filtros):
     return df
 
 def executar_criar_conta_gmail(dados):
-    # ... (código existente da função)
     if not dados or not dados.get('email'):
         return "Não foi possível criar a conta. O e-mail é obrigatório."
     conn = get_db_connection()
@@ -233,7 +228,6 @@ def executar_criar_conta_gmail(dados):
         return f"Ocorreu um erro inesperado ao criar a conta: {e}"
 
 # --- Lógica do Chatbot ---
-# ATUALIZADO: Adicionada a ação 'pesquisar_na_web'
 schema = {
     "type": "OBJECT",
     "properties": { "acao": { "type": "STRING", "enum": ["iniciar_criacao", "fornecer_dado", "pesquisar_aparelho", "pesquisar_movimentacoes", "pesquisar_na_web", "limpar_chat", "logout", "saudacao", "desconhecido", "cancelar"] }, "entidade": {"type": "STRING", "enum": ["colaborador", "aparelho", "conta_gmail"]}, "dados": { "type": "OBJECT", "properties": { "valor_dado": {"type": "STRING"} } }, "filtros": { "type": "OBJECT", "properties": { "nome_colaborador": {"type": "STRING"}, "numero_serie": {"type": "STRING"}, "data": {"type": "STRING"} } } },
@@ -425,14 +419,12 @@ if prompt := st.chat_input("Como posso ajudar?"):
 
     if prompt_lower == '#info':
         adicionar_mensagem("assistant", get_info_text())
-        st.rerun()
     elif prompt_lower == 'limpar chat':
         reset_chat_state()
         st.rerun()
     elif prompt_lower in ['cancelar', 'voltar', 'menu']:
         if st.session_state.conversa_em_andamento or st.session_state.pending_action:
             reset_conversation_flow()
-            st.rerun()
         else:
             adicionar_mensagem("assistant", "Não há nenhuma ação em andamento para cancelar. Como posso ajudar?")
     elif st.session_state.conversa_em_andamento:
@@ -490,13 +482,13 @@ if prompt := st.chat_input("Como posso ajudar?"):
             elif acao == 'saudacao':
                 adicionar_mensagem("assistant", f"Olá {st.session_state['user_name']}! Sou o Flow. Diga `#info` para ver o que posso fazer.")
 
-            elif acao == 'cancelar':
+            elif acao == 'cancelar': 
                 reset_conversation_flow()
             
             else:
                 erro = response_data.get("dados", {}).get("erro", "Não consegui entender o seu pedido. Pode tentar reformular? Diga `#info` para ver exemplos.")
                 adicionar_mensagem("assistant", f"Desculpe, ocorreu um problema: {erro}")
-            st.rerun()
+    st.rerun()
 
 # --- Botões de Confirmação e Correção ---
 if st.session_state.pending_action:
@@ -547,3 +539,4 @@ if st.session_state.get('modo_correcao'):
         st.session_state.modo_correcao = False
         st.session_state.dados_recolhidos = dados_para_corrigir
         st.rerun()
+
