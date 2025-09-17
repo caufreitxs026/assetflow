@@ -240,9 +240,8 @@ async def make_api_call(apiUrl, payload):
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(apiUrl, headers={'Content-Type': 'application/json'}, json=payload, timeout=45)
-                # --- CORREÇÃO: Lida com 429 (Too Many Requests) e 503 (Service Unavailable)
                 if response.status_code in [429, 503] and attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** (attempt + 1)) # Aumenta a espera (2s, 4s)
+                    await asyncio.sleep(2 ** (attempt + 1)) 
                     continue
                 response.raise_for_status()
                 return response.json()
@@ -276,9 +275,12 @@ async def get_flow_response(prompt, user_name):
     if result.get("error"):
         return {"acao": "desconhecido", "dados": {"erro": result["error"]}}
     if result.get('candidates'):
-        json_text = result['candidates'][0]['content']['parts'][0]['text']
-        return json.loads(json_text)
-    return {"acao": "desconhecido", "dados": {"erro": f"Resposta inesperada da API: {result}"}}
+        try:
+            json_text = result['candidates'][0]['content']['parts'][0]['text']
+            return json.loads(json_text)
+        except (json.JSONDecodeError, KeyError):
+             return {"acao": "desconhecido", "dados": {"erro": "A API retornou uma resposta em formato inesperado."}}
+    return {"acao": "desconhecido", "dados": {"erro": f"Resposta inválida da API: {result}"}}
 
 async def get_grounded_response(prompt):
     payload = {
@@ -370,6 +372,7 @@ if "dados_recolhidos" not in st.session_state: st.session_state.dados_recolhidos
 if "campo_para_corrigir" not in st.session_state: st.session_state.campo_para_corrigir = None
 if "modo_correcao" not in st.session_state: st.session_state.modo_correcao = False
 
+# Exibe o histórico do chat
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         if isinstance(message["content"], pd.DataFrame):
@@ -387,7 +390,6 @@ def proximo_campo():
 
 def adicionar_mensagem(role, content):
     st.session_state.messages.append({"role": role, "content": content})
-    # Não precisa de redesenhar aqui, o Streamlit vai fazer isso no final do script.
 
 def apresentar_resumo():
     entidade = st.session_state.get('conversa_em_andamento') or st.session_state.get('entidade_em_correcao')
@@ -413,7 +415,6 @@ if prompt := st.chat_input("Como posso ajudar?"):
         adicionar_mensagem("assistant", get_info_text())
     elif prompt_lower == 'limpar chat':
         reset_chat_state()
-        st.rerun()
     elif prompt_lower in ['cancelar', 'voltar', 'menu']:
         if st.session_state.conversa_em_andamento or st.session_state.pending_action:
             reset_conversation_flow()
@@ -479,7 +480,7 @@ if prompt := st.chat_input("Como posso ajudar?"):
                 erro = response_data.get("dados", {}).get("erro", "Não consegui entender o seu pedido. Pode tentar reformular? Diga `#info` para ver exemplos.")
                 adicionar_mensagem("assistant", f"Desculpe, ocorreu um problema: {erro}")
     
-    st.rerun() # Recarrega a página para exibir a nova mensagem
+    st.rerun()
 
 # --- Botões de Confirmação e Correção ---
 if st.session_state.pending_action:
@@ -530,3 +531,4 @@ if st.session_state.get('modo_correcao'):
         st.session_state.modo_correcao = False
         st.session_state.dados_recolhidos = dados_para_corrigir
         st.rerun()
+
