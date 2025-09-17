@@ -372,14 +372,81 @@ if "dados_recolhidos" not in st.session_state: st.session_state.dados_recolhidos
 if "campo_para_corrigir" not in st.session_state: st.session_state.campo_para_corrigir = None
 if "modo_correcao" not in st.session_state: st.session_state.modo_correcao = False
 
-# Exibe o histórico do chat
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        if isinstance(message["content"], pd.DataFrame):
-            st.dataframe(message["content"], hide_index=True, use_container_width=True)
-        else:
-            st.markdown(message["content"], unsafe_allow_html=True)
+# --- Lógica de Processamento de Ações ---
+async def handle_prompt(prompt):
+    adicionar_mensagem("user", prompt)
+    prompt_lower = prompt.strip().lower()
 
+    if prompt_lower == '#info':
+        adicionar_mensagem("assistant", get_info_text())
+    elif prompt_lower == 'limpar chat':
+        reset_chat_state()
+    elif prompt_lower in ['cancelar', 'voltar', 'menu']:
+        if st.session_state.conversa_em_andamento or st.session_state.pending_action:
+            reset_conversation_flow()
+        else:
+            adicionar_mensagem("assistant", "Não há nenhuma ação em andamento para cancelar. Como posso ajudar?")
+    elif st.session_state.conversa_em_andamento:
+        campo_atual = proximo_campo()
+        if campo_atual:
+            st.session_state.dados_recolhidos[campo_atual] = prompt
+            proximo = proximo_campo()
+            if proximo:
+                adicionar_mensagem("assistant", f"Entendido. Agora, qual é o **{proximo.replace('_', ' ')}**?")
+            else:
+                apresentar_resumo()
+    else:
+        with st.spinner("A pensar..."):
+            response_data = await get_flow_response(prompt, st.session_state['user_name'])
+            acao = response_data.get('acao')
+            
+            if acao == 'iniciar_criacao':
+                entidade = response_data.get('entidade')
+                if entidade in CAMPOS_CADASTRO:
+                    st.session_state.conversa_em_andamento = entidade
+                    st.session_state.dados_recolhidos = {}
+                    primeiro_campo = proximo_campo()
+                    adicionar_mensagem("assistant", f"Ótimo! Para criar um novo **{entidade}**, vamos começar. Qual é o **{primeiro_campo.replace('_', ' ')}**?")
+                else:
+                    adicionar_mensagem("assistant", "Desculpe, não sei como criar essa entidade.")
+            
+            elif acao in ['pesquisar_aparelho', 'pesquisar_movimentacoes']:
+                executor = executar_pesquisa_aparelho if acao == 'pesquisar_aparelho' else executar_pesquisa_movimentacoes
+                resultados = executor(response_data.get('filtros'))
+                if isinstance(resultados, pd.DataFrame) and not resultados.empty:
+                    adicionar_mensagem("assistant", f"Encontrei {len(resultados)} resultado(s):")
+                    adicionar_mensagem("assistant", resultados)
+                elif isinstance(resultados, str):
+                    adicionar_mensagem("assistant", resultados)
+                else:
+                    adicionar_mensagem("assistant", "Não encontrei nenhum resultado com esses critérios.")
+            
+            elif acao == 'pesquisar_na_web':
+                with st.spinner("A pesquisar na web..."):
+                    grounded_response = await get_grounded_response(prompt)
+                    resposta = grounded_response['text']
+                    fontes = grounded_response['sources']
+                    if fontes:
+                        resposta += "\n\n**Fontes:**\n"
+                        for i, fonte in enumerate(fontes):
+                            resposta += f"<a href='{fonte['uri']}' target='_blank' class='source-link'>{i+1}. {fonte['title']}</a> "
+                    adicionar_mensagem("assistant", resposta)
+
+            elif acao == 'logout':
+                adicionar_mensagem("assistant", "A encerrar a sessão...")
+                logout()
+            
+            elif acao == 'saudacao':
+                adicionar_mensagem("assistant", f"Olá {st.session_state['user_name']}! Sou o Flow. Diga `#info` para ver o que posso fazer.")
+
+            elif acao == 'cancelar': 
+                reset_conversation_flow()
+            
+            else:
+                erro = response_data.get("dados", {}).get("erro", "Não consegui entender o seu pedido. Pode tentar reformular? Diga `#info` para ver exemplos.")
+                adicionar_mensagem("assistant", f"Desculpe, ocorreu um problema: {erro}")
+    
+# --- Loop Principal da UI ---
 def proximo_campo():
     entidade = st.session_state.conversa_em_andamento
     if not entidade: return None
@@ -406,83 +473,11 @@ def apresentar_resumo():
     st.session_state.campo_para_corrigir = None
     st.session_state.entidade_em_correcao = None
 
-# --- Loop Principal do Chat ---
 if prompt := st.chat_input("Como posso ajudar?"):
-    adicionar_mensagem("user", prompt)
-    prompt_lower = prompt.strip().lower()
-
-    if prompt_lower == '#info':
-        adicionar_mensagem("assistant", get_info_text())
-    elif prompt_lower == 'limpar chat':
-        reset_chat_state()
-    elif prompt_lower in ['cancelar', 'voltar', 'menu']:
-        if st.session_state.conversa_em_andamento or st.session_state.pending_action:
-            reset_conversation_flow()
-        else:
-            adicionar_mensagem("assistant", "Não há nenhuma ação em andamento para cancelar. Como posso ajudar?")
-    elif st.session_state.conversa_em_andamento:
-        campo_atual = proximo_campo()
-        if campo_atual:
-            st.session_state.dados_recolhidos[campo_atual] = prompt
-            proximo = proximo_campo()
-            if proximo:
-                adicionar_mensagem("assistant", f"Entendido. Agora, qual é o **{proximo.replace('_', ' ')}**?")
-            else:
-                apresentar_resumo()
-    else:
-        with st.spinner("A pensar..."):
-            response_data = asyncio.run(get_flow_response(prompt, st.session_state['user_name']))
-            acao = response_data.get('acao')
-            
-            if acao == 'iniciar_criacao':
-                entidade = response_data.get('entidade')
-                if entidade in CAMPOS_CADASTRO:
-                    st.session_state.conversa_em_andamento = entidade
-                    st.session_state.dados_recolhidos = {}
-                    primeiro_campo = proximo_campo()
-                    adicionar_mensagem("assistant", f"Ótimo! Para criar um novo **{entidade}**, vamos começar. Qual é o **{primeiro_campo.replace('_', ' ')}**?")
-                else:
-                    adicionar_mensagem("assistant", "Desculpe, não sei como criar essa entidade.")
-            
-            elif acao in ['pesquisar_aparelho', 'pesquisar_movimentacoes']:
-                executor = executar_pesquisa_aparelho if acao == 'pesquisar_aparelho' else executar_pesquisa_movimentacoes
-                resultados = executor(response_data.get('filtros'))
-                if isinstance(resultados, pd.DataFrame) and not resultados.empty:
-                    adicionar_mensagem("assistant", f"Encontrei {len(resultados)} resultado(s):")
-                    adicionar_mensagem("assistant", resultados)
-                elif isinstance(resultados, str):
-                    adicionar_mensagem("assistant", resultados)
-                else:
-                    adicionar_mensagem("assistant", "Não encontrei nenhum resultado com esses critérios.")
-            
-            elif acao == 'pesquisar_na_web':
-                with st.spinner("A pesquisar na web..."):
-                    grounded_response = asyncio.run(get_grounded_response(prompt))
-                    resposta = grounded_response['text']
-                    fontes = grounded_response['sources']
-                    if fontes:
-                        resposta += "\n\n**Fontes:**\n"
-                        for i, fonte in enumerate(fontes):
-                            resposta += f"<a href='{fonte['uri']}' target='_blank' class='source-link'>{i+1}. {fonte['title']}</a> "
-                    adicionar_mensagem("assistant", resposta)
-
-            elif acao == 'logout':
-                adicionar_mensagem("assistant", "A encerrar a sessão...")
-                logout()
-            
-            elif acao == 'saudacao':
-                adicionar_mensagem("assistant", f"Olá {st.session_state['user_name']}! Sou o Flow. Diga `#info` para ver o que posso fazer.")
-
-            elif acao == 'cancelar': 
-                reset_conversation_flow()
-            
-            else:
-                erro = response_data.get("dados", {}).get("erro", "Não consegui entender o seu pedido. Pode tentar reformular? Diga `#info` para ver exemplos.")
-                adicionar_mensagem("assistant", f"Desculpe, ocorreu um problema: {erro}")
-    
+    asyncio.run(handle_prompt(prompt))
     st.rerun()
 
-# --- Botões de Confirmação e Correção ---
+# Botões de confirmação e correção são renderizados após o loop principal
 if st.session_state.pending_action:
     action_data = st.session_state.pending_action
     col1, col2, col3 = st.columns([1.2, 1, 5])
@@ -531,4 +526,3 @@ if st.session_state.get('modo_correcao'):
         st.session_state.modo_correcao = False
         st.session_state.dados_recolhidos = dados_para_corrigir
         st.rerun()
-
