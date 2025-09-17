@@ -235,32 +235,31 @@ schema = {
 }
 
 async def make_api_call(apiUrl, payload):
-    """Função genérica para fazer chamadas à API com retentativa."""
     max_retries = 3
     for attempt in range(max_retries):
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(apiUrl, headers={'Content-Type': 'application/json'}, json=payload, timeout=45)
-                if response.status_code == 503 and attempt < max_retries - 1:
-                    await asyncio.sleep(1 + attempt)
+                # --- CORREÇÃO: Lida com 429 (Too Many Requests) e 503 (Service Unavailable)
+                if response.status_code in [429, 503] and attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** (attempt + 1)) # Aumenta a espera (2s, 4s)
                     continue
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 503 and attempt < max_retries - 1:
+            if e.response.status_code in [429, 503] and attempt < max_retries - 1:
                 continue
-            return {"error": f"Erro na API ({e.response.status_code}). Verifique o nome do modelo e a chave da API."}
+            return {"error": f"Erro na API ({e.response.status_code}). O serviço pode estar sobrecarregado ou a sua chave de API pode ter atingido o limite."}
         except Exception as e:
             return {"error": f"Ocorreu um erro de comunicação: {e}"}
-    return {"error": "O serviço de IA está temporariamente indisponível (Erro 503). Por favor, tente mais tarde."}
+    return {"error": "O serviço de IA está temporariamente indisponível. Por favor, tente mais tarde."}
 
 async def get_flow_response(prompt, user_name):
-    """Interpreta o pedido do utilizador para uma ação estruturada."""
     contextual_prompt = f"O utilizador '{user_name}' pediu: {prompt}. Palavras como 'cancelar', 'voltar' ou 'menu' devem ser interpretadas como a ação 'cancelar'. Se o pedido não corresponder a nenhuma das funções de gestão de inventário (criar ou pesquisar), classifique a ação como 'pesquisar_na_web'."
     
     chatHistory = [
         {"role": "user", "parts": [{"text": "Você é o Flow, um assistente para um sistema de gestão de ativos. Sua função é interpretar os pedidos do utilizador e traduzi-los para um formato JSON estruturado. Suas funções são: 'iniciar_criacao', 'pesquisar_aparelho', 'pesquisar_movimentacoes'. Se o pedido for um comando de chat ('limpar chat', 'logout', 'saudacao', 'cancelar'), use a ação correspondente. Se for uma pergunta de conhecimento geral (ex: 'qual a capital do Brasil?'), use a ação 'pesquisar_na_web'. Se não entender, use 'desconhecido'."}]},
-        {"role": "model", "parts": [{"text": "Entendido. Estou pronto para processar os pedidos e retornar o JSON correspondente."}]},
+        {"role": "model", "parts": [{"text": "Entendido."}]},
         {"role": "user", "parts": [{"text": contextual_prompt}]}
     ]
     payload = { "contents": chatHistory, "generationConfig": { "responseMimeType": "application/json", "responseSchema": schema } }
@@ -282,7 +281,6 @@ async def get_flow_response(prompt, user_name):
     return {"acao": "desconhecido", "dados": {"erro": f"Resposta inesperada da API: {result}"}}
 
 async def get_grounded_response(prompt):
-    """Busca uma resposta na web usando o Google Search grounding."""
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "tools": [{"google_search": {}}]
@@ -345,7 +343,6 @@ CAMPOS_CADASTRO = {
 }
 
 def reset_chat_state():
-    """Reseta todos os estados da sessão relacionados com o chat."""
     st.session_state.messages = [{"role": "assistant", "content": "Chat limpo! Como posso ajudar a recomeçar?"}]
     st.session_state.pending_action = None
     st.session_state.conversa_em_andamento = None
@@ -354,7 +351,6 @@ def reset_chat_state():
     st.session_state.modo_correcao = False
 
 def reset_conversation_flow():
-    """Cancela uma conversa em andamento sem limpar o histórico."""
     st.session_state.conversa_em_andamento = None
     st.session_state.dados_recolhidos = {}
     st.session_state.pending_action = None
@@ -391,11 +387,7 @@ def proximo_campo():
 
 def adicionar_mensagem(role, content):
     st.session_state.messages.append({"role": role, "content": content})
-    with st.chat_message(role):
-        if isinstance(content, pd.DataFrame):
-            st.dataframe(content, hide_index=True, use_container_width=True)
-        else:
-            st.markdown(content, unsafe_allow_html=True)
+    # Não precisa de redesenhar aqui, o Streamlit vai fazer isso no final do script.
 
 def apresentar_resumo():
     entidade = st.session_state.get('conversa_em_andamento') or st.session_state.get('entidade_em_correcao')
@@ -406,7 +398,7 @@ def apresentar_resumo():
     resumo = f"Perfeito! Recolhi as informações. Por favor, confirme os dados para criar o **{entidade}**:\n"
     for key, value in dados.items():
         resumo += f"- **{key.replace('_', ' ').title()}:** {value}\n"
-    adicionar_mensagem("assistant", resumo)
+    st.session_state.messages.append({"role": "assistant", "content": resumo})
     st.session_state.pending_action = {"acao": f"criar_{entidade}", "dados": dados}
     st.session_state.conversa_em_andamento = None
     st.session_state.campo_para_corrigir = None
@@ -428,16 +420,14 @@ if prompt := st.chat_input("Como posso ajudar?"):
         else:
             adicionar_mensagem("assistant", "Não há nenhuma ação em andamento para cancelar. Como posso ajudar?")
     elif st.session_state.conversa_em_andamento:
-        with st.spinner("..."):
-            campo_atual = proximo_campo()
-            if campo_atual:
-                st.session_state.dados_recolhidos[campo_atual] = prompt
-                proximo = proximo_campo()
-                if proximo:
-                    adicionar_mensagem("assistant", f"Entendido. Agora, qual é o **{proximo.replace('_', ' ')}**?")
-                else:
-                    apresentar_resumo()
-                    st.rerun()
+        campo_atual = proximo_campo()
+        if campo_atual:
+            st.session_state.dados_recolhidos[campo_atual] = prompt
+            proximo = proximo_campo()
+            if proximo:
+                adicionar_mensagem("assistant", f"Entendido. Agora, qual é o **{proximo.replace('_', ' ')}**?")
+            else:
+                apresentar_resumo()
     else:
         with st.spinner("A pensar..."):
             response_data = asyncio.run(get_flow_response(prompt, st.session_state['user_name']))
@@ -488,7 +478,8 @@ if prompt := st.chat_input("Como posso ajudar?"):
             else:
                 erro = response_data.get("dados", {}).get("erro", "Não consegui entender o seu pedido. Pode tentar reformular? Diga `#info` para ver exemplos.")
                 adicionar_mensagem("assistant", f"Desculpe, ocorreu um problema: {erro}")
-    st.rerun()
+    
+    st.rerun() # Recarrega a página para exibir a nova mensagem
 
 # --- Botões de Confirmação e Correção ---
 if st.session_state.pending_action:
@@ -539,4 +530,3 @@ if st.session_state.get('modo_correcao'):
         st.session_state.modo_correcao = False
         st.session_state.dados_recolhidos = dados_para_corrigir
         st.rerun()
-
