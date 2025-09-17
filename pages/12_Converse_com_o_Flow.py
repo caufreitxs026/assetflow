@@ -153,15 +153,15 @@ def consultar_gmail(filtros):
 def executar_criar_colaborador(dados):
     if not dados or not all(k in dados for k in ['nome_completo', 'codigo', 'cpf', 'nome_setor']):
         return "Não foi possível criar o colaborador. Faltam informações essenciais (nome, código, CPF e setor)."
-    # ... resto da função ...
+    # ... (o resto da sua função de criar colaborador aqui)
     pass
 
 def executar_criar_aparelho(dados):
-    # ... resto da função ...
+    # ... (o resto da sua função de criar aparelho aqui)
     pass
 
 def executar_criar_conta_gmail(dados):
-    # ... resto da função ...
+    # ... (o resto da sua função de criar conta gmail aqui)
     pass
 
 # --- Lógica do Chatbot ---
@@ -237,24 +237,39 @@ async def get_flow_response(prompt, user_name):
 
 def get_info_text():
     return """
-    Olá! Sou o Flow, o seu assistente especialista.
+    Olá! Sou o Flow, o seu assistente especialista. Aqui está o que posso fazer por si:
 
-    **1. Para Consultar:**
-    - **Colaborador:** "dados do colaborador [nome]", "info do cpf [número]", "quem usa o gmail [email]?"
-    - **Aparelho:** "status do aparelho [n/s]", "detalhes do imei [número]"
-    - **Movimentações:** "histórico do [nome]", "movimentações do aparelho [n/s] em [data AAAA-MM-DD]"
-    - **Contas Gmail:** "senha do gmail [email]", "qual o gmail do [nome]?"
+    ---
+    ### 🔍 **Consultar Informações**
+    Pergunte-me sobre qualquer coisa no inventário.
+    - **Sobre Colaboradores:**
+      - `dados do colaborador [nome]`
+      - `info do cpf [número]`
+      - `quem usa o gmail [email]?`
+    - **Sobre Aparelhos:**
+      - `status do aparelho [n/s]`
+      - `detalhes do imei [número]`
+    - **Sobre Movimentações:**
+      - `histórico do [nome]`
+      - `movimentações do aparelho [n/s] em [data AAAA-MM-DD]`
+    - **Sobre Contas Gmail:**
+      - `senha do gmail [email]`
+      - `qual o gmail do [nome]?`
 
-    **2. Para Criar (Fluxo Guiado):**
-    - "criar colaborador"
-    - "adicionar novo aparelho"
-    - "cadastrar conta gmail"
+    ---
+    ### ✨ **Criar Novos Registos**
+    Diga-me o que quer criar e eu guio-o no processo.
+    - `criar colaborador`
+    - `adicionar novo aparelho`
+    - `cadastrar conta gmail`
 
-    **3. Comandos do Chat:**
-    - `#info`: Mostra esta mensagem.
-    - `limpar chat`: Apaga o histórico.
+    ---
+    ### ⚙️ **Comandos do Chat**
+    Use estes comandos para gerir a nossa conversa.
+    - `#info`: Mostra esta mensagem de ajuda.
+    - `limpar chat`: Apaga todo o nosso histórico.
     - `cancelar` ou `voltar`: Interrompe a ação atual.
-    - `logout`: Faz o logout do sistema.
+    - `logout`: Encerra a sua sessão no sistema.
     """
 
 CAMPOS_CADASTRO = {
@@ -275,7 +290,7 @@ def reset_conversation_flow():
     st.session_state.pop('pending_action', None)
     st.session_state.messages.append({"role": "assistant", "content": "Ok, ação cancelada. Como posso ajudar agora?"})
 
-# --- UI e Lógica Principal do Chat ---
+# --- UI ---
 st.markdown("""<div class="flow-title"><span class="icon">💬</span><h1><span class="text-chat">Converse com o </span><span class="text-flow">Flow</span></h1></div>""", unsafe_allow_html=True)
 st.markdown("---")
 st.info("Sou o Flow, seu assistente especialista. Diga `#info` para ver os comandos.")
@@ -287,57 +302,55 @@ async def handle_prompt(user_prompt):
     st.session_state.messages.append({"role": "user", "content": user_prompt})
     prompt_lower = user_prompt.strip().lower()
 
-    # Processa comandos universais que não precisam de IA
+    # Processa comandos universais primeiro
     if prompt_lower == '#info':
         st.session_state.messages.append({"role": "assistant", "content": get_info_text()})
-        return
     elif prompt_lower == 'limpar chat':
         reset_chat_state()
-        return
     elif prompt_lower in ['cancelar', 'voltar', 'menu']:
         if st.session_state.get('conversa_em_andamento'):
             reset_conversation_flow()
         else:
             st.session_state.messages.append({"role": "assistant", "content": "Não há nenhuma ação em andamento para cancelar."})
-        return
-    
-    # Processa a continuação de um cadastro
-    if st.session_state.get('conversa_em_andamento'):
-        # Lógica para continuar um cadastro
-        pass # Placeholder for brevity
-        return
-
-    # Se não for um comando ou continuação, chama a IA
-    with st.spinner("A pensar..."):
-        response_data = await get_flow_response(user_prompt, st.session_state['user_name'])
-        acao = response_data.get('acao')
-        filtros = response_data.get('filtros')
-        
-        resultados = None
-        if acao == 'consultar_colaborador': resultados = consultar_colaborador(filtros)
-        elif acao == 'consultar_aparelho': resultados = consultar_aparelho_completo(filtros)
-        elif acao == 'consultar_movimentacoes': resultados = consultar_movimentacoes(filtros)
-        elif acao == 'consultar_gmail': resultados = consultar_gmail(filtros)
-        elif acao == 'logout':
-            st.session_state.messages.append({"role": "assistant", "content": "A encerrar a sessão..."})
-            logout(rerun=False) # Evita rerun para não perder a mensagem
-        elif acao == 'saudacao':
-            st.session_state.messages.append({"role": "assistant", "content": f"Olá {st.session_state['user_name']}! Sou o Flow. Diga `#info` para ver os comandos."})
-        else:
-            erro = response_data.get("filtros", {}).get("erro", "Não consegui entender o seu pedido.")
-            st.session_state.messages.append({"role": "assistant", "content": f"Desculpe, ocorreu um problema: {erro}"})
-
-        # Adiciona os resultados ao histórico
-        if isinstance(resultados, (pd.DataFrame, dict, str)):
-            if isinstance(resultados, pd.DataFrame) and resultados.empty:
-                st.session_state.messages.append({"role": "assistant", "content": "Não encontrei nenhum resultado com esses critérios."})
-            elif isinstance(resultados, dict) and resultados.get("info", pd.DataFrame()).empty:
-                st.session_state.messages.append({"role": "assistant", "content": "Não encontrei nenhum resultado com esses critérios."})
+    else:
+        with st.spinner("A pensar..."):
+            response_data = await get_flow_response(user_prompt, st.session_state['user_name'])
+            acao = response_data.get('acao')
+            filtros = response_data.get('filtros')
+            entidade = response_data.get('entidade')
+            
+            resultados = None
+            if acao == 'iniciar_criacao':
+                if entidade in CAMPOS_CADASTRO:
+                    st.session_state.conversa_em_andamento = entidade
+                    st.session_state.dados_recolhidos = {}
+                    primeiro_campo = CAMPOS_CADASTRO[entidade][0]
+                    st.session_state.messages.append({"role": "assistant", "content": f"Ótimo! Para criar um novo **{entidade}**, vamos começar. Qual é o **{primeiro_campo.replace('_', ' ')}**?"})
+                else:
+                    st.session_state.messages.append({"role": "assistant", "content": "Desculpe, não sei como criar essa entidade."})
+            elif acao == 'consultar_colaborador': resultados = consultar_colaborador(filtros)
+            elif acao == 'consultar_aparelho': resultados = consultar_aparelho_completo(filtros)
+            elif acao == 'consultar_movimentacoes': resultados = consultar_movimentacoes(filtros)
+            elif acao == 'consultar_gmail': resultados = consultar_gmail(filtros)
+            elif acao == 'logout':
+                st.session_state.messages.append({"role": "assistant", "content": "A encerrar a sessão..."})
+                logout(rerun=False)
+            elif acao == 'saudacao':
+                st.session_state.messages.append({"role": "assistant", "content": f"Olá {st.session_state['user_name']}! Sou o Flow. Diga `#info` para ver os comandos."})
             else:
-                st.session_state.messages.append({"role": "assistant", "content": resultados})
+                erro = response_data.get("filtros", {}).get("erro", "Não consegui entender o seu pedido.")
+                st.session_state.messages.append({"role": "assistant", "content": f"Desculpe, ocorreu um problema: {erro}"})
+
+            if isinstance(resultados, (pd.DataFrame, dict, str)):
+                if isinstance(resultados, pd.DataFrame) and resultados.empty:
+                    st.session_state.messages.append({"role": "assistant", "content": "Não encontrei nenhum resultado com esses critérios."})
+                elif isinstance(resultados, dict) and resultados.get("info", pd.DataFrame()).empty:
+                     st.session_state.messages.append({"role": "assistant", "content": "Não encontrei nenhum resultado com esses critérios."})
+                else:
+                    st.session_state.messages.append({"role": "assistant", "content": resultados})
+    st.rerun()
 
 # --- Loop de Exibição e Captura de Input ---
-# 1. Exibe o histórico de mensagens
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         if isinstance(message["content"], pd.DataFrame):
@@ -351,14 +364,13 @@ for message in st.session_state.messages:
         else:
             st.markdown(message["content"], unsafe_allow_html=True)
 
-# 2. Captura o input do utilizador e inicia o processamento
 if prompt := st.chat_input("Como posso ajudar?"):
     asyncio.run(handle_prompt(prompt))
-    st.rerun()
 
 # 3. Processa a última mensagem do utilizador SE ela ainda não foi processada
 if st.session_state.messages[-1]["role"] == "user":
     asyncio.run(process_response(st.session_state.messages[-1]["content"]))
+
 
 
 
