@@ -240,7 +240,7 @@ def get_info_text():
     Olá! Sou o Flow, o seu assistente especialista. Aqui está o que posso fazer por si:
 
     ---
-    ### 🔍 **Consultar Informações**
+    ### **Consultar Informações**
     Pergunte-me sobre qualquer coisa no inventário.
     - **Sobre Colaboradores:**
       - `dados do colaborador [nome]`
@@ -257,14 +257,14 @@ def get_info_text():
       - `qual o gmail do [nome]?`
 
     ---
-    ### ✨ **Criar Novos Registos**
+    ### **Criar Novos Registos**
     Diga-me o que quer criar e eu guio-o no processo.
     - `criar colaborador`
     - `adicionar novo aparelho`
     - `cadastrar conta gmail`
 
     ---
-    ### ⚙️ **Comandos do Chat**
+    ### **Comandos do Chat**
     Use estes comandos para gerir a nossa conversa.
     - `#info`: Mostra esta mensagem de ajuda.
     - `limpar chat`: Apaga todo o nosso histórico.
@@ -370,6 +370,7 @@ if prompt := st.chat_input("Como posso ajudar?"):
 # 3. Processa a última mensagem do utilizador SE ela ainda não foi processada
 if st.session_state.messages[-1]["role"] == "user":
     asyncio.run(process_response(st.session_state.messages[-1]["content"]))
+
 
 
 
