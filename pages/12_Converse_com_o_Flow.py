@@ -230,27 +230,48 @@ async def get_flow_response(prompt, user_name):
 
 def get_info_text():
     return """
-    Olá! Sou o Flow, o seu assistente especialista.
+    Olá! Sou o Flow, o seu assistente especialista. Aqui está o que posso fazer por si:
 
-    **1. Para Consultar:**
-    - **Colaborador:** "dados do colaborador [nome]", "info do cpf [número]", "quem usa o gmail [email]?"
-    - **Aparelho:** "status do aparelho [n/s]", "detalhes do imei [número]"
-    - **Movimentações:** "histórico do [nome]", "movimentações do aparelho [n/s] em [data AAAA-MM-DD]"
-    - **Contas Gmail:** "senha do gmail [email]", "qual o gmail do [nome]?"
+    ---
+    ### **Consultar Informações**
+    Pergunte-me sobre qualquer coisa no inventário.
+    - **Sobre Colaboradores:**
+      - `dados do colaborador [nome]`
+      - `info do cpf [número]`
+      - `quem usa o gmail [email]?`
+    - **Sobre Aparelhos:**
+      - `status do aparelho [n/s]`
+      - `detalhes do imei [número]`
+    - **Sobre Movimentações:**
+      - `histórico do [nome]`
+      - `movimentações do aparelho [n/s] em [data AAAA-MM-DD]`
+    - **Sobre Contas Gmail:**
+      - `senha do gmail [email]`
+      - `qual o gmail do [nome]?`
 
-    **2. Para Criar (Fluxo Guiado):**
-    - "criar colaborador"
-    - "adicionar novo aparelho"
-    - "cadastrar conta gmail"
+    ---
+    ### **Criar Novos Registos**
+    Diga-me o que quer criar e eu guio-o no processo.
+    - `criar colaborador`
+    - `adicionar novo aparelho`
+    - `cadastrar conta gmail`
 
-    **3. Comandos do Chat:**
-    - `#info`: Mostra esta mensagem.
-    - `limpar chat`: Apaga o histórico.
+    ---
+    ### **Comandos do Chat**
+    Use estes comandos para gerir a nossa conversa.
+    - `#info`: Mostra esta mensagem de ajuda.
+    - `limpar chat`: Apaga todo o nosso histórico.
     - `cancelar` ou `voltar`: Interrompe a ação atual.
-    - `logout`: Faz o logout do sistema.
+    - `logout`: Encerra a sua sessão no sistema.
     """
 
-# --- Funções de Estado e UI do Chat ---
+CAMPOS_CADASTRO = {
+    # (código da variável sem alterações)
+    "colaborador": ["codigo", "nome_completo", "cpf", "gmail", "nome_setor"],
+    "aparelho": ["marca", "modelo", "numero_serie", "valor", "imei1", "imei2"],
+    "conta_gmail": ["email", "senha", "telefone_recuperacao", "email_recuperacao", "nome_setor", "nome_colaborador"]
+}
+
 def reset_chat_state():
     st.session_state.messages = [{"role": "assistant", "content": "Chat limpo! Como posso ajudar a recomeçar?"}]
     st.session_state.pop('conversa_em_andamento', None)
@@ -271,9 +292,9 @@ st.info("Sou o Flow, seu assistente especialista. Diga `#info` para ver os coman
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": f"Olá {st.session_state['user_name']}! Como posso ajudar?"}]
 
-# --- LÓGICA DE RENDERIZAÇÃO E PROCESSAMENTO (CORRIGIDA) ---
+# --- LÓGICA DE RENDERIZAÇÃO E PROCESSAMENTO ---
 async def process_response(user_prompt):
-    """Processa a entrada do utilizador e gera a resposta do assistente."""
+    # (código da função sem alterações)
     prompt_lower = user_prompt.strip().lower()
 
     if prompt_lower == '#info':
@@ -331,10 +352,11 @@ for message in st.session_state.messages:
 # 2. Captura o input do utilizador e inicia o processamento
 if prompt := st.chat_input("Como posso ajudar?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
-    # O rerun abaixo irá garantir que a mensagem do utilizador é exibida antes de o processamento começar
-    st.rerun()
+    asyncio.run(process_response(prompt))
+
 
 # 3. Processa a última mensagem do utilizador SE ela ainda não foi processada
 if st.session_state.messages[-1]["role"] == "user":
     asyncio.run(process_response(st.session_state.messages[-1]["content"]))
+
 
