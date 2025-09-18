@@ -179,7 +179,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             .logo {{
                 position: absolute;
                 top: 0cm; /* Move a logo para o topo da margem */
-                left: 5cm;  /* Move a logo para a esquerda da margem */
+                left: 1cm;  /* Move a logo para a esquerda da margem */
                 width: 150px; 
             }}
             
@@ -344,6 +344,7 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página: {e}")
     st.info("Verifique se o banco de dados está inicializado e se há movimentações do tipo 'Em uso' registadas.")
+
 
 
 
