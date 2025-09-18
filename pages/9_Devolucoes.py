@@ -220,7 +220,7 @@ try:
                     
                     checklist_data = {}
                     itens_checklist = ["Tela", "Carcaça", "Bateria", "Botões", "USB", "Chip", "Carregador", "Cabo USB", "Capa", "Película"]
-                    opcoes_estado = ["Bom", "Riscado", "Quebrado", "Faltando"]
+                    opcoes_estado = ["Bom", "Riscado", "Quebrado", "Faltando", "Já Possui"]
                     
                     cols = st.columns(2)
                     for i, item in enumerate(itens_checklist):
@@ -307,4 +307,5 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de devoluções: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
+
 
