@@ -197,7 +197,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             
             .disclaimer {{ font-size: 8pt; text-align: justify; margin-top: 5px; padding: 0 5px; }}
             
-            .signature {{ margin-top: 25px; text-align: center; }} 
+            .signature {{ margin-top: 75px; text-align: center; }} 
             .signature-line {{ border-top: 1px solid #000; width: 350px; margin: 0 auto; padding-top: 5px; }}
         </style>
     </head>
@@ -310,7 +310,7 @@ try:
                     
                     checklist_data = {}
                     itens_checklist = ["Tela", "Carcaça", "Bateria", "Botões", "USB", "Chip", "Carregador", "Cabo USB", "Capa", "Película"]
-                    opcoes_estado = ["NOVO", "BOM", "REGULAR", "AVARIADO"]
+                    opcoes_estado = ["NOVO", "BOM", "REGULAR", "AVARIADO", "JÁ POSSUI"]
                     
                     cols = st.columns(2)
                     for i, item in enumerate(itens_checklist):
@@ -344,5 +344,6 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página: {e}")
     st.info("Verifique se o banco de dados está inicializado e se há movimentações do tipo 'Em uso' registadas.")
+
 
 
