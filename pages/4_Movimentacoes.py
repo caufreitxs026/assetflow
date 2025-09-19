@@ -46,20 +46,14 @@ with st.sidebar:
 def get_db_connection():
     return st.connection("supabase", type="sql")
 
-# --- NOVA FUNÇÃO DE VALIDAÇÃO (O "SEGURANÇA") ---
-def validar_vinculacao_de_aparelho(conn: Connection, aparelho_id: int, novo_status_nome: str):
+# --- FUNÇÃO DE VALIDAÇÃO APRIMORADA (O "Guarda de Trânsito") ---
+def validar_movimentacao(conn: Connection, aparelho_id: int, novo_status_nome: str):
     """
-    Valida se um aparelho pode ser vinculado (i.e., movido para o status 'Em uso').
-    A regra é: só pode ir para 'Em uso' se o status atual for 'Disponível'.
+    Valida a transição de status de um aparelho, garantindo a integridade do fluxo.
+    Verifica o status atual e permite apenas movimentações válidas.
     """
-    # Se o novo status não for "Em uso", não há nada a validar. A operação é permitida.
-    if novo_status_nome != "Em uso":
-        return True, ""
-
     try:
-        # Se o novo status for "Em uso", precisamos verificar o status atual.
-        # --- CORREÇÃO APLICADA AQUI ---
-        # Passamos a query como uma string normal para ser compatível com o cache do st.connection.
+        # 1. Descobre de onde o aparelho está saindo (status atual)
         query_str = """
             SELECT s.nome_status 
             FROM aparelhos a
@@ -69,18 +63,36 @@ def validar_vinculacao_de_aparelho(conn: Connection, aparelho_id: int, novo_stat
         resultado = conn.query(query_str, params={"ap_id": aparelho_id})
         
         if resultado.empty:
-            return False, f"Erro: Aparelho com ID {aparelho_id} não encontrado para validação."
+            return False, f"Erro: Aparelho com ID {aparelho_id} não encontrado."
 
         status_atual = resultado.iloc[0]['nome_status']
 
-        if status_atual == 'Disponível':
-            return True, "Aparelho disponível para vinculação."
-        else:
-            return False, f"❌ BLOQUEADO: Um aparelho com status '{status_atual}' não pode ser vinculado. Apenas aparelhos 'Disponíveis' podem ser movidos para 'Em uso'."
+        if status_atual == novo_status_nome:
+            return False, f"AVISO: O aparelho já se encontra no status '{status_atual}'. Nenhuma movimentação foi registrada."
+
+        # 2. REGRAS DE TRÂNSITO (State Machine)
+        
+        # REGRA PARA APARELHOS 'Em uso'
+        if status_atual == 'Em uso':
+            # Um aparelho 'Em uso' só pode ser devolvido, ir para manutenção ou ser baixado.
+            destinos_permitidos = ['Disponível', 'Em manutenção', 'Baixado/Inutilizado']
+            if novo_status_nome not in destinos_permitidos:
+                return False, f"BLOQUEADO: Um aparelho 'Em uso' não pode ser movido para '{novo_status_nome}'. Rotas permitidas: Devolução (Disponível) ou Envio para Manutenção."
+
+        # REGRA PARA APARELHOS 'Em manutenção'
+        elif status_atual == 'Em manutenção':
+            # Um aparelho 'Em manutenção' só pode voltar ao estoque ou ser baixado. NUNCA direto para um colaborador.
+            destinos_permitidos = ['Disponível', 'Baixado/Inutilizado']
+            if novo_status_nome not in destinos_permitidos:
+                return False, f"BLOQUEADO: Um aparelho 'Em manutenção' não pode ser vinculado a um colaborador. Primeiro, mova-o para 'Disponível'."
+        
+        # Se nenhuma regra de bloqueio foi acionada, a movimentação é válida.
+        return True, "Movimentação Válida."
 
     except Exception as e:
         st.error(f"Ocorreu um erro crítico na validação: {e}")
         return False, "Erro de sistema ao validar o aparelho."
+
 
 @st.cache_data(ttl=30)
 def carregar_dados_para_selects():
@@ -227,9 +239,9 @@ try:
                 else:
                     aparelho_id = aparelhos_dict[aparelho_selecionado_str]
                     
-                    # --- CHAMANDO O "SEGURANÇA" ANTES DE PROSSEGUIR ---
+                    # --- CHAMANDO O "Guarda de Trânsito" ANTES DE PROSSEGUIR ---
                     conn = get_db_connection()
-                    is_valido, mensagem_validacao = validar_vinculacao_de_aparelho(conn, aparelho_id, novo_status_str)
+                    is_valido, mensagem_validacao = validar_movimentacao(conn, aparelho_id, novo_status_str)
 
                     if not is_valido:
                         st.error(mensagem_validacao)
