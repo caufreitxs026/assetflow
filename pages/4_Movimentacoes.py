@@ -58,13 +58,15 @@ def validar_vinculacao_de_aparelho(conn: Connection, aparelho_id: int, novo_stat
 
     try:
         # Se o novo status for "Em uso", precisamos verificar o status atual.
-        query = text("""
+        # --- CORREÇÃO APLICADA AQUI ---
+        # Passamos a query como uma string normal para ser compatível com o cache do st.connection.
+        query_str = """
             SELECT s.nome_status 
             FROM aparelhos a
             JOIN status s ON a.status_id = s.id
             WHERE a.id = :ap_id
-        """)
-        resultado = conn.query(query, params={"ap_id": aparelho_id})
+        """
+        resultado = conn.query(query_str, params={"ap_id": aparelho_id})
         
         if resultado.empty:
             return False, f"Erro: Aparelho com ID {aparelho_id} não encontrado para validação."
@@ -265,3 +267,4 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
+
