@@ -402,13 +402,14 @@ try:
             colaborador_filtro = st.selectbox("Filtrar por Colaborador:", options=colaboradores_options)
             data_fim_envio = st.date_input("Até Envio (até):", value=None, format="DD/MM/YYYY")
         
-        # --- NOVA LINHA DE FILTROS PARA DATA DE RETORNO ---
-        st.markdown("---") # Separador visual
         col_filtro3, col_filtro4 = st.columns(2)
         with col_filtro3:
             data_inicio_retorno = st.date_input("Período de Retorno (de):", value=None, format="DD/MM/YYYY")
         with col_filtro4:
             data_fim_retorno = st.date_input("Até Retorno (até):", value=None, format="DD/MM/YYYY")
+
+        # --- NOVA LINHA DE FILTROS PARA DATA DE RETORNO ---
+        st.markdown("---") # Separador visual
 
         historico_df = carregar_historico_manutencoes(
             status_filter=status_filtro, 
@@ -437,3 +438,4 @@ except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de manutenções: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
     traceback.print_exc()
+
