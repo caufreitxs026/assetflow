@@ -181,8 +181,14 @@ def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
 
             aparelho_id, colab_snapshot = manut_result
             
-            novo_status_id = s.execute(text("SELECT id FROM status WHERE nome_status = :nome"), {"nome": novo_status_nome}).scalar_one()
-            status_manutencao = 'Concluída' if novo_status_nome == 'Em estoque' else 'Sem Reparo'
+            novo_status_id_result = s.execute(text("SELECT id FROM status WHERE nome_status = :nome"), {"nome": novo_status_nome}).scalar()
+            if novo_status_id_result is None:
+                st.error(f"Status '{novo_status_nome}' não encontrado no sistema.")
+                s.rollback()
+                return False
+            novo_status_id = novo_status_id_result
+            
+            status_manutencao = 'Concluída' if novo_status_nome == 'Disponível' else 'Sem Reparo'
             
             query_update_manut = text("""
                 UPDATE manutencoes 
@@ -231,7 +237,7 @@ def atualizar_manutencao(manutencao_id, fornecedor, defeito):
         return False
 
 @st.cache_data(ttl=30)
-def carregar_historico_manutencoes(status_filter=None, colaborador_filter=None):
+def carregar_historico_manutencoes(status_filter=None, colaborador_filter=None, start_date=None, end_date=None, start_date_retorno=None, end_date_retorno=None):
     conn = get_db_connection()
     query = """
         SELECT 
@@ -250,6 +256,20 @@ def carregar_historico_manutencoes(status_filter=None, colaborador_filter=None):
     if colaborador_filter and colaborador_filter != "Todos":
         where_clauses.append("m.colaborador_snapshot = :colab")
         params['colab'] = colaborador_filter
+    if start_date:
+        where_clauses.append("CAST(m.data_envio AS DATE) >= :start_date")
+        params['start_date'] = start_date
+    if end_date:
+        where_clauses.append("CAST(m.data_envio AS DATE) <= :end_date")
+        params['end_date'] = end_date
+    # --- NOVO FILTRO ADICIONADO AQUI ---
+    if start_date_retorno:
+        where_clauses.append("CAST(m.data_retorno AS DATE) >= :start_date_retorno")
+        params['start_date_retorno'] = start_date_retorno
+    if end_date_retorno:
+        where_clauses.append("CAST(m.data_retorno AS DATE) <= :end_date_retorno")
+        params['end_date_retorno'] = end_date_retorno
+    # -------------------------------------
     if where_clauses:
         query += " WHERE " + " AND ".join(where_clauses)
     query += " ORDER BY m.data_envio DESC"
@@ -358,7 +378,7 @@ try:
                 )
                 solucao = st.text_area("Solução Aplicada / Laudo Técnico*")
                 custo = st.number_input("Custo do Reparo (R$)", min_value=0.0, value=0.0, format="%.2f")
-                novo_status_final = st.selectbox("Status Final do Aparelho*", ["Em estoque", "Baixado/Inutilizado"])
+                novo_status_final = st.selectbox("Status Final do Aparelho*", ["Disponível", "Baixado/Inutilizado"])
 
                 if st.form_submit_button("Fechar Ordem de Serviço", use_container_width=True, type="primary"):
                     if not all([os_selecionada_str, solucao]):
@@ -377,19 +397,43 @@ try:
         col_filtro1, col_filtro2 = st.columns(2)
         with col_filtro1:
             status_filtro = st.selectbox("Filtrar por Status da O.S.:", options=status_manutencao_options)
+            data_inicio_envio = st.date_input("Período de Envio (de):", value=None, format="DD/MM/YYYY")
         with col_filtro2:
             colaborador_filtro = st.selectbox("Filtrar por Colaborador:", options=colaboradores_options)
+            data_fim_envio = st.date_input("Até Envio (até):", value=None, format="DD/MM/YYYY")
+        
+        # --- NOVA LINHA DE FILTROS PARA DATA DE RETORNO ---
+        st.markdown("---") # Separador visual
+        col_filtro3, col_filtro4 = st.columns(2)
+        with col_filtro3:
+            data_inicio_retorno = st.date_input("Período de Retorno (de):", value=None, format="DD/MM/YYYY")
+        with col_filtro4:
+            data_fim_retorno = st.date_input("Até Retorno (até):", value=None, format="DD/MM/YYYY")
 
-        historico_df = carregar_historico_manutencoes(status_filter=status_filtro, colaborador_filter=colaborador_filtro)
+        historico_df = carregar_historico_manutencoes(
+            status_filter=status_filtro, 
+            colaborador_filter=colaborador_filtro,
+            start_date=data_inicio_envio,
+            end_date=data_fim_envio,
+            start_date_retorno=data_inicio_retorno,
+            end_date_retorno=data_fim_retorno
+        )
         st.dataframe(historico_df, hide_index=True, use_container_width=True,
                       column_config={
                           "id": "O.S. Nº",
+                          "numero_serie": "N/S",
+                          "nome_modelo": "Modelo",
+                          "colaborador": "Colaborador no Envio",
                           "data_envio": st.column_config.DateColumn("Data Envio", format="DD/MM/YYYY"),
                           "data_retorno": st.column_config.DateColumn("Data Retorno", format="DD/MM/YYYY"),
-                          "custo_reparo": st.column_config.NumberColumn("Custo", format="R$ %.2f")
+                          "custo_reparo": st.column_config.NumberColumn("Custo", format="R$ %.2f"),
+                          "status_manutencao": "Status O.S.",
+                          "fornecedor": "Fornecedor",
+                          "defeito_reportado": "Defeito Reportado",
+                          "solucao_aplicada": "Solução Aplicada"
                       })
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de manutenções: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
-
+    traceback.print_exc()
