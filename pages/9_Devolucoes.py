@@ -128,7 +128,7 @@ def processar_devolucao(aparelho_id, colaborador_id, nome_colaborador_devolveu, 
         return False
 
 @st.cache_data(ttl=30)
-def carregar_historico_devolucoes(start_date=None, end_date=None):
+def carregar_historico_devolucoes(start_date=None, end_date=None, ns_search=None, colaborador_search=None):
     conn = get_db_connection()
     query = """
         WITH HistoricoComNomePrevio AS (
@@ -151,18 +151,26 @@ def carregar_historico_devolucoes(start_date=None, end_date=None):
         JOIN modelos mo ON a.modelo_id = mo.id
         JOIN marcas ma ON mo.marca_id = ma.id
         LEFT JOIN colaboradores c ON h_prev.prev_colaborador_id = c.id
-        WHERE h_prev.checklist_devolucao IS NOT NULL
     """
     params = {}
-    conditions = []
+    conditions = ["h_prev.checklist_devolucao IS NOT NULL"] # Condição base para ser uma devolução
+
     if start_date:
         conditions.append("CAST(h_prev.data_movimentacao AS DATE) >= :start_date")
         params['start_date'] = start_date
     if end_date:
         conditions.append("CAST(h_prev.data_movimentacao AS DATE) <= :end_date")
         params['end_date'] = end_date
+    if ns_search:
+        conditions.append("a.numero_serie ILIKE :ns_search")
+        params['ns_search'] = f"%{ns_search}%"
+    if colaborador_search:
+        conditions.append("COALESCE(h_prev.colaborador_snapshot, c.nome_completo) ILIKE :colab_search")
+        params['colab_search'] = f"%{colaborador_search}%"
+
     if conditions:
-        query += " AND " + " AND ".join(conditions)
+        query += " WHERE " + " AND ".join(conditions)
+
     query += " ORDER BY h_prev.data_movimentacao DESC"
     
     df = conn.query(query, params=params)
@@ -252,10 +260,17 @@ try:
         col1, col2 = st.columns(2)
         with col1:
             data_inicio = st.date_input("Período de:", value=None, format="DD/MM/YYYY", key="hist_start")
+            ns_filtro = st.text_input("Pesquisar por N/S do Aparelho:")
         with col2:
             data_fim = st.date_input("Até:", value=None, format="DD/MM/YYYY", key="hist_end")
+            colaborador_filtro = st.text_input("Pesquisar por Colaborador (devolveu por):")
 
-        historico_df = carregar_historico_devolucoes(start_date=data_inicio, end_date=data_fim)
+        historico_df = carregar_historico_devolucoes(
+            start_date=data_inicio, 
+            end_date=data_fim,
+            ns_search=ns_filtro,
+            colaborador_search=colaborador_filtro
+        )
         
         if historico_df.empty:
             st.warning("Nenhum registo de devolução encontrado para os filtros selecionados.")
@@ -307,6 +322,3 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de devoluções: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
-
-
-
