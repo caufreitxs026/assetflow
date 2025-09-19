@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, date
 from auth import show_login_form, logout
 from sqlalchemy import text
+from sqlalchemy.engine.base import Connection
 
 # --- Verificação de Autenticação ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -45,19 +46,53 @@ with st.sidebar:
 def get_db_connection():
     return st.connection("supabase", type="sql")
 
+# --- NOVA FUNÇÃO DE VALIDAÇÃO (O "SEGURANÇA") ---
+def validar_vinculacao_de_aparelho(conn: Connection, aparelho_id: int, novo_status_nome: str):
+    """
+    Valida se um aparelho pode ser vinculado (i.e., movido para o status 'Em uso').
+    A regra é: só pode ir para 'Em uso' se o status atual for 'Disponível'.
+    """
+    # Se o novo status não for "Em uso", não há nada a validar. A operação é permitida.
+    if novo_status_nome != "Em uso":
+        return True, ""
+
+    try:
+        # Se o novo status for "Em uso", precisamos verificar o status atual.
+        query = text("""
+            SELECT s.nome_status 
+            FROM aparelhos a
+            JOIN status s ON a.status_id = s.id
+            WHERE a.id = :ap_id
+        """)
+        resultado = conn.query(query, params={"ap_id": aparelho_id})
+        
+        if resultado.empty:
+            return False, f"Erro: Aparelho com ID {aparelho_id} não encontrado para validação."
+
+        status_atual = resultado.iloc[0]['nome_status']
+
+        if status_atual == 'Disponível':
+            return True, "Aparelho disponível para vinculação."
+        else:
+            return False, f"❌ BLOQUEADO: Um aparelho com status '{status_atual}' não pode ser vinculado. Apenas aparelhos 'Disponíveis' podem ser movidos para 'Em uso'."
+
+    except Exception as e:
+        st.error(f"Ocorreu um erro crítico na validação: {e}")
+        return False, "Erro de sistema ao validar o aparelho."
+
 @st.cache_data(ttl=30)
 def carregar_dados_para_selects():
     """Carrega aparelhos, colaboradores ATIVOS e status para as caixas de seleção."""
     conn = get_db_connection()
     aparelhos_df = conn.query("""
-        SELECT a.id, a.numero_serie, mo.nome_modelo, ma.nome_marca
+        SELECT a.id, a.numero_serie, mo.nome_modelo, ma.nome_marca, s.nome_status
         FROM aparelhos a
         JOIN modelos mo ON a.modelo_id = mo.id
         JOIN marcas ma ON mo.marca_id = ma.id
-        WHERE a.status_id != (SELECT id FROM status WHERE nome_status = 'Baixado/Inutilizado')
+        JOIN status s ON a.status_id = s.id
+        WHERE s.nome_status != 'Baixado/Inutilizado'
         ORDER BY ma.nome_marca, mo.nome_modelo, a.numero_serie
     """)
-    # --- MUDANÇA AQUI: Apenas colaboradores com status 'Ativo' são carregados ---
     colaboradores_df = conn.query("SELECT id, nome_completo FROM colaboradores WHERE status = 'Ativo' ORDER BY nome_completo")
     status_df = conn.query("SELECT id, nome_status FROM status ORDER BY nome_status")
     return aparelhos_df.to_dict('records'), colaboradores_df.to_dict('records'), status_df.to_dict('records')
@@ -115,6 +150,7 @@ def registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_st
 
 @st.cache_data(ttl=30)
 def carregar_historico_completo(status_filter=None, start_date=None, end_date=None, search_term=None):
+    # ... (código da função sem alterações)
     conn = get_db_connection()
     query = """
         SELECT 
@@ -165,9 +201,10 @@ try:
     st.markdown("---")
 
     if option == "Registar Nova Movimentação":
-        with st.form("form_movimentacao", clear_on_submit=True):
+        with st.form("form_movimentacao", clear_on_submit=False): # Alterado para False para manter os campos em caso de erro
             st.subheader("Formulário de Movimentação")
-            aparelhos_dict = {f"{ap['nome_marca']} {ap['nome_modelo']} (S/N: {ap['numero_serie']})": ap['id'] for ap in aparelhos_list}
+            # Exibe o status atual do lado do aparelho
+            aparelhos_dict = {f"{ap['nome_marca']} {ap['nome_modelo']} (S/N: {ap['numero_serie']}) — Status: {ap['nome_status']}": ap['id'] for ap in aparelhos_list}
             aparelho_selecionado_str = st.selectbox("Selecione o Aparelho*", options=aparelhos_dict.keys(), index=None, placeholder="Selecione...")
             
             colaboradores_dict = {col['nome_completo']: col['id'] for col in colaboradores_list}
@@ -177,7 +214,7 @@ try:
             colaborador_selecionado_str = st.selectbox("Atribuir ao Colaborador", options=opcoes_colaborador_com_nenhum.keys(), index=0)
             
             status_dict = {s['nome_status']: s['id'] for s in status_list}
-            novo_status_str = st.selectbox("Novo Status do Aparelho*", options=status_dict.keys())
+            novo_status_str = st.selectbox("Novo Status do Aparelho*", options=status_dict.keys(), placeholder="Selecione...", index=None)
             nova_localizacao = st.text_input("Nova Localização", placeholder="Ex: Mesa do colaborador, Assistência Técnica XYZ")
             observacoes = st.text_area("Observações", placeholder="Ex: Devolução com tela trincada, Envio para troca de bateria.")
 
@@ -187,13 +224,23 @@ try:
                     st.error("Aparelho e Novo Status são campos obrigatórios.")
                 else:
                     aparelho_id = aparelhos_dict[aparelho_selecionado_str]
-                    colaborador_id = opcoes_colaborador_com_nenhum[colaborador_selecionado_str]
-                    colaborador_nome = colaborador_selecionado_str if colaborador_selecionado_str != "Nenhum" else None
-                    novo_status_id = status_dict[novo_status_str]
                     
-                    if registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_status_id, novo_status_str, nova_localizacao, observacoes):
-                        st.cache_data.clear()
-                        st.rerun()
+                    # --- CHAMANDO O "SEGURANÇA" ANTES DE PROSSEGUIR ---
+                    conn = get_db_connection()
+                    is_valido, mensagem_validacao = validar_vinculacao_de_aparelho(conn, aparelho_id, novo_status_str)
+
+                    if not is_valido:
+                        st.error(mensagem_validacao)
+                        st.warning("A operação foi cancelada para manter a integridade do sistema.")
+                    else:
+                        # Se a validação passou, continua com a lógica de registro
+                        colaborador_id = opcoes_colaborador_com_nenhum[colaborador_selecionado_str]
+                        colaborador_nome = colaborador_selecionado_str if colaborador_selecionado_str != "Nenhum" else None
+                        novo_status_id = status_dict[novo_status_str]
+                        
+                        if registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_status_id, novo_status_str, nova_localizacao, observacoes):
+                            st.cache_data.clear()
+                            st.rerun()
 
     elif option == "Consultar Histórico":
         st.subheader("Histórico de Movimentações")
@@ -218,4 +265,3 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
-
