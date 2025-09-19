@@ -260,11 +260,10 @@ try:
         col1, col2 = st.columns(2)
         with col1:
             data_inicio = st.date_input("Período de:", value=None, format="DD/MM/YYYY", key="hist_start")
-            ns_filtro = st.text_input("Pesquisar por N/S do Aparelho:")
-        with col2:
             data_fim = st.date_input("Até:", value=None, format="DD/MM/YYYY", key="hist_end")
+        with col2:
+            ns_filtro = st.text_input("Pesquisar por N/S do Aparelho:")
             colaborador_filtro = st.text_input("Pesquisar por Colaborador (devolveu por):")
-
         historico_df = carregar_historico_devolucoes(
             start_date=data_inicio, 
             end_date=data_fim,
@@ -322,3 +321,4 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de devoluções: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
+
