@@ -9,6 +9,13 @@ from sqlalchemy.engine.base import Connection
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
     st.switch_page("app.py")
 
+# --- CONSTANTES DE STATUS (O "LIVRO DE REGRAS" OFICIAL) ---
+# Usar constantes centraliza os nomes e evita erros de digitação no código.
+STATUS_EM_USO = "Em uso"
+STATUS_DISPONIVEL = "Disponível"
+STATUS_EM_MANUTENCAO = "Em manutenção"
+STATUS_BAIXADO = "Baixado/Inutilizado"
+
 # --- Configuração de Layout (Header, Footer e CSS) ---
 st.markdown("""
 <style>
@@ -73,18 +80,16 @@ def validar_movimentacao(conn: Connection, aparelho_id: int, novo_status_nome: s
         # 2. REGRAS DE TRÂNSITO (State Machine)
         
         # REGRA PARA APARELHOS 'Em uso'
-        if status_atual == 'Em uso':
-            # Um aparelho 'Em uso' só pode ser devolvido, ir para manutenção ou ser baixado.
-            destinos_permitidos = ['Disponível', 'Em manutenção', 'Baixado/Inutilizado']
+        if status_atual == STATUS_EM_USO:
+            destinos_permitidos = [STATUS_DISPONIVEL, STATUS_EM_MANUTENCAO, STATUS_BAIXADO]
             if novo_status_nome not in destinos_permitidos:
-                return False, f"BLOQUEADO: Um aparelho 'Em uso' não pode ser movido para '{novo_status_nome}'. Rotas permitidas: Devolução (Disponível) ou Envio para Manutenção."
+                return False, f"BLOQUEADO: Um aparelho '{STATUS_EM_USO}' não pode ser movido para '{novo_status_nome}'. Rotas permitidas: Devolução ({STATUS_DISPONIVEL}) ou Envio para Manutenção."
 
         # REGRA PARA APARELHOS 'Em manutenção'
-        elif status_atual == 'Em manutenção':
-            # Um aparelho 'Em manutenção' só pode voltar ao estoque ou ser baixado. NUNCA direto para um colaborador.
-            destinos_permitidos = ['Disponível', 'Baixado/Inutilizado']
+        elif status_atual == STATUS_EM_MANUTENCAO:
+            destinos_permitidos = [STATUS_DISPONIVEL, STATUS_BAIXADO]
             if novo_status_nome not in destinos_permitidos:
-                return False, f"BLOQUEADO: Um aparelho 'Em manutenção' não pode ser vinculado a um colaborador. Primeiro, mova-o para 'Disponível'."
+                return False, f"BLOQUEADO: Um aparelho '{STATUS_EM_MANUTENCAO}' não pode ser vinculado a um colaborador. Primeiro, mova-o para '{STATUS_DISPONIVEL}'."
         
         # Se nenhuma regra de bloqueio foi acionada, a movimentação é válida.
         return True, "Movimentação Válida."
@@ -98,13 +103,13 @@ def validar_movimentacao(conn: Connection, aparelho_id: int, novo_status_nome: s
 def carregar_dados_para_selects():
     """Carrega aparelhos, colaboradores ATIVOS e status para as caixas de seleção."""
     conn = get_db_connection()
-    aparelhos_df = conn.query("""
+    aparelhos_df = conn.query(f"""
         SELECT a.id, a.numero_serie, mo.nome_modelo, ma.nome_marca, s.nome_status
         FROM aparelhos a
         JOIN modelos mo ON a.modelo_id = mo.id
         JOIN marcas ma ON mo.marca_id = ma.id
         JOIN status s ON a.status_id = s.id
-        WHERE s.nome_status != 'Baixado/Inutilizado'
+        WHERE s.nome_status != '{STATUS_BAIXADO}'
         ORDER BY ma.nome_marca, mo.nome_modelo, a.numero_serie
     """)
     colaboradores_df = conn.query("SELECT id, nome_completo FROM colaboradores WHERE status = 'Ativo' ORDER BY nome_completo")
@@ -120,7 +125,7 @@ def registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_st
             id_colaborador_final = colaborador_id
             nome_colaborador_snapshot = colaborador_nome
 
-            if novo_status_nome == "Em manutenção":
+            if novo_status_nome == STATUS_EM_MANUTENCAO:
                 query_last_user = text("""
                     SELECT colaborador_id, colaborador_snapshot FROM historico_movimentacoes 
                     WHERE aparelho_id = :ap_id AND (colaborador_id IS NOT NULL OR colaborador_snapshot IS NOT NULL)
@@ -143,7 +148,7 @@ def registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_st
             s.execute(text("UPDATE aparelhos SET status_id = :status_id WHERE id = :ap_id"), 
                       {"status_id": novo_status_id, "ap_id": aparelho_id})
             
-            if novo_status_nome == "Em manutenção":
+            if novo_status_nome == STATUS_EM_MANUTENCAO:
                 query_manut = text("""
                     INSERT INTO manutencoes (aparelho_id, colaborador_id_no_envio, data_envio, defeito_reportado, status_manutencao, colaborador_snapshot)
                     VALUES (:ap_id, :col_id, :data, :defeito, 'Em Andamento', :col_snap)
@@ -155,7 +160,7 @@ def registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_st
 
             s.commit()
             st.success("Movimentação registada com sucesso!")
-            if novo_status_nome == "Em manutenção":
+            if novo_status_nome == STATUS_EM_MANUTENCAO:
                 st.info("Uma Ordem de Serviço preliminar foi aberta. Aceda à página 'Manutenções' para adicionar o fornecedor.")
             return True
     except Exception as e:
@@ -215,9 +220,8 @@ try:
     st.markdown("---")
 
     if option == "Registar Nova Movimentação":
-        with st.form("form_movimentacao", clear_on_submit=False): # Alterado para False para manter os campos em caso de erro
+        with st.form("form_movimentacao", clear_on_submit=False):
             st.subheader("Formulário de Movimentação")
-            # Exibe o status atual do lado do aparelho
             aparelhos_dict = {f"{ap['nome_marca']} {ap['nome_modelo']} (S/N: {ap['numero_serie']}) — Status: {ap['nome_status']}": ap['id'] for ap in aparelhos_list}
             aparelho_selecionado_str = st.selectbox("Selecione o Aparelho*", options=aparelhos_dict.keys(), index=None, placeholder="Selecione...")
             
@@ -238,23 +242,41 @@ try:
                     st.error("Aparelho e Novo Status são campos obrigatórios.")
                 else:
                     aparelho_id = aparelhos_dict[aparelho_selecionado_str]
-                    
-                    # --- CHAMANDO O "Guarda de Trânsito" ANTES DE PROSSEGUIR ---
-                    conn = get_db_connection()
-                    is_valido, mensagem_validacao = validar_movimentacao(conn, aparelho_id, novo_status_str)
+                    colaborador_id = opcoes_colaborador_com_nenhum[colaborador_selecionado_str]
+                    colaborador_nome = colaborador_selecionado_str if colaborador_selecionado_str != "Nenhum" else None
+                    novo_status_id = status_dict[novo_status_str]
 
-                    if not is_valido:
-                        st.error(mensagem_validacao)
-                        st.warning("A operação foi cancelada para manter a integridade do sistema.")
+                    # --- MELHORIA 1: LÓGICA DE NEGÓCIO REFORÇADA (O "FORMULÁRIO INTELIGENTE") ---
+                    # Regra 1: Se o aparelho vai para "Em uso", é OBRIGATÓRIO ter um colaborador.
+                    if novo_status_str == STATUS_EM_USO and colaborador_id is None:
+                        st.error(f"ERRO DE LÓGICA: Para alterar o status para '{STATUS_EM_USO}', é obrigatório selecionar um colaborador.")
+                    
+                    # Regra 2: Se o aparelho NÃO vai para "Em uso", ele NÃO PODE estar associado a um colaborador.
+                    elif novo_status_str != STATUS_EM_USO and colaborador_id is not None:
+                        st.warning(f"AVISO: O status '{novo_status_str}' não permite associação com um colaborador. A atribuição será removida automaticamente.")
+                        colaborador_id = None
+                        colaborador_nome = None
+                        # Após corrigir, continua para a validação normal
+                        conn = get_db_connection()
+                        is_valido, msg = validar_movimentacao(conn, aparelho_id, novo_status_str)
+                        if not is_valido:
+                            st.error(msg)
+                        else:
+                             if registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_status_id, novo_status_str, nova_localizacao, observacoes):
+                                st.cache_data.clear()
+                                st.rerun()
+
+                    # Se as regras acima passaram, executa a validação e o registro
                     else:
-                        # Se a validação passou, continua com a lógica de registro
-                        colaborador_id = opcoes_colaborador_com_nenhum[colaborador_selecionado_str]
-                        colaborador_nome = colaborador_selecionado_str if colaborador_selecionado_str != "Nenhum" else None
-                        novo_status_id = status_dict[novo_status_str]
-                        
-                        if registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_status_id, novo_status_str, nova_localizacao, observacoes):
-                            st.cache_data.clear()
-                            st.rerun()
+                        conn = get_db_connection()
+                        is_valido, mensagem_validacao = validar_movimentacao(conn, aparelho_id, novo_status_str)
+
+                        if not is_valido:
+                            st.error(mensagem_validacao)
+                        else:
+                            if registar_movimentacao(aparelho_id, colaborador_id, colaborador_nome, novo_status_id, novo_status_str, nova_localizacao, observacoes):
+                                st.cache_data.clear()
+                                st.rerun()
 
     elif option == "Consultar Histórico":
         st.subheader("Histórico de Movimentações")
