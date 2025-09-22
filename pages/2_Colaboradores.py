@@ -119,7 +119,7 @@ def adicionar_colaborador_banco(nome, cpf, gmail, setor_id, codigo):
 
 @st.cache_data(ttl=30)
 def contar_codigos_duplicados():
-    """Conta quantos códigos estão duplicados dentro do mesmo setor."""
+    """Conta quantos grupos de códigos estão duplicados dentro do mesmo setor."""
     conn = get_db_connection()
     query = """
         SELECT COUNT(*)
@@ -133,6 +133,31 @@ def contar_codigos_duplicados():
     """
     count = conn.query(query, ttl=30).iloc[0, 0]
     return count
+
+@st.cache_data(ttl=30)
+def carregar_detalhes_duplicados():
+    """Carrega os detalhes dos códigos duplicados para exibição."""
+    conn = get_db_connection()
+    query = """
+        WITH Duplicados AS (
+            SELECT codigo, setor_id
+            FROM colaboradores
+            WHERE status = 'Ativo'
+            GROUP BY codigo, setor_id
+            HAVING COUNT(id) > 1
+        )
+        SELECT
+            c.codigo,
+            s.nome_setor,
+            c.nome_completo
+        FROM colaboradores c
+        JOIN setores s ON c.setor_id = s.id
+        JOIN Duplicados d ON c.codigo = d.codigo AND c.setor_id = d.setor_id
+        WHERE c.status = 'Ativo'
+        ORDER BY s.nome_setor, c.codigo, c.nome_completo;
+    """
+    df = conn.query(query, ttl=30)
+    return df
 
 @st.cache_data(ttl=30)
 def carregar_colaboradores(order_by="c.nome_completo ASC", search_term=None, setor_id=None, status_filter=None):
@@ -191,7 +216,7 @@ def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id, status):
                 return False
             
             # A verificação aqui continua, pois ao EDITAR, a intenção não é duplicar.
-            query_check_codigo = text("SELECT nome_completo FROM colaboradores WHERE codigo = :codigo AND setor_id = :setor_id AND id != :id")
+            query_check_codigo = text("SELECT nome_completo FROM colaboradores WHERE codigo = :codigo AND setor_id = :setor_id AND id != :id AND status = 'Ativo'")
             colaborador_existente = s.execute(query_check_codigo, {"codigo": str(codigo), "setor_id": setor_id, "id": col_id}).fetchone()
             if colaborador_existente:
                 st.error(f"Erro: O código '{codigo}' já está em uso por '{colaborador_existente[0]}' neste setor.")
@@ -368,10 +393,22 @@ try:
     elif option == "Consultar Colaboradores":
         st.subheader("Colaboradores Registrados")
 
-        # --- ALERTA DE CÓDIGOS DUPLICADOS ---
+        # --- ALERTA DE CÓDIGOS DUPLICADOS APRIMORADO ---
         num_duplicados = contar_codigos_duplicados()
         if num_duplicados > 0:
-            st.warning(f"🚨 **Alerta de Integridade:** Existem **{num_duplicados}** códigos sendo utilizados por mais de um colaborador no mesmo setor. Recomenda-se revisar os cadastros para evitar inconsistências.")
+            st.warning(f"**Alerta de Integridade:** Existem **{num_duplicados}** grupos de códigos sendo utilizados por mais de um colaborador no mesmo setor.")
+            with st.expander("Clique aqui para ver os detalhes"):
+                detalhes_df = carregar_detalhes_duplicados()
+                st.dataframe(
+                    detalhes_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "codigo": "Código Duplicado",
+                        "nome_setor": "Setor",
+                        "nome_completo": "Colaborador Vinculado"
+                    }
+                )
             st.markdown("---")
 
         col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
@@ -514,3 +551,4 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de colaboradores: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
+
