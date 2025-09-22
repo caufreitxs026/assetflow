@@ -75,26 +75,30 @@ def carregar_setores():
     setores_df = conn.query("SELECT id, nome_setor FROM setores ORDER BY nome_setor;")
     return setores_df.to_dict('records')
 
-def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
-    if not all([nome, cpf, codigo, setor_id]):
-        st.error("Nome, CPF, Código e Setor são campos obrigatórios.")
-        return False
+def verificar_duplicidade_codigo(codigo, setor_id):
+    """Verifica se um código já existe no setor e retorna os dados do colaborador existente."""
+    conn = get_db_connection()
+    query_check_codigo = text("""
+        SELECT c.nome_completo, s.nome_setor
+        FROM colaboradores c
+        JOIN setores s ON c.setor_id = s.id
+        WHERE c.codigo = :codigo AND c.setor_id = :setor_id AND c.status = 'Ativo'
+    """)
+    with conn.session as s:
+        result = s.execute(query_check_codigo, {"codigo": str(codigo), "setor_id": setor_id}).fetchone()
+    return result
+
+def adicionar_colaborador_banco(nome, cpf, gmail, setor_id, codigo):
+    """Realiza a inserção do colaborador no banco de dados, sem verificações de duplicidade de código."""
     try:
         conn = get_db_connection()
         with conn.session as s:
             s.begin()
-            
+            # A verificação de CPF ainda é um bloqueio rígido, pois CPF deve ser único.
             query_check_cpf = text("SELECT 1 FROM colaboradores WHERE cpf = :cpf")
             cpf_existe = s.execute(query_check_cpf, {"cpf": cpf}).fetchone()
             if cpf_existe:
-                st.warning(f"O CPF '{cpf}' já está cadastrado para outro colaborador.")
-                s.rollback()
-                return False
-
-            query_check_codigo = text("SELECT 1 FROM colaboradores WHERE codigo = :codigo AND setor_id = :setor_id")
-            codigo_existe = s.execute(query_check_codigo, {"codigo": str(codigo), "setor_id": setor_id}).fetchone()
-            if codigo_existe:
-                st.warning(f"O código '{codigo}' já está em uso neste setor. Por favor, escolha outro.")
+                st.error(f"O CPF '{cpf}' já está cadastrado para outro colaborador. O cadastro foi cancelado.")
                 s.rollback()
                 return False
 
@@ -114,7 +118,25 @@ def adicionar_colaborador(nome, cpf, gmail, setor_id, codigo):
         return False
 
 @st.cache_data(ttl=30)
+def contar_codigos_duplicados():
+    """Conta quantos códigos estão duplicados dentro do mesmo setor."""
+    conn = get_db_connection()
+    query = """
+        SELECT COUNT(*)
+        FROM (
+            SELECT 1
+            FROM colaboradores
+            WHERE status = 'Ativo'
+            GROUP BY codigo, setor_id
+            HAVING COUNT(id) > 1
+        ) as duplicados;
+    """
+    count = conn.query(query, ttl=30).iloc[0, 0]
+    return count
+
+@st.cache_data(ttl=30)
 def carregar_colaboradores(order_by="c.nome_completo ASC", search_term=None, setor_id=None, status_filter=None):
+    # (Função original sem modificações)
     conn = get_db_connection()
     params = {}
     where_clauses = []
@@ -155,6 +177,7 @@ def carregar_colaboradores(order_by="c.nome_completo ASC", search_term=None, set
     return df
 
 def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id, status):
+    # (Função original com uma pequena melhoria na mensagem de erro)
     try:
         conn = get_db_connection()
         with conn.session as s:
@@ -167,10 +190,11 @@ def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id, status):
                 s.rollback()
                 return False
             
-            query_check_codigo = text("SELECT 1 FROM colaboradores WHERE codigo = :codigo AND setor_id = :setor_id AND id != :id")
-            codigo_existe = s.execute(query_check_codigo, {"codigo": str(codigo), "setor_id": setor_id, "id": col_id}).fetchone()
-            if codigo_existe:
-                st.error(f"Erro: O código '{codigo}' já está em uso por outro colaborador neste setor.")
+            # A verificação aqui continua, pois ao EDITAR, a intenção não é duplicar.
+            query_check_codigo = text("SELECT nome_completo FROM colaboradores WHERE codigo = :codigo AND setor_id = :setor_id AND id != :id")
+            colaborador_existente = s.execute(query_check_codigo, {"codigo": str(codigo), "setor_id": setor_id, "id": col_id}).fetchone()
+            if colaborador_existente:
+                st.error(f"Erro: O código '{codigo}' já está em uso por '{colaborador_existente[0]}' neste setor.")
                 s.rollback()
                 return False
 
@@ -190,6 +214,7 @@ def atualizar_colaborador(col_id, codigo, nome, cpf, gmail, setor_id, status):
         return False
 
 def inativar_colaborador(col_id):
+    # (Função original sem modificações)
     try:
         conn = get_db_connection()
         with conn.session as s:
@@ -218,7 +243,7 @@ def inativar_colaborador(col_id):
         return False
 
 def excluir_colaborador_permanentemente(col_id):
-    """Move o colaborador para o log e depois o exclui permanentemente, desvinculando todas as referências."""
+    # (Função original sem modificações)
     try:
         conn = get_db_connection()
         with conn.session as s:
@@ -248,7 +273,6 @@ def excluir_colaborador_permanentemente(col_id):
                 "data_cad": colaborador.data_cadastro
             })
 
-            # --- CORREÇÃO AQUI ---
             # 3. Desvincula o colaborador de todas as tabelas referenciadas
             s.execute(text("UPDATE contas_gmail SET colaborador_id = NULL WHERE colaborador_id = :id"), {"id": col_id})
             s.execute(text("UPDATE historico_movimentacoes SET colaborador_id = NULL WHERE colaborador_id = :id"), {"id": col_id})
@@ -289,25 +313,67 @@ try:
     st.markdown("---") 
 
     if option == "Cadastrar Novo Colaborador":
-        with st.form("form_novo_colaborador", clear_on_submit=True):
-            st.subheader("Dados do Novo Colaborador")
-            novo_codigo = st.text_input("Código*")
-            novo_nome = st.text_input("Nome Completo*")
-            novo_cpf = st.text_input("CPF*")
-            novo_gmail = st.text_input("Gmail")
-            setor_selecionado_nome = st.selectbox("Setor*", options=setores_dict.keys(), index=None, placeholder="Selecione...")
+        st.subheader("Dados do Novo Colaborador")
 
-            if st.form_submit_button("Adicionar Colaborador", use_container_width=True, type="primary"):
-                setor_id = setores_dict.get(setor_selecionado_nome)
-                if adicionar_colaborador(novo_nome, novo_cpf, novo_gmail, setor_id, novo_codigo):
+        # --- LÓGICA DE CONFIRMAÇÃO ---
+        if 'show_colab_confirmation' in st.session_state:
+            st.warning(st.session_state['confirmation_message'])
+            col1, col2 = st.columns(2)
+            if col1.button("Sim, confirmar cadastro", type="primary", use_container_width=True):
+                data = st.session_state['colab_to_add']
+                if adicionar_colaborador_banco(data['nome'], data['cpf'], data['gmail'], data['setor_id'], data['codigo']):
                     st.cache_data.clear()
-                    for key in list(st.session_state.keys()):
-                        if key.startswith('original_colabs_df_'): del st.session_state[key]
+                    del st.session_state['show_colab_confirmation']
+                    del st.session_state['colab_to_add']
                     st.rerun()
+            
+            if col2.button("Não, cancelar", use_container_width=True):
+                del st.session_state['show_colab_confirmation']
+                del st.session_state['colab_to_add']
+                st.rerun()
+        else:
+            with st.form("form_novo_colaborador"):
+                novo_codigo = st.text_input("Código*")
+                novo_nome = st.text_input("Nome Completo*")
+                novo_cpf = st.text_input("CPF*")
+                novo_gmail = st.text_input("Gmail")
+                setor_selecionado_nome = st.selectbox("Setor*", options=setores_dict.keys(), index=None, placeholder="Selecione...")
+
+                submitted = st.form_submit_button("Adicionar Colaborador", use_container_width=True, type="primary")
+
+                if submitted:
+                    setor_id = setores_dict.get(setor_selecionado_nome)
+                    if not all([novo_nome, novo_cpf, novo_codigo, setor_id]):
+                        st.error("Nome, CPF, Código e Setor são campos obrigatórios.")
+                    else:
+                        colaborador_existente = verificar_duplicidade_codigo(novo_codigo, setor_id)
+                        
+                        if colaborador_existente:
+                            st.session_state['show_colab_confirmation'] = True
+                            st.session_state['confirmation_message'] = (
+                                f"ATENÇÃO: O código '{novo_codigo}' já está em uso por "
+                                f"**{colaborador_existente.nome_completo}** no setor **{colaborador_existente.nome_setor}**. "
+                                "Deseja mesmo assim prosseguir com o cadastro?"
+                            )
+                            st.session_state['colab_to_add'] = {
+                                "nome": novo_nome, "cpf": novo_cpf, "gmail": novo_gmail,
+                                "setor_id": setor_id, "codigo": novo_codigo
+                            }
+                            st.rerun()
+                        else:
+                            if adicionar_colaborador_banco(novo_nome, novo_cpf, novo_gmail, setor_id, novo_codigo):
+                                st.cache_data.clear()
+                                st.rerun()
     
     elif option == "Consultar Colaboradores":
         st.subheader("Colaboradores Registrados")
-        
+
+        # --- ALERTA DE CÓDIGOS DUPLICADOS ---
+        num_duplicados = contar_codigos_duplicados()
+        if num_duplicados > 0:
+            st.warning(f"🚨 **Alerta de Integridade:** Existem **{num_duplicados}** códigos sendo utilizados por mais de um colaborador no mesmo setor. Recomenda-se revisar os cadastros para evitar inconsistências.")
+            st.markdown("---")
+
         col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
         with col_filtro1:
             setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()))
