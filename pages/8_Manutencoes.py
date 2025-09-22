@@ -378,7 +378,7 @@ try:
                 )
                 solucao = st.text_area("Solução Aplicada / Laudo Técnico*")
                 custo = st.number_input("Custo do Reparo (R$)", min_value=0.0, value=0.0, format="%.2f")
-                novo_status_final = st.selectbox("Status Final do Aparelho*", ["Disponível", "Baixado/Inutilizado"])
+                novo_status_final = st.selectbox("Status Final do Aparelho*", ["Em estoque", "Baixado/Inutilizado"])
 
                 if st.form_submit_button("Fechar Ordem de Serviço", use_container_width=True, type="primary"):
                     if not all([os_selecionada_str, solucao]):
@@ -438,5 +438,6 @@ except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de manutenções: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
     traceback.print_exc()
+
 
 
