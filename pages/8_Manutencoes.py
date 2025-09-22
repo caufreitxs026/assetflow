@@ -188,7 +188,7 @@ def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
                 return False
             novo_status_id = novo_status_id_result
             
-            status_manutencao = 'Concluída' if novo_status_nome == 'Disponível' else 'Sem Reparo'
+            status_manutencao = 'Concluída' if novo_status_nome == 'Em estoque' else 'Baixado/Inutilizado'
             
             query_update_manut = text("""
                 UPDATE manutencoes 
@@ -438,4 +438,5 @@ except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de manutenções: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
     traceback.print_exc()
+
 
