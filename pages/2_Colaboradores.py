@@ -368,25 +368,32 @@ try:
 
                 if submitted:
                     setor_id = setores_dict.get(setor_selecionado_nome)
-                    if not all([novo_nome, novo_cpf, novo_codigo, setor_id]):
+                    
+                    # --- CORREÇÃO: Limpeza dos dados de entrada ---
+                    nome_limpo = novo_nome.strip()
+                    cpf_limpo = novo_cpf.strip()
+                    gmail_limpo = novo_gmail.strip() if novo_gmail else ""
+                    codigo_limpo = novo_codigo.strip()
+
+                    if not all([nome_limpo, cpf_limpo, codigo_limpo, setor_id]):
                         st.error("Nome, CPF, Código e Setor são campos obrigatórios.")
                     else:
-                        colaborador_existente = verificar_duplicidade_codigo(novo_codigo, setor_id)
+                        colaborador_existente = verificar_duplicidade_codigo(codigo_limpo, setor_id)
                         
                         if colaborador_existente:
                             st.session_state['show_colab_confirmation'] = True
                             st.session_state['confirmation_message'] = (
-                                f"ATENÇÃO: O código '{novo_codigo}' já está em uso por "
+                                f"ATENÇÃO: O código '{codigo_limpo}' já está em uso por "
                                 f"**{colaborador_existente.nome_completo}** no setor **{colaborador_existente.nome_setor}**. "
                                 "Deseja mesmo assim prosseguir com o cadastro?"
                             )
                             st.session_state['colab_to_add'] = {
-                                "nome": novo_nome, "cpf": novo_cpf, "gmail": novo_gmail,
-                                "setor_id": setor_id, "codigo": novo_codigo
+                                "nome": nome_limpo, "cpf": cpf_limpo, "gmail": gmail_limpo,
+                                "setor_id": setor_id, "codigo": codigo_limpo
                             }
                             st.rerun()
                         else:
-                            if adicionar_colaborador_banco(novo_nome, novo_cpf, novo_gmail, setor_id, novo_codigo):
+                            if adicionar_colaborador_banco(nome_limpo, cpf_limpo, gmail_limpo, setor_id, codigo_limpo):
                                 st.cache_data.clear()
                                 st.rerun()
     
