@@ -117,7 +117,6 @@ def atualizar_usuario(user_id, nome, cargo):
         st.error(f"Erro ao atualizar o usuário ID {user_id}: {e}")
         return False
 
-# --- NOVA FUNÇÃO ---
 def atualizar_senha_usuario(user_id, nova_senha):
     """Atualiza a senha de um usuário específico."""
     if not nova_senha:
@@ -156,11 +155,11 @@ def excluir_usuario(user_id):
         st.error(f"Erro ao excluir o usuário ID {user_id}: {e}")
         return False
 
-# --- Interface do Usuário ---
+# --- Interface do Usuário com Abas ---
 try:
-    col1, col2 = st.columns([1, 2])
+    tab1, tab2 = st.tabs(["➕ Cadastrar e Gerenciar Senhas", "👥 Consultar e Editar Usuários"])
 
-    with col1:
+    with tab1:
         st.subheader("Adicionar Novo Usuário")
         with st.form("form_novo_usuario", clear_on_submit=True):
             nome = st.text_input("Nome Completo")
@@ -173,7 +172,7 @@ try:
                 st.rerun()
 
         st.markdown("---")
-        # --- NOVO FORMULÁRIO PARA REDEFINIR SENHA ---
+        
         st.subheader("Redefinir Senha")
         usuarios_list = carregar_usuarios()
         usuarios_dict = {f"{row['nome']} ({row['login']})": row['id'] for index, row in usuarios_list.iterrows()}
@@ -195,63 +194,65 @@ try:
                 else:
                     st.warning("Por favor, selecione um usuário e digite uma nova senha.")
 
+    with tab2:
+        st.subheader("Lista de Usuários")
+        
+        usuarios_df = carregar_usuarios()
+        
+        # Guardar uma cópia original no session_state para comparação
+        if 'original_users_df' not in st.session_state:
+            st.session_state.original_users_df = usuarios_df.copy()
 
-    with col2:
-        with st.expander("Ver, Editar e Excluir Usuários", expanded=True):
-            usuarios_df = carregar_usuarios()
+        edited_df = st.data_editor(
+            usuarios_df,
+            column_config={
+                "id": st.column_config.NumberColumn("ID", disabled=True),
+                "nome": st.column_config.TextColumn("Nome", required=True),
+                "login": st.column_config.TextColumn("Login", disabled=True),
+                "cargo": st.column_config.SelectboxColumn(
+                    "Cargo",
+                    options=["Administrador", "Editor", "Leitor"],
+                    required=True,
+                ),
+            },
+            hide_index=True,
+            num_rows="dynamic",
+            key="usuarios_editor",
+            use_container_width=True
+        )
+
+        if st.button("Salvar Alterações", use_container_width=True):
+            changes_made = False
+            original_df = st.session_state.original_users_df
+
+            # Lógica para Exclusão
+            deleted_ids = set(original_df['id']) - set(edited_df['id'])
+            for user_id in deleted_ids:
+                if excluir_usuario(user_id):
+                    st.toast(f"Utilizador ID {user_id} excluído!", icon="🗑️")
+                    changes_made = True
             
-            # Guardar uma cópia original no session_state para comparação
-            if 'original_users_df' not in st.session_state:
-                st.session_state.original_users_df = usuarios_df.copy()
-
-            edited_df = st.data_editor(
-                usuarios_df,
-                column_config={
-                    "id": st.column_config.NumberColumn("ID", disabled=True),
-                    "nome": st.column_config.TextColumn("Nome", required=True),
-                    "login": st.column_config.TextColumn("Login", disabled=True),
-                    "cargo": st.column_config.SelectboxColumn(
-                        "Cargo",
-                        options=["Administrador", "Editor", "Leitor"],
-                        required=True,
-                    ),
-                },
-                hide_index=True,
-                num_rows="dynamic",
-                key="usuarios_editor"
-            )
-
-            if st.button("Salvar Alterações", use_container_width=True):
-                changes_made = False
-                original_df = st.session_state.original_users_df
-
-                # Lógica para Exclusão
-                deleted_ids = set(original_df['id']) - set(edited_df['id'])
-                for user_id in deleted_ids:
-                    if excluir_usuario(user_id):
-                        st.toast(f"Utilizador ID {user_id} excluído!", icon="🗑️")
+            # Lógica para Atualização
+            original_df_indexed = original_df.set_index('id')
+            edited_df_indexed = edited_df.set_index('id')
+            common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
+            
+            for user_id in common_ids:
+                original_row = original_df_indexed.loc[user_id]
+                edited_row = edited_df_indexed.loc[user_id]
+                if not original_row.equals(edited_row):
+                    if atualizar_usuario(user_id, edited_row['nome'], edited_row['cargo']):
+                        st.toast(f"Utilizador '{edited_row['nome']}' atualizado!", icon="✅")
                         changes_made = True
-                
-                # Lógica para Atualização
-                original_df_indexed = original_df.set_index('id')
-                edited_df_indexed = edited_df.set_index('id')
-                common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
-                
-                for user_id in common_ids:
-                    original_row = original_df_indexed.loc[user_id]
-                    edited_row = edited_df_indexed.loc[user_id]
-                    if not original_row.equals(edited_row):
-                        if atualizar_usuario(user_id, edited_row['nome'], edited_row['cargo']):
-                            st.toast(f"Utilizador '{edited_row['nome']}' atualizado!", icon="✅")
-                            changes_made = True
 
-                if changes_made:
-                    del st.session_state.original_users_df # Limpa para forçar recarregamento
-                    st.rerun()
-                else:
-                    st.info("Nenhuma alteração foi detetada.")
+            if changes_made:
+                del st.session_state.original_users_df # Limpa para forçar recarregamento
+                st.rerun()
+            else:
+                st.info("Nenhuma alteração foi detetada.")
 
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de utilizadores: {e}")
     st.info("Se esta é a primeira configuração, por favor, vá até a página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
+
