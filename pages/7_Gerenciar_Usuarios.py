@@ -117,8 +117,33 @@ def atualizar_usuario(user_id, nome, cargo):
         st.error(f"Erro ao atualizar o usuário ID {user_id}: {e}")
         return False
 
+# --- NOVA FUNÇÃO ---
+def atualizar_senha_usuario(user_id, nova_senha):
+    """Atualiza a senha de um usuário específico."""
+    if not nova_senha:
+        st.error("O campo 'Nova Senha' não pode estar vazio.")
+        return False
+    try:
+        conn = get_db_connection()
+        nova_senha_hashed = hash_password(nova_senha)
+        with conn.session as s:
+            query = text("UPDATE usuarios SET senha = :senha WHERE id = :id")
+            s.execute(query, {"senha": nova_senha_hashed, "id": user_id})
+            s.commit()
+        st.cache_data.clear() # Limpa o cache para futuras operações
+        return True
+    except Exception as e:
+        st.error(f"Erro ao atualizar a senha do usuário ID {user_id}: {e}")
+        return False
+
+
 def excluir_usuario(user_id):
     """Exclui um usuário do banco de dados."""
+    # --- REGRA DE NEGÓCIO: IMPEDIR AUTOEXCLUSÃO ---
+    if user_id == st.session_state.get('user_id'):
+        st.error("Ação bloqueada: Não é possível excluir o seu próprio utilizador.")
+        return False
+        
     try:
         conn = get_db_connection()
         with conn.session as s:
@@ -147,10 +172,38 @@ try:
                 adicionar_usuario(nome, login, senha, cargo)
                 st.rerun()
 
+        st.markdown("---")
+        # --- NOVO FORMULÁRIO PARA REDEFINIR SENHA ---
+        st.subheader("Redefinir Senha")
+        usuarios_list = carregar_usuarios()
+        usuarios_dict = {f"{row['nome']} ({row['login']})": row['id'] for index, row in usuarios_list.iterrows()}
+        
+        with st.form("form_reset_senha", clear_on_submit=True):
+            usuario_selecionado_str = st.selectbox(
+                "Selecione o usuário",
+                options=usuarios_dict.keys(),
+                index=None,
+                placeholder="Selecione um usuário para redefinir a senha..."
+            )
+            nova_senha = st.text_input("Nova Senha", type="password")
+            
+            if st.form_submit_button("Atualizar Senha", use_container_width=True, type="primary"):
+                if usuario_selecionado_str and nova_senha:
+                    user_id_para_reset = usuarios_dict[usuario_selecionado_str]
+                    if atualizar_senha_usuario(user_id_para_reset, nova_senha):
+                        st.success(f"Senha do usuário '{usuario_selecionado_str.split(' (')[0]}' foi atualizada com sucesso!")
+                else:
+                    st.warning("Por favor, selecione um usuário e digite uma nova senha.")
+
+
     with col2:
         with st.expander("Ver, Editar e Excluir Usuários", expanded=True):
             usuarios_df = carregar_usuarios()
             
+            # Guardar uma cópia original no session_state para comparação
+            if 'original_users_df' not in st.session_state:
+                st.session_state.original_users_df = usuarios_df.copy()
+
             edited_df = st.data_editor(
                 usuarios_df,
                 column_config={
@@ -169,28 +222,35 @@ try:
             )
 
             if st.button("Salvar Alterações", use_container_width=True):
-                # Lógica para Exclusão
-                deleted_ids = set(usuarios_df['id']) - set(edited_df['id'])
-                for user_id in deleted_ids:
-                    if st.session_state['username'] == usuarios_df.loc[usuarios_df['id'] == user_id, 'login'].iloc[0]:
-                        st.error("Não é possível excluir o seu próprio utilizador.")
-                    elif excluir_usuario(user_id):
-                        st.toast(f"Utilizador ID {user_id} excluído!", icon="🗑️")
+                changes_made = False
+                original_df = st.session_state.original_users_df
 
-                # Lógica para Atualização
-                # Compara o dataframe editado com o original para encontrar mudanças
-                if not edited_df.equals(usuarios_df.loc[edited_df.index]):
-                    diff_df = pd.concat([edited_df, usuarios_df]).drop_duplicates(keep=False)
-                    for index, row in diff_df.iterrows():
-                        if row['id'] in edited_df['id'].values: # Garante que é uma linha atualizada
-                            user_id = row['id']
-                            novo_nome = row['nome']
-                            novo_cargo = row['cargo']
-                            if atualizar_usuario(user_id, novo_nome, novo_cargo):
-                                st.toast(f"Utilizador '{novo_nome}' atualizado!", icon="✅")
+                # Lógica para Exclusão
+                deleted_ids = set(original_df['id']) - set(edited_df['id'])
+                for user_id in deleted_ids:
+                    if excluir_usuario(user_id):
+                        st.toast(f"Utilizador ID {user_id} excluído!", icon="🗑️")
+                        changes_made = True
                 
-                # Recarrega a página para mostrar os dados atualizados
-                st.rerun()
+                # Lógica para Atualização
+                original_df_indexed = original_df.set_index('id')
+                edited_df_indexed = edited_df.set_index('id')
+                common_ids = original_df_indexed.index.intersection(edited_df_indexed.index)
+                
+                for user_id in common_ids:
+                    original_row = original_df_indexed.loc[user_id]
+                    edited_row = edited_df_indexed.loc[user_id]
+                    if not original_row.equals(edited_row):
+                        if atualizar_usuario(user_id, edited_row['nome'], edited_row['cargo']):
+                            st.toast(f"Utilizador '{edited_row['nome']}' atualizado!", icon="✅")
+                            changes_made = True
+
+                if changes_made:
+                    del st.session_state.original_users_df # Limpa para forçar recarregamento
+                    st.rerun()
+                else:
+                    st.info("Nenhuma alteração foi detetada.")
+
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de utilizadores: {e}")
