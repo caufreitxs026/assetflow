@@ -155,11 +155,17 @@ def excluir_usuario(user_id):
         st.error(f"Erro ao excluir o usuário ID {user_id}: {e}")
         return False
 
-# --- Interface do Usuário com Abas ---
+# --- Interface do Usuário com Radio Buttons ---
 try:
-    tab1, tab2 = st.tabs(["➕ Cadastrar e Gerenciar Senhas", "👥 Consultar e Editar Usuários"])
+    option = st.radio(
+        "Selecione a operação:",
+        ("Cadastrar Novo Usuário", "Consultar, Editar e Gerenciar Senhas"),
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+    st.markdown("---")
 
-    with tab1:
+    if option == "Cadastrar Novo Usuário":
         st.subheader("Adicionar Novo Usuário")
         with st.form("form_novo_usuario", clear_on_submit=True):
             nome = st.text_input("Nome Completo")
@@ -171,30 +177,7 @@ try:
                 adicionar_usuario(nome, login, senha, cargo)
                 st.rerun()
 
-        st.markdown("---")
-        
-        st.subheader("Redefinir Senha")
-        usuarios_list = carregar_usuarios()
-        usuarios_dict = {f"{row['nome']} ({row['login']})": row['id'] for index, row in usuarios_list.iterrows()}
-        
-        with st.form("form_reset_senha", clear_on_submit=True):
-            usuario_selecionado_str = st.selectbox(
-                "Selecione o usuário",
-                options=usuarios_dict.keys(),
-                index=None,
-                placeholder="Selecione um usuário para redefinir a senha..."
-            )
-            nova_senha = st.text_input("Nova Senha", type="password")
-            
-            if st.form_submit_button("Atualizar Senha", use_container_width=True, type="primary"):
-                if usuario_selecionado_str and nova_senha:
-                    user_id_para_reset = usuarios_dict[usuario_selecionado_str]
-                    if atualizar_senha_usuario(user_id_para_reset, nova_senha):
-                        st.success(f"Senha do usuário '{usuario_selecionado_str.split(' (')[0]}' foi atualizada com sucesso!")
-                else:
-                    st.warning("Por favor, selecione um usuário e digite uma nova senha.")
-
-    with tab2:
+    elif option == "Consultar, Editar e Gerenciar Senhas":
         st.subheader("Lista de Usuários")
         
         usuarios_df = carregar_usuarios()
@@ -221,7 +204,7 @@ try:
             use_container_width=True
         )
 
-        if st.button("Salvar Alterações", use_container_width=True):
+        if st.button("Salvar Alterações de Nome/Cargo", use_container_width=True):
             changes_made = False
             original_df = st.session_state.original_users_df
 
@@ -251,8 +234,30 @@ try:
             else:
                 st.info("Nenhuma alteração foi detetada.")
 
+        st.markdown("---")
+        
+        st.subheader("Redefinir Senha de um Usuário")
+        usuarios_list = carregar_usuarios()
+        usuarios_dict = {f"{row['nome']} ({row['login']})": row['id'] for index, row in usuarios_list.iterrows()}
+        
+        with st.form("form_reset_senha", clear_on_submit=True):
+            usuario_selecionado_str = st.selectbox(
+                "Selecione o usuário",
+                options=usuarios_dict.keys(),
+                index=None,
+                placeholder="Selecione um usuário para redefinir a senha..."
+            )
+            nova_senha = st.text_input("Nova Senha", type="password")
+            
+            if st.form_submit_button("Atualizar Senha", use_container_width=True, type="primary"):
+                if usuario_selecionado_str and nova_senha:
+                    user_id_para_reset = usuarios_dict[usuario_selecionado_str]
+                    if atualizar_senha_usuario(user_id_para_reset, nova_senha):
+                        st.success(f"Senha do usuário '{usuario_selecionado_str.split(' (')[0]}' foi atualizada com sucesso!")
+                else:
+                    st.warning("Por favor, selecione um usuário e digite uma nova senha.")
+
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de utilizadores: {e}")
-    st.info("Se esta é a primeira configuração, por favor, vá até a página '⚙️ Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
-
+    st.info("Se esta é a primeira configuração, por favor, vá até a página 'Configurações' e clique em 'Inicializar Banco de Dados' para criar as tabelas necessárias.")
