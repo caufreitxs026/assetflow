@@ -74,7 +74,7 @@ def show_login_form():
     # CSS para a logo e footer da tela de login
     st.markdown("""
     <style>
-        /* --- NOVO: Oculta o menu lateral na tela de login --- */
+        /* Oculta o menu lateral na tela de login */
         [data-testid="stSidebar"] {
             display: none;
         }
@@ -86,16 +86,28 @@ def show_login_form():
             text-align: center;
             margin-bottom: 20px;
         }
-        .login-logo-asset { color: #003366; }
-        .login-logo-flow { color: #E30613; }
 
+        /* --- ESTILOS ATUALIZADOS PARA A LOGO --- */
+        /* Estilos para o tema claro (light) */
+        .login-logo-asset {
+            color: #FFFFFF; /* Fonte branca */
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Sombra preta */
+        }
+        .login-logo-flow {
+            color: #E30613; /* Fonte vermelha */
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Sombra preta */
+        }
+        
+        /* Estilos para o tema escuro (dark) */
         @media (prefers-color-scheme: dark) {
             .login-logo-asset {
                 color: #FFFFFF;
-                /* --- NOVO: Adiciona sombra ao texto para melhor visibilidade --- */
-                text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
+                text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Mantém a sombra preta para contraste */
             }
-            .login-logo-flow { color: #FF4B4B; }
+            .login-logo-flow {
+                color: #FF4B4B; /* Um vermelho mais vibrante para o tema escuro */
+                text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Sombra preta */
+            }
         }
 
         .login-footer {
@@ -192,4 +204,3 @@ def logout():
     for key in keys_to_pop:
         st.session_state.pop(key, None)
     st.rerun()
-
