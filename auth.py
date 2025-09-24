@@ -126,18 +126,22 @@ def show_login_form():
         .login-footer img {
             width: 25px;
             height: 25px;
-            filter: grayscale(1) opacity(0.5);
+            /* --- ALTERAÇÃO AQUI: Adiciona drop-shadow --- */
+            filter: grayscale(1) opacity(0.5) drop-shadow(2px 2px 3px rgba(0,0,0,0.4));
             transition: filter 0.3s;
         }
         .login-footer img:hover {
-            filter: grayscale(0) opacity(1);
+             /* --- ALTERAÇÃO AQUI: Adiciona drop-shadow no hover --- */
+            filter: grayscale(0) opacity(1) drop-shadow(2px 2px 3px rgba(0,0,0,0.4));
         }
         @media (prefers-color-scheme: dark) {
             .login-footer img {
-                filter: grayscale(1) opacity(0.6) invert(1);
+                 /* --- ALTERAÇÃO AQUI: Adiciona drop-shadow no tema escuro --- */
+                filter: grayscale(1) opacity(0.6) invert(1) drop-shadow(2px 2px 4px rgba(0,0,0,0.6));
             }
             .login-footer img:hover {
-                filter: opacity(1) invert(1);
+                 /* --- ALTERAÇÃO AQUI: Adiciona drop-shadow no hover do tema escuro --- */
+                filter: opacity(1) invert(1) drop-shadow(2px 2px 4px rgba(0,0,0,0.6));
             }
         }
     </style>
