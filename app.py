@@ -22,14 +22,28 @@ else:
     <style>
         /* Estilos da Logo */
         .logo-text { font-family: 'Courier New', monospace; font-size: 28px; font-weight: bold; padding-top: 20px; }
-        .logo-asset { color: #003366; } .logo-flow { color: #E30613; }
+        
+        /* --- ESTILOS ATUALIZADOS PARA A LOGO --- */
+        /* Estilos para o tema claro (light) */
+        .logo-asset {
+            color: #FFFFFF; /* Fonte branca */
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Sombra preta */
+        }
+        .logo-flow {
+            color: #E30613; /* Fonte vermelha */
+            text-shadow: 1px 1px 3px rgba(255, 255, 255, 0.5); /* Sombra branca sutil */
+        }
+        
+        /* Estilos para o tema escuro (dark) */
         @media (prefers-color-scheme: dark) {
             .logo-asset {
                 color: #FFFFFF;
-                /* --- NOVO: Adiciona sombra ao texto para melhor visibilidade --- */
-                text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
+                text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Mantém a sombra preta para contraste */
             }
-            .logo-flow { color: #FF4B4B; }
+            .logo-flow {
+                color: #FF4B4B; /* Um vermelho mais vibrante para o tema escuro */
+                text-shadow: none; /* Remove a sombra branca */
+            }
         }
         /* Estilos para o footer na barra lateral */
         .sidebar-footer { text-align: center; padding-top: 20px; padding-bottom: 20px; }
@@ -316,3 +330,4 @@ else:
                       })
 
 # Forçando a reconstrução do cache - v1.3
+
