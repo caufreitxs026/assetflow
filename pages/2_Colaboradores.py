@@ -57,7 +57,7 @@ st.markdown("""
 st.markdown(
     """
     <div class="logo-text">
-        <span class="logo-asset">ASSET</span><span class="logo-flow">FLOW</span>
+        <span class="logo-text"><span class="logo-asset">ASSET</span><span class="logo-flow">FLOW</span>
     </div>
     """,
     unsafe_allow_html=True
@@ -574,3 +574,4 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de colaboradores: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
+
