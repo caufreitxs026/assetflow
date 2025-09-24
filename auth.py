@@ -70,6 +70,12 @@ def iniciar_redefinicao_de_senha(login):
 
 def show_login_form():
     """Exibe o formulário de login centralizado e personalizado."""
+
+    # --- NOVA LÓGICA PARA ATIVAR O FORMULÁRIO DE RESET ATRAVÉS DE UM LINK ---
+    if "forgot_password" in st.query_params:
+        st.session_state.show_reset_form = True
+        # Limpa o parâmetro da URL para evitar que o estado fique preso na próxima interação
+        st.query_params.clear()
     
     # CSS para a logo e footer da tela de login
     st.markdown("""
@@ -177,10 +183,11 @@ def show_login_form():
                     else:
                         st.error("Utilizador ou senha inválidos.")
             
-            st.markdown("---")
-            if st.button("Esqueceu a senha?", use_container_width=True):
-                st.session_state.show_reset_form = True
-                st.rerun()
+            # --- Link de texto "Esqueceu a senha?" ---
+            st.markdown(
+                '<p style="text-align: right; margin-top: 10px;"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></p>',
+                unsafe_allow_html=True
+            )
 
     # Footer com ícones
     st.markdown(
@@ -204,3 +211,4 @@ def logout():
     for key in keys_to_pop:
         st.session_state.pop(key, None)
     st.rerun()
+
