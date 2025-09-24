@@ -125,7 +125,12 @@ else:
             if not df_multiplos_ids.empty:
                 ids_colaboradores_list = df_multiplos_ids['colaborador_id'].tolist()
                 if ids_colaboradores_list:
-                    ids_colaboradores = tuple(ids_colaboradores_list)
+                    # Adiciona uma verificação para garantir que a lista não está vazia antes de criar a tupla
+                    if len(ids_colaboradores_list) == 1:
+                        ids_colaboradores = f"({ids_colaboradores_list[0]})"
+                    else:
+                        ids_colaboradores = tuple(ids_colaboradores_list)
+
                     df_detalhes_multiplos = conn.query(f"""
                         SELECT c.nome_completo, setor.nome_setor, ma.nome_marca || ' - ' || mo.nome_modelo as modelo_completo, a.numero_serie, h.data_movimentacao
                         FROM aparelhos a JOIN status s ON a.status_id = s.id
@@ -303,4 +308,4 @@ else:
                           "nome_completo": "Colaborador"
                       })
 
-# Forçando a reconstrução do cache - v1.2
+# Forçando a reconstrução do cache - v1.3
