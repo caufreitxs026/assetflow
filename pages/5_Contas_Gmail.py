@@ -215,7 +215,7 @@ try:
     if option == "Cadastrar Nova Conta":
         with st.form("form_nova_conta", clear_on_submit=True):
             st.subheader("Dados da Nova Conta")
-            st.warning("Atenção: As senhas são armazenadas em texto plano. Use com cautela.", icon="⚠️")
+            st.warning("Atenção: As senhas são armazenadas em texto plano. Use com cautela.")
             email = st.text_input("E-mail/Gmail*")
             senha = st.text_input("Senha")
             tel_rec = st.text_input("Telefone de Recuperação")
@@ -325,3 +325,4 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de contas: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
+
