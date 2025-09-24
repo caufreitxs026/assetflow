@@ -31,7 +31,7 @@ else:
         }
         .logo-flow {
             color: #E30613; /* Fonte vermelha */
-            text-shadow: 1px 1px 3px rgba(255, 255, 255, 0.5); /* Sombra branca sutil */
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Sombra preta */
         }
         
         /* Estilos para o tema escuro (dark) */
@@ -42,7 +42,7 @@ else:
             }
             .logo-flow {
                 color: #FF4B4B; /* Um vermelho mais vibrante para o tema escuro */
-                text-shadow: none; /* Remove a sombra branca */
+                text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Sombra preta */
             }
         }
         /* Estilos para o footer na barra lateral */
@@ -146,7 +146,6 @@ else:
             if not df_multiplos_ids.empty:
                 ids_colaboradores_list = df_multiplos_ids['colaborador_id'].tolist()
                 if ids_colaboradores_list:
-                    # Adiciona uma verificação para garantir que a lista não está vazia antes de criar a tupla
                     if len(ids_colaboradores_list) == 1:
                         ids_colaboradores = f"({ids_colaboradores_list[0]})"
                     else:
