@@ -185,7 +185,7 @@ def show_login_form():
             
             # --- Link de texto "Esqueceu a senha?" ---
             st.markdown(
-                '<p style="text-align: right; margin-top: 10px;"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></p>',
+                '<div style="text-align: right; margin-top: -10px;"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></div>',
                 unsafe_allow_html=True
             )
 
