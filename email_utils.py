@@ -24,8 +24,8 @@ def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
     message["To"] = destinatario_email
 
     # Constrói a URL da página de redefinição com o nome de ficheiro correto
-    # Lembre-se que o ficheiro agora é _11_Resetar_Senha.py
-    app_url = "https://assetfl0w.streamlit.app/_11_Resetar_Senha" 
+    # Lembre-se que o ficheiro agora é 11_Resetar_Senha.py
+    app_url = "https://assetfl0w.streamlit.app/11_Resetar_Senha" 
     reset_link = f"{app_url}?token={token}"
 
     # Corpo do e-mail em texto puro (para clientes de e-mail que não suportam HTML)
@@ -94,3 +94,4 @@ def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
         print(f"Falha ao enviar e-mail: {e}")
         st.error(f"Falha ao conectar-se ao servidor de e-mail. Verifique as credenciais e as configurações de segurança da conta Gmail.")
         return False
+
