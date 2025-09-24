@@ -23,9 +23,10 @@ def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
     message["From"] = f"AssetFlow <{sender_email}>"
     message["To"] = destinatario_email
 
-    # Constrói a URL da página de redefinição com o nome de ficheiro correto
-    # O nome do ficheiro é 11_Resetar_Senha.py, então a URL correspondente não tem o underscore no início.
-    app_url = "https://assetfl0w.streamlit.app/11_Resetar_Senha" 
+    # --- CORREÇÃO FINAL AQUI ---
+    # Simplificamos o nome da página para evitar erros de interpretação do Streamlit.
+    # O ficheiro agora deve chamar-se 'pages/Resetar_Senha.py'.
+    app_url = "https://assetfl0w.streamlit.app/Resetar_Senha" 
     reset_link = f"{app_url}?token={token}"
 
     # Corpo do e-mail em texto puro (para clientes de e-mail que não suportam HTML)
