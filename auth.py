@@ -1,6 +1,6 @@
 import streamlit as st
 import hashlib
-from sqlalchemy import text 
+from sqlalchemy import text
 import secrets
 from datetime import datetime, timedelta
 # Importamos a nossa nova função de envio de e-mail. Certifique-se de que o ficheiro email_utils.py está na mesma pasta.
@@ -30,13 +30,11 @@ def check_login(username, password):
         st.session_state['username'] = user['login']
         st.session_state['user_role'] = user['cargo']
         st.session_state['user_name'] = user['nome']
-        # --- Adicionado para a lógica de autoexclusão ---
         st.session_state['user_id'] = user['id'] 
         return True
         
     return False
 
-# --- NOVA FUNÇÃO ---
 def iniciar_redefinicao_de_senha(login):
     """Inicia o processo de redefinição de senha para um utilizador."""
     conn = get_db_connection()
@@ -63,21 +61,24 @@ def iniciar_redefinicao_de_senha(login):
         s.commit()
 
         # 3. Enviar o e-mail
-        # Assumimos que o 'login' é o e-mail do utilizador.
         if enviar_email_de_redefinicao(destinatario_email=login, destinatario_nome=user.nome, token=token):
             st.success("Um e-mail com as instruções para redefinir a sua senha foi enviado. Por favor, verifique a sua caixa de entrada e spam.")
             st.info("O link é válido por 15 minutos.")
         else:
-            # A função enviar_email_de_redefinicao já mostra um st.error detalhado.
             st.warning("Não foi possível enviar o e-mail. Verifique as configurações e tente novamente.")
 
 
 def show_login_form():
-    """Exibe o formulário de login ou o de redefinição de senha."""
+    """Exibe o formulário de login centralizado e personalizado."""
     
     # CSS para a logo e footer da tela de login
     st.markdown("""
     <style>
+        /* --- NOVO: Oculta o menu lateral na tela de login --- */
+        [data-testid="stSidebar"] {
+            display: none;
+        }
+
         .login-logo-text {
             font-family: 'Courier New', monospace;
             font-size: 48px;
@@ -89,7 +90,11 @@ def show_login_form():
         .login-logo-flow { color: #E30613; }
 
         @media (prefers-color-scheme: dark) {
-            .login-logo-asset { color: #FFFFFF; }
+            .login-logo-asset {
+                color: #FFFFFF;
+                /* --- NOVO: Adiciona sombra ao texto para melhor visibilidade --- */
+                text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
+            }
             .login-logo-flow { color: #FF4B4B; }
         }
 
@@ -130,15 +135,12 @@ def show_login_form():
         unsafe_allow_html=True
     )
     
-    # Inicializa o estado se não existir
     if 'show_reset_form' not in st.session_state:
         st.session_state.show_reset_form = False
     
-    # Usa colunas para centralizar o conteúdo
     col1, col2, col3 = st.columns([1, 1.5, 1])
     
     with col2:
-        # Se o estado for para mostrar o formulário de reset, mostre-o
         if st.session_state.show_reset_form:
             st.subheader("Redefinir Senha")
             with st.form("form_reset_request"):
@@ -150,8 +152,6 @@ def show_login_form():
             if st.button("Voltar para o Login", use_container_width=True):
                 st.session_state.show_reset_form = False
                 st.rerun()
-
-        # Caso contrário, mostre o formulário de login normal
         else:
             with st.form("login_form"):
                 st.subheader("Login")
@@ -165,7 +165,6 @@ def show_login_form():
                     else:
                         st.error("Utilizador ou senha inválidos.")
             
-            # Adiciona o botão "Esqueceu a senha?"
             st.markdown("---")
             if st.button("Esqueceu a senha?", use_container_width=True):
                 st.session_state.show_reset_form = True
@@ -193,3 +192,4 @@ def logout():
     for key in keys_to_pop:
         st.session_state.pop(key, None)
     st.rerun()
+
