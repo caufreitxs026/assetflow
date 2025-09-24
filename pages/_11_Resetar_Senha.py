@@ -4,7 +4,7 @@ from datetime import datetime
 # Importa a mesma função de hash usada no login e o logout para limpar a sessão se necessário
 from auth import hash_password, logout
 
-# --- NOVO BLOCO DE REDIRECIONAMENTO ---
+# --- BLOCO DE REDIRECIONAMENTO ---
 # Se o utilizador já estiver logado, esta página não faz sentido para ele.
 # Redireciona-o para a página principal (dashboard) e impede que a página apareça no menu lateral.
 if st.session_state.get('logged_in', False):
@@ -61,22 +61,24 @@ def validar_token_e_redefinir_senha(token, nova_senha):
 # Esta configuração só será aplicada se o utilizador não estiver logado
 st.set_page_config(layout="centered")
 
-st.markdown("""
-<style>
-    .logo-text { font-family: 'Courier New', monospace; font-size: 32px; font-weight: bold; text-align: center; }
-    .logo-asset { color: #003366; } .logo-flow { color: #E30613; }
-    @media (prefers-color-scheme: dark) { .logo-asset { color: #FFFFFF; } .logo-flow { color: #FF4B4B; } }
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("""<div class="logo-text"><span class="logo-asset">ASSET</span><span class="logo-flow">FLOW</span></div>""", unsafe_allow_html=True)
-st.title("Crie a sua Nova Senha")
-
 # Extrai o token da URL
 query_params = st.query_params
 token = query_params.get("token")
 
+# --- LÓGICA DE EXIBIÇÃO APRIMORADA ---
+# Só mostra o conteúdo da página se houver um token.
 if token:
+    st.markdown("""
+    <style>
+        .logo-text { font-family: 'Courier New', monospace; font-size: 32px; font-weight: bold; text-align: center; }
+        .logo-asset { color: #003366; } .logo-flow { color: #E30613; }
+        @media (prefers-color-scheme: dark) { .logo-asset { color: #FFFFFF; } .logo-flow { color: #FF4B4B; } }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""<div class="logo-text"><span class="logo-asset">ASSET</span><span class="logo-flow">FLOW</span></div>""", unsafe_allow_html=True)
+    st.title("Crie a sua Nova Senha")
+
     with st.form("form_nova_senha"):
         st.write("Por favor, digite a sua nova senha abaixo.")
         nova_senha = st.text_input("Nova Senha", type="password", key="nova_senha")
@@ -93,13 +95,10 @@ if token:
                 if validar_token_e_redefinir_senha(token, nova_senha):
                     st.success("A sua senha foi redefinida com sucesso!")
                     st.info("Pode fechar esta página e voltar à tela de login para entrar com a sua nova senha.")
-                    # --- MELHORIA 1: ADICIONA UM LINK CLARO PARA A TELA DE LOGIN ---
                     st.page_link("app.py", label="Ir para a Tela de Login")
-                    # Limpa o token da URL para segurança, escondendo o formulário
                     st.query_params.clear()
-
-
 else:
-    st.error("Nenhum token de redefinição foi fornecido.")
-    st.info("Por favor, inicie o processo de redefinição de senha a partir da tela de login.")
+    # Se um utilizador não logado tentar aceder a esta página diretamente (sem um token),
+    # ele será redirecionado para a página de login.
+    st.switch_page("app.py")
 
