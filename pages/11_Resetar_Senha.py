@@ -1,7 +1,15 @@
 import streamlit as st
 from sqlalchemy import text
 from datetime import datetime
-from auth import hash_password # Importa a mesma função de hash usada no login
+# Importa a mesma função de hash usada no login e o logout para limpar a sessão se necessário
+from auth import hash_password, logout
+
+# --- NOVO BLOCO DE REDIRECIONAMENTO ---
+# Se o utilizador já estiver logado, esta página não faz sentido para ele.
+# Redireciona-o para a página principal (dashboard) e impede que a página apareça no menu lateral.
+if st.session_state.get('logged_in', False):
+    st.switch_page("app.py")
+
 
 # --- Funções do DB ---
 def get_db_connection():
@@ -50,6 +58,7 @@ def validar_token_e_redefinir_senha(token, nova_senha):
             return False
 
 # --- UI da Página ---
+# Esta configuração só será aplicada se o utilizador não estiver logado
 st.set_page_config(layout="centered")
 
 st.markdown("""
@@ -84,8 +93,11 @@ if token:
                 if validar_token_e_redefinir_senha(token, nova_senha):
                     st.success("A sua senha foi redefinida com sucesso!")
                     st.info("Pode fechar esta página e voltar à tela de login para entrar com a sua nova senha.")
-                    # Limpa o token da URL para segurança
+                    # --- MELHORIA 1: ADICIONA UM LINK CLARO PARA A TELA DE LOGIN ---
+                    st.page_link("app.py", label="Ir para a Tela de Login")
+                    # Limpa o token da URL para segurança, escondendo o formulário
                     st.query_params.clear()
+
 
 else:
     st.error("Nenhum token de redefinição foi fornecido.")
