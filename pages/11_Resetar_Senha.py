@@ -100,4 +100,5 @@ if token:
 else:
     # Se um utilizador não logado tentar aceder a esta página diretamente (sem um token),
     # ele será redirecionado para a página de login.
-    st.switch_page("app.py")
+    st.switch_page("7_Gerenciar_Usuarios.py")
+
