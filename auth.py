@@ -1,6 +1,10 @@
 import streamlit as st
 import hashlib
-from sqlalchemy import text # Importante para queries seguras
+from sqlalchemy import text 
+import secrets
+from datetime import datetime, timedelta
+# Importamos a nossa nova função de envio de e-mail. Certifique-se de que o ficheiro email_utils.py está na mesma pasta.
+from email_utils import enviar_email_de_redefinicao
 
 def get_db_connection():
     """Retorna uma conexão ao banco de dados Supabase."""
@@ -15,27 +19,61 @@ def check_login(username, password):
     conn = get_db_connection()
     hashed_password = hash_password(password)
     
-    # A query agora usa placeholders nomeados (ex: :login) para segurança
     query = "SELECT * FROM usuarios WHERE login = :login AND senha = :senha"
     
-    # conn.query() executa a consulta e retorna um DataFrame do Pandas
     user_df = conn.query(query, params={"login": username, "senha": hashed_password})
     
-    # Se o DataFrame não estiver vazio, o utilizador foi encontrado
     if not user_df.empty:
-        # Pega a primeira (e única) linha de resultados como um dicionário
         user = user_df.iloc[0].to_dict()
         
         st.session_state['logged_in'] = True
         st.session_state['username'] = user['login']
         st.session_state['user_role'] = user['cargo']
         st.session_state['user_name'] = user['nome']
+        # --- Adicionado para a lógica de autoexclusão ---
+        st.session_state['user_id'] = user['id'] 
         return True
         
     return False
 
+# --- NOVA FUNÇÃO ---
+def iniciar_redefinicao_de_senha(login):
+    """Inicia o processo de redefinição de senha para um utilizador."""
+    conn = get_db_connection()
+    with conn.session as s:
+        s.begin()
+        # 1. Encontrar o utilizador pelo login para obter o ID e o nome
+        query_user = text("SELECT id, nome FROM usuarios WHERE login = :login")
+        user = s.execute(query_user, {"login": login}).fetchone()
+
+        if not user:
+            st.error("Login não encontrado no sistema.")
+            s.rollback()
+            return
+
+        # 2. Gerar e guardar o token seguro
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.now() + timedelta(minutes=15) # Token válido por 15 minutos
+
+        query_insert_token = text("""
+            INSERT INTO password_resets (user_id, reset_token, expires_at)
+            VALUES (:user_id, :token, :expires)
+        """)
+        s.execute(query_insert_token, {"user_id": user.id, "token": token, "expires": expires_at})
+        s.commit()
+
+        # 3. Enviar o e-mail
+        # Assumimos que o 'login' é o e-mail do utilizador.
+        if enviar_email_de_redefinicao(destinatario_email=login, destinatario_nome=user.nome, token=token):
+            st.success("Um e-mail com as instruções para redefinir a sua senha foi enviado. Por favor, verifique a sua caixa de entrada e spam.")
+            st.info("O link é válido por 15 minutos.")
+        else:
+            # A função enviar_email_de_redefinicao já mostra um st.error detalhado.
+            st.warning("Não foi possível enviar o e-mail. Verifique as configurações e tente novamente.")
+
+
 def show_login_form():
-    """Exibe o formulário de login centralizado e personalizado."""
+    """Exibe o formulário de login ou o de redefinição de senha."""
     
     # CSS para a logo e footer da tela de login
     st.markdown("""
@@ -92,21 +130,46 @@ def show_login_form():
         unsafe_allow_html=True
     )
     
-    # Usa colunas para centralizar o formulário
+    # Inicializa o estado se não existir
+    if 'show_reset_form' not in st.session_state:
+        st.session_state.show_reset_form = False
+    
+    # Usa colunas para centralizar o conteúdo
     col1, col2, col3 = st.columns([1, 1.5, 1])
     
     with col2:
-        with st.form("login_form"):
-            st.subheader("Login")
-            username = st.text_input("Utilizador", placeholder="Usuário")
-            password = st.text_input("Senha", type="password", placeholder="Digite sua senha")
-            submitted = st.form_submit_button("Entrar")
+        # Se o estado for para mostrar o formulário de reset, mostre-o
+        if st.session_state.show_reset_form:
+            st.subheader("Redefinir Senha")
+            with st.form("form_reset_request"):
+                login_para_reset = st.text_input("Digite o seu login (e-mail) para receber o link")
+                submitted = st.form_submit_button("Enviar E-mail de Redefinição", use_container_width=True)
+                if submitted:
+                    iniciar_redefinicao_de_senha(login_para_reset)
 
-            if submitted:
-                if check_login(username, password):
-                    st.rerun()
-                else:
-                    st.error("Utilizador ou senha inválidos.")
+            if st.button("Voltar para o Login", use_container_width=True):
+                st.session_state.show_reset_form = False
+                st.rerun()
+
+        # Caso contrário, mostre o formulário de login normal
+        else:
+            with st.form("login_form"):
+                st.subheader("Login")
+                username = st.text_input("Utilizador", placeholder="Usuário")
+                password = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+                submitted = st.form_submit_button("Entrar", use_container_width=True)
+
+                if submitted:
+                    if check_login(username, password):
+                        st.rerun()
+                    else:
+                        st.error("Utilizador ou senha inválidos.")
+            
+            # Adiciona o botão "Esqueceu a senha?"
+            st.markdown("---")
+            if st.button("Esqueceu a senha?", use_container_width=True):
+                st.session_state.show_reset_form = True
+                st.rerun()
 
     # Footer com ícones
     st.markdown(
@@ -126,7 +189,7 @@ def show_login_form():
 def logout():
     """Faz o logout do utilizador, limpando a sessão."""
     st.session_state['logged_in'] = False
-    st.session_state.pop('username', None)
-    st.session_state.pop('user_role', None)
-    st.session_state.pop('user_name', None)
+    keys_to_pop = ['username', 'user_role', 'user_name', 'user_id']
+    for key in keys_to_pop:
+        st.session_state.pop(key, None)
     st.rerun()
