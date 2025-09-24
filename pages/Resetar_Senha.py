@@ -4,11 +4,11 @@ from datetime import datetime
 # Importa a mesma função de hash usada no login e o logout para limpar a sessão se necessário
 from auth import hash_password, logout
 
-# --- BLOCO DE REDIRECIONAMENTO ---
-# Se o utilizador já estiver logado, esta página não faz sentido para ele.
-# Redireciona-o para a página principal (dashboard) e impede que a página apareça no menu lateral.
+# --- BLOCO DE REDIRECIONAMENTO INTELIGENTE ---
+# Se o utilizador já estiver logado, esta página não deve ser para ele.
+# Redireciona-o para a página de gerenciamento de usuários, que é o local correto para um admin gerir senhas.
 if st.session_state.get('logged_in', False):
-    st.switch_page("app.py")
+    st.switch_page("pages/7_Gerenciar_Usuarios.py")
 
 
 # --- Funções do DB ---
@@ -93,15 +93,11 @@ if token:
                 st.error("As senhas não coincidem. Por favor, tente novamente.")
             else:
                 if validar_token_e_redefinir_senha(token, nova_senha):
-                    st.success("A sua senha foi redefinida com sucesso!")
+                    st.success("A sua senha foi redefinida com sucesso! ✅")
                     st.info("Pode fechar esta página e voltar à tela de login para entrar com a sua nova senha.")
-                    st.page_link("app.py", label="Ir para a Tela de Login")
+                    st.page_link("app.py", label="Ir para a Tela de Login", icon="🏠")
                     st.query_params.clear()
 else:
     # Se um utilizador não logado tentar aceder a esta página diretamente (sem um token),
     # ele será redirecionado para a página de login.
     st.switch_page("app.py")
-
-
-
-
