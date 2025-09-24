@@ -303,3 +303,4 @@ else:
                           "nome_completo": "Colaborador"
                       })
 
+# Forçando a reconstrução do cache - v1.2
