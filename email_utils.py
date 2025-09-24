@@ -24,7 +24,7 @@ def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
     message["To"] = destinatario_email
 
     # Constrói a URL da página de redefinição com o nome de ficheiro correto
-    # Lembre-se que o ficheiro agora é 11_Resetar_Senha.py
+    # O nome do ficheiro é 11_Resetar_Senha.py, então a URL correspondente não tem o underscore no início.
     app_url = "https://assetfl0w.streamlit.app/11_Resetar_Senha" 
     reset_link = f"{app_url}?token={token}"
 
