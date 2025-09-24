@@ -23,7 +23,14 @@ else:
         /* Estilos da Logo */
         .logo-text { font-family: 'Courier New', monospace; font-size: 28px; font-weight: bold; padding-top: 20px; }
         .logo-asset { color: #003366; } .logo-flow { color: #E30613; }
-        @media (prefers-color-scheme: dark) { .logo-asset { color: #FFFFFF; } .logo-flow { color: #FF4B4B; } }
+        @media (prefers-color-scheme: dark) {
+            .logo-asset {
+                color: #FFFFFF;
+                /* --- NOVO: Adiciona sombra ao texto para melhor visibilidade --- */
+                text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
+            }
+            .logo-flow { color: #FF4B4B; }
+        }
         /* Estilos para o footer na barra lateral */
         .sidebar-footer { text-align: center; padding-top: 20px; padding-bottom: 20px; }
         .sidebar-footer a { margin-right: 15px; text-decoration: none; }
