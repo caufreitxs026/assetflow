@@ -50,8 +50,8 @@ def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
         <meta charset="UTF-8">
         <title>Redefinição de Senha</title>
     </head>
-    <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f0f2f6; color: #333;">
-        <div style="max-width: 600px; margin: auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); overflow: hidden;">
+    <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #ffffff; color: #333;">
+        <div style="max-width: 600px; margin: auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); overflow: hidden; border: 1px solid #e0e0e0;">
             <div style="padding: 20px; text-align: center; border-bottom: 1px solid #eeeeee; background-color: #000;">
                 <div style="font-family: 'Courier New', monospace; font-size: 28px; font-weight: bold;">
                     <span style="color: #FFFFFF; text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);">ASSET</span><span style="color: #E30613; text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);">FLOW</span>
@@ -68,7 +68,7 @@ def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
                 <p style="font-size: 12px; color: #888888;">Se o botão não funcionar, copie e cole o seguinte link no seu navegador:</p>
                 <p style="font-size: 12px; color: #888888; word-break: break-all;">{reset_link}</p>
             </div>
-            <div style="background-color: #f0f2f6; padding: 20px; font-size: 12px; color: #888888; text-align: center;">
+            <div style="background-color: #f9f9f9; padding: 20px; font-size: 12px; color: #888888; text-align: center; border-top: 1px solid #eeeeee;">
                 <p>&copy; {datetime.now().year} AssetFlow. Todos os direitos reservados.</p>
                 <p>Este é um e-mail automático, por favor não responda.</p>
             </div>
@@ -94,4 +94,3 @@ def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
         print(f"Falha ao enviar e-mail: {e}")
         st.error(f"Falha ao conectar-se ao servidor de e-mail. Verifique as credenciais e as configurações de segurança da conta Gmail.")
         return False
-
