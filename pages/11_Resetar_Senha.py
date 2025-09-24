@@ -8,7 +8,7 @@ from auth import hash_password, logout
 # Se o utilizador já estiver logado, esta página não faz sentido para ele.
 # Redireciona-o para a página principal (dashboard) e impede que a página apareça no menu lateral.
 if st.session_state.get('logged_in', False):
-    st.switch_page("7_Gerenciar_Usuarios.py)
+    st.switch_page("7_Gerenciar_Usuarios.py")
 
 
 # --- Funções do DB ---
@@ -101,5 +101,6 @@ else:
     # Se um utilizador não logado tentar aceder a esta página diretamente (sem um token),
     # ele será redirecionado para a página de login.
     st.switch_page("app.py")
+
 
 
