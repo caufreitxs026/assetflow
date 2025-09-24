@@ -2,10 +2,11 @@ import streamlit as st
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from datetime import datetime
 
 def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
     """
-    Envia um e-mail para o utilizador com um link para redefinir a sua senha.
+    Envia um e-mail com um layout profissional para o utilizador redefinir a sua senha.
     Utiliza as credenciais armazenadas nos secrets do Streamlit.
     """
     try:
@@ -22,39 +23,56 @@ def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
     message["From"] = f"AssetFlow <{sender_email}>"
     message["To"] = destinatario_email
 
-    # --- ALTERAÇÃO AQUI ---
-    # Constrói a URL da página de redefinição com o endereço de produção real.
-    app_url = "https://assetfl0w.streamlit.app/Resetar_Senha" 
+    # Constrói a URL da página de redefinição com o nome de ficheiro correto
+    # Lembre-se que o ficheiro agora é _11_Resetar_Senha.py
+    app_url = "https://assetfl0w.streamlit.app/_11_Resetar_Senha" 
     reset_link = f"{app_url}?token={token}"
 
-    # Corpo do e-mail em texto puro e HTML
+    # Corpo do e-mail em texto puro (para clientes de e-mail que não suportam HTML)
     text = f"""
     Olá, {destinatario_nome},
 
-    Recebemos um pedido para redefinir a sua senha no sistema AssetFlow.
-    Copie e cole o seguinte link no seu navegador para criar uma nova senha:
+    Recebemos uma solicitação para redefinir a senha da sua conta no AssetFlow.
+    Para criar uma nova senha, copie e cole o seguinte link no seu navegador:
     {reset_link}
 
-    Este link é válido por 15 minutos. Se você não solicitou esta alteração, por favor, ignore este e-mail.
+    Por segurança, este link irá expirar em 15 minutos. Se não foi você quem solicitou, pode ignorar este e-mail com segurança.
 
     Atenciosamente,
     Equipe AssetFlow
     """
 
+    # Corpo do e-mail em HTML com a logo e um design melhorado
     html = f"""
+    <!DOCTYPE html>
     <html>
-    <body>
-        <p>Olá, <strong>{destinatario_nome}</strong>,</p>
-        <p>Recebemos um pedido para redefinir a sua senha no sistema AssetFlow.</p>
-        <p>Clique no botão abaixo para criar uma nova senha. O link é válido por <strong>15 minutos</strong>.</p>
-        <a href="{reset_link}" style="background-color: #003366; color: white; padding: 14px 25px; text-align: center; text-decoration: none; display: inline-block; border-radius: 5px; font-family: sans-serif;">
-            Redefinir Senha
-        </a>
-        <p>Se você não consegue clicar no botão, copie e cole o seguinte link no seu navegador:</p>
-        <p><a href="{reset_link}">{reset_link}</a></p>
-        <p>Se você não solicitou esta alteração, por favor, ignore este e-mail.</p>
-        <br>
-        <p>Atenciosamente,<br>Equipe AssetFlow</p>
+    <head>
+        <meta charset="UTF-8">
+        <title>Redefinição de Senha</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f0f2f6; color: #333;">
+        <div style="max-width: 600px; margin: auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); overflow: hidden;">
+            <div style="padding: 20px; text-align: center; border-bottom: 1px solid #eeeeee; background-color: #000;">
+                <div style="font-family: 'Courier New', monospace; font-size: 28px; font-weight: bold;">
+                    <span style="color: #FFFFFF; text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);">ASSET</span><span style="color: #E30613; text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);">FLOW</span>
+                </div>
+            </div>
+            <div style="padding: 30px;">
+                <h2 style="color: #003366;">Redefinição de Senha Solicitada</h2>
+                <p>Olá, <strong>{destinatario_nome}</strong>,</p>
+                <p>Recebemos uma solicitação para redefinir a senha da sua conta no AssetFlow. Se não foi você, pode ignorar este e-mail com segurança.</p>
+                <p>Para criar uma nova senha, clique no botão abaixo. Por segurança, este link irá expirar em <strong>15 minutos</strong>.</p>
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="{reset_link}" target="_blank" style="background-color: #003366; color: #ffffff; padding: 14px 25px; text-align: center; text-decoration: none; display: inline-block; border-radius: 5px; font-weight: bold;">Redefinir a Minha Senha</a>
+                </div>
+                <p style="font-size: 12px; color: #888888;">Se o botão não funcionar, copie e cole o seguinte link no seu navegador:</p>
+                <p style="font-size: 12px; color: #888888; word-break: break-all;">{reset_link}</p>
+            </div>
+            <div style="background-color: #f0f2f6; padding: 20px; font-size: 12px; color: #888888; text-align: center;">
+                <p>&copy; {datetime.now().year} AssetFlow. Todos os direitos reservados.</p>
+                <p>Este é um e-mail automático, por favor não responda.</p>
+            </div>
+        </div>
     </body>
     </html>
     """
