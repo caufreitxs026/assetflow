@@ -12,9 +12,35 @@ if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
 # --- Configuração de Layout (Header, Footer e CSS) ---
 st.markdown("""
 <style>
-    /* Estilos da Logo */
-    .logo-text { font-family: 'Courier New', monospace; font-size: 28px; font-weight: bold; padding-top: 20px; }
-    .logo-asset { color: #003366; } .logo-flow { color: #E30613; }
+    /* --- Início do Bloco da Logo --- */
+	.logo-text {
+		font-family: 'Courier New', monospace;
+		font-size: 28px; /* Ajuste o tamanho se necessário para as páginas internas */
+		font-weight: bold;
+		padding-top: 20px;
+	}
+	/* Estilos para o tema claro (light) */
+	.logo-asset {
+		color: #FFFFFF; /* Fonte branca */
+		text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Sombra preta */
+	}
+	.logo-flow {
+		color: #E30613; /* Fonte vermelha */
+		text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Sombra preta */
+	}
+
+	/* Estilos para o tema escuro (dark) */
+	@media (prefers-color-scheme: dark) {
+		.logo-asset {
+			color: #FFFFFF;
+			text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Mantém a sombra preta para contraste */
+		}
+		.logo-flow {
+			color: #FF4B4B; /* Um vermelho mais vibrante para o tema escuro */
+			text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Sombra preta */
+		}
+	}
+	/* --- Fim do Bloco da Logo --- */
     @media (prefers-color-scheme: dark) { .logo-asset { color: #FFFFFF; } .logo-flow { color: #FF4B4B; } }
     /* Estilos para o footer na barra lateral */
     .sidebar-footer { text-align: center; padding-top: 20px; padding-bottom: 20px; }
@@ -321,4 +347,3 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de devoluções: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
-
