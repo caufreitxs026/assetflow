@@ -3,6 +3,7 @@ import hashlib
 from sqlalchemy import text
 import secrets
 from datetime import datetime, timedelta
+# Importamos a nossa nova função de envio de e-mail. Certifique-se de que o ficheiro email_utils.py está na mesma pasta.
 from email_utils import enviar_email_de_redefinicao
 
 def get_db_connection():
@@ -19,16 +20,19 @@ def check_login(username, password):
     hashed_password = hash_password(password)
     
     query = "SELECT * FROM usuarios WHERE login = :login AND senha = :senha"
+    
     user_df = conn.query(query, params={"login": username, "senha": hashed_password})
     
     if not user_df.empty:
         user = user_df.iloc[0].to_dict()
+        
         st.session_state['logged_in'] = True
         st.session_state['user_login'] = user['login'] 
         st.session_state['user_role'] = user['cargo']
         st.session_state['user_name'] = user['nome']
         st.session_state['user_id'] = user['id'] 
         return True
+        
     return False
 
 def iniciar_redefinicao_de_senha(login):
@@ -60,6 +64,7 @@ def iniciar_redefinicao_de_senha(login):
         else:
             st.warning("Não foi possível enviar o e-mail. Verifique as configurações e tente novamente.")
 
+
 def show_login_form():
     """Exibe o formulário de login centralizado e com novo design."""
 
@@ -73,10 +78,6 @@ def show_login_form():
         /* --- Fundo e Layout Geral --- */
         [data-testid="stAppViewContainer"] {
             background-color: #FFFFFF;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh; /* ocupa a tela inteira */
         }
         @media (prefers-color-scheme: dark) {
             [data-testid="stAppViewContainer"] {
@@ -86,13 +87,13 @@ def show_login_form():
         [data-testid="stSidebar"], [data-testid="stHeader"] {
             display: none;
         }
-
-        /* --- Força o conteúdo centralizado em coluna --- */
-        [data-testid="stAppViewContainer"] > .main {
+        /* --- CORREÇÃO: Força o container principal a ser um flexbox centralizado --- */
+        [data-testid="stAppViewContainer"] > .main > div:first-child {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
+            height: 100vh;
         }
         
         /* --- Logo --- */
@@ -177,6 +178,9 @@ def show_login_form():
             width: 100%;
             max-width: 400px;
         }
+        .social-icons {
+            margin-top: 15px; /* Espaço entre a versão e os ícones */
+        }
         .social-icons a { margin: 0 10px; }
         .social-icons img {
             width: 28px;
@@ -197,7 +201,6 @@ def show_login_form():
             padding: 3px 10px;
             border-radius: 15px;
             display: inline-block;
-            margin-bottom: 15px;
         }
         @media (prefers-color-scheme: dark) { 
             .version-text { 
@@ -208,7 +211,8 @@ def show_login_form():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Estrutura da página ---
+    # --- ESTRUTURA DA PÁGINA ---
+    
     st.markdown(
         """
         <div class="login-logo-text">
@@ -281,3 +285,4 @@ def logout():
     for key in keys_to_pop:
         st.session_state.pop(key, None)
     st.rerun()
+
