@@ -166,12 +166,13 @@ def show_login_form():
 
         /* --- Link "Esqueceu a senha?" --- */
         .forgot-password-link {
-            text-align: center;
-            margin-top: 15px;
+            text-align: right;
+            margin-top: 10px;
+            margin-bottom: 20px;
         }
         .forgot-password-link a {
             color: #5a5a5a;
-            font-weight: bold;
+            font-size: 14px;
             text-decoration: none;
         }
         .forgot-password-link a:hover {
@@ -216,6 +217,17 @@ def show_login_form():
             .social-footer p { color: #b3b3b3; }
             .social-icons img { filter: grayscale(1) opacity(0.7) invert(1); }
             .social-icons img:hover { filter: opacity(1) invert(1); }
+        }
+
+        /* --- Texto da Versão --- */
+        .version-text {
+            font-size: 12px;
+            color: #a0a0a0;
+            margin-top: 2rem;
+            text-align: center;
+        }
+        @media (prefers-color-scheme: dark) {
+            .version-text { color: #5a5a5a; }
         }
     </style>
     """, unsafe_allow_html=True)
@@ -288,6 +300,10 @@ def show_login_form():
         )
 
     st.markdown('</div>', unsafe_allow_html=True) # Fecha login-card
+    
+    # Texto da Versão
+    st.markdown('<p class="version-text">V 3.1.1</p>', unsafe_allow_html=True)
+
     st.markdown('</div>', unsafe_allow_html=True) # Fecha login-container
 
 
