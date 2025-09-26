@@ -87,15 +87,13 @@ def show_login_form():
         [data-testid="stSidebar"], [data-testid="stHeader"] {
             display: none;
         }
-
-        /* --- Container Central: logo + box + footer --- */
+        /* --- CORREÇÃO: Força o container principal a ser um flexbox centralizado --- */
         [data-testid="stAppViewContainer"] > .main > div:first-child {
             display: flex;
             flex-direction: column;
-            align-items: center;      /* centraliza horizontal */
-            justify-content: center;  /* centraliza vertical */
+            align-items: center;
+            justify-content: center;
             height: 100vh;
-            text-align: center;
         }
         
         /* --- Logo --- */
@@ -123,7 +121,6 @@ def show_login_form():
             border: 1px solid #d0d7de;
             width: 100%;
             max-width: 400px;
-            margin-bottom: 2rem;   /* espaço entre form e footer */
         }
         @media (prefers-color-scheme: dark) {
             [data-testid="stForm"] {
@@ -174,9 +171,10 @@ def show_login_form():
         }
         .forgot-password-link a:hover { text-decoration: underline; }
         
-        /* --- Footer (centralizado junto com tudo) --- */
+        /* --- Footer (ícones e versão) --- */
         .login-footer {
             text-align: center;
+            margin-top: 30px;
             width: 100%;
             max-width: 400px;
         }
@@ -276,3 +274,4 @@ def logout():
     for key in keys_to_pop:
         st.session_state.pop(key, None)
     st.rerun()
+
