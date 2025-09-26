@@ -273,9 +273,9 @@ def show_login_form():
 
     else:
         with st.form("login_form"):
-            st.markdown('<h1 class="card-title">Login/h1>', unsafe_allow_html=True)
-            st.markdown('<p class="form-label">E-mail</p>', unsafe_allow_html=True)
-            username = st.text_input("E-mail", key="login_username_input", label_visibility="collapsed")
+            st.markdown('<h1 class="card-title">Entrar no AssetFlow</h1>', unsafe_allow_html=True)
+            st.markdown('<p class="form-label">Utilizador ou e-mail</p>', unsafe_allow_html=True)
+            username = st.text_input("Utilizador ou e-mail", key="login_username_input", label_visibility="collapsed")
 
             st.markdown("""
                 <div class="form-label-container">
