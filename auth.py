@@ -187,12 +187,12 @@ def show_login_form():
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
 
-			st.markdown('<div class="voltar-btn-right">', unsafe_allow_html=True)
-			if st.button("Voltar para o Login", key="back_to_login"):
-				st.session_state.show_reset_form = False
-				st.rerun()
-			st.markdown('</div>', unsafe_allow_html=True)
-
+			# botão colado logo abaixo do submit - agora funcional
+			col1, col2 = st.columns([1,3])
+			with col2:  # para alinhar à esquerda/centro
+				if st.button("Voltar para o Login", key="back_to_login"):
+					st.session_state.show_reset_form = False
+					st.rerun()
 
     else:
         with st.form("login_form"):
