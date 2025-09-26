@@ -203,7 +203,7 @@ def show_login_form():
 
     # --- ESTRUTURA DA PÁGINA ---
     st.markdown('<div class="login-container">', unsafe_allow_html=True)
-    st.markdown('<div class="login-content">', unsafe_allow_html=True) # Novo container para o conteúdo
+    st.markdown('<div class="login-content">', unsafe_allow_html=True) 
     
     st.markdown(
         """
