@@ -155,6 +155,17 @@ def show_login_form():
             margin-top: 0.25rem; /* espaço mínimo */
             width: 100%;
         }
+        .voltar-btn-right button {
+            background: none !important;
+            color: #0969da !important;
+            border: none !important;
+            font-weight: 600 !important;
+            text-decoration: underline;
+            cursor: pointer;
+            font-size: 14px !important;
+            padding: 0;
+        }
+        .voltar-btn-right button:hover { color: #0645ad !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -176,12 +187,12 @@ def show_login_form():
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
 
-        # botão colado logo abaixo do submit e funcional
-        st.markdown('<div class="voltar-btn-right">', unsafe_allow_html=True)
-        if st.button("Voltar para o Login", key="back_to_login"):
-            st.session_state.show_reset_form = False
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+			st.markdown('<div class="voltar-btn-right">', unsafe_allow_html=True)
+			if st.button("Voltar para o Login", key="back_to_login"):
+				st.session_state.show_reset_form = False
+				st.rerun()
+			st.markdown('</div>', unsafe_allow_html=True)
+
 
     else:
         with st.form("login_form"):
