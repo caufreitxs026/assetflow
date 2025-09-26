@@ -117,6 +117,8 @@ def show_login_form():
             padding: 2rem;
             border-radius: 10px;
             border: 1px solid #d0d7de;
+            width: 100%;
+            max-width: 400px;
         }
         @media (prefers-color-scheme: dark) {
             [data-testid="stForm"] {
@@ -171,6 +173,8 @@ def show_login_form():
         .login-footer {
             text-align: center;
             margin-top: 30px;
+            width: 100%;
+            max-width: 400px;
         }
         .social-icons a { margin: 0 10px; }
         .social-icons img {
@@ -193,7 +197,6 @@ def show_login_form():
         @media (prefers-color-scheme: dark) { .version-text { color: #8b949e; } }
     </style>
     """, unsafe_allow_html=True)
-
 
     # --- ESTRUTURA DA PÁGINA ---
     
