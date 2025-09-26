@@ -5,11 +5,14 @@ import secrets
 from datetime import datetime, timedelta
 from email_utils import enviar_email_de_redefinicao
 
+
 def get_db_connection():
     return st.connection("supabase", type="sql")
 
+
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
+
 
 def check_login(username, password):
     conn = get_db_connection()
@@ -25,6 +28,7 @@ def check_login(username, password):
         st.session_state['user_id'] = user['id']
         return True
     return False
+
 
 def iniciar_redefinicao_de_senha(login):
     conn = get_db_connection()
@@ -49,6 +53,7 @@ def iniciar_redefinicao_de_senha(login):
             st.info("O link é válido por 15 minutos.")
         else:
             st.warning("Não foi possível enviar o e-mail. Verifique as configurações e tente novamente.")
+
 
 def show_login_form():
     if "forgot_password" in st.query_params:
@@ -151,21 +156,10 @@ def show_login_form():
         /* Botão minimalista colado abaixo do submit */
         .voltar-btn-right {
             display: flex;
-            justify-content: flex-start; /* ou center */
-            margin-top: 0.25rem; /* espaço mínimo */
+            justify-content: flex-start;
+            margin-top: 0.25rem;
             width: 100%;
         }
-        .voltar-btn-right button {
-            background: none !important;
-            color: #0969da !important;
-            border: none !important;
-            font-weight: 600 !important;
-            text-decoration: underline;
-            cursor: pointer;
-            font-size: 14px !important;
-            padding: 0;
-        }
-        .voltar-btn-right button:hover { color: #0645ad !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -187,12 +181,12 @@ def show_login_form():
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
 
-			# botão colado logo abaixo do submit - agora funcional
-			col1, col2 = st.columns([1,3])
-			with col2:  # para alinhar à esquerda/centro
-				if st.button("Voltar para o Login", key="back_to_login"):
-					st.session_state.show_reset_form = False
-					st.rerun()
+        # botão colado logo abaixo do submit e funcional
+        st.markdown('<div class="voltar-btn-right">', unsafe_allow_html=True)
+        if st.button("Voltar para o Login", key="back_to_login"):
+            st.session_state.show_reset_form = False
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     else:
         with st.form("login_form"):
@@ -228,6 +222,7 @@ def show_login_form():
             <div class="version-badge">V 3.1.1</div>
         </div>
     """, unsafe_allow_html=True)
+
 
 def logout():
     st.session_state['logged_in'] = False
