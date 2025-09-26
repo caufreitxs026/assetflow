@@ -3,37 +3,40 @@ import hashlib
 from sqlalchemy import text
 import secrets
 from datetime import datetime, timedelta
-# Importamos a nossa nova função de envio de e-mail. Certifique-se de que o ficheiro email_utils.py está na mesma pasta.
 from email_utils import enviar_email_de_redefinicao
+
 
 def get_db_connection():
     """Retorna uma conexão ao banco de dados Supabase."""
     return st.connection("supabase", type="sql")
 
+
 def hash_password(password):
     """Gera um hash seguro para a senha."""
     return hashlib.sha256(password.encode()).hexdigest()
+
 
 def check_login(username, password):
     """Verifica as credenciais do utilizador no banco de dados PostgreSQL."""
     conn = get_db_connection()
     hashed_password = hash_password(password)
-    
+
     query = "SELECT * FROM usuarios WHERE login = :login AND senha = :senha"
-    
+
     user_df = conn.query(query, params={"login": username, "senha": hashed_password})
-    
+
     if not user_df.empty:
         user = user_df.iloc[0].to_dict()
-        
+
         st.session_state['logged_in'] = True
-        st.session_state['user_login'] = user['login'] 
+        st.session_state['user_login'] = user['login']
         st.session_state['user_role'] = user['cargo']
         st.session_state['user_name'] = user['nome']
-        st.session_state['user_id'] = user['id'] 
+        st.session_state['user_id'] = user['id']
         return True
-        
+
     return False
+
 
 def iniciar_redefinicao_de_senha(login):
     """Inicia o processo de redefinição de senha para um utilizador."""
@@ -71,7 +74,7 @@ def show_login_form():
     if "forgot_password" in st.query_params:
         st.session_state.show_reset_form = True
         st.query_params.clear()
-    
+
     # --- CSS COMPLETO PARA A TELA DE LOGIN ---
     st.markdown("""
     <style>
@@ -87,22 +90,23 @@ def show_login_form():
         [data-testid="stSidebar"], [data-testid="stHeader"] {
             display: none;
         }
-        /* --- CORREÇÃO: Força o container principal a ser um flexbox centralizado --- */
+
+        /* --- Container Central: logo + box --- */
         [data-testid="stAppViewContainer"] > .main > div:first-child {
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            flex-direction: column;   /* coloca logo em cima e box abaixo */
+            align-items: center;      /* centraliza horizontal */
+            justify-content: center;  /* centraliza vertical */
             height: 100vh;
+            gap: 2rem;                /* espaço entre logo e box */
         }
-        
+
         /* --- Logo --- */
         .login-logo-text {
             font-family: 'Courier New', monospace;
             font-size: 38px;
             font-weight: bold;
             text-align: center;
-            margin-bottom: 2rem;
         }
         .login-logo-asset { color: #003366; }
         .login-logo-flow { color: #E30613; }
@@ -110,7 +114,7 @@ def show_login_form():
             .login-logo-asset { color: #FFFFFF; }
             .login-logo-flow { color: #FF4B4B; }
         }
-        
+
         /* --- Formulário estilizado como um cartão --- */
         [data-testid="stForm"] {
             background-color: #f6f8fa;
@@ -126,7 +130,7 @@ def show_login_form():
                 border: 1px solid #30363d;
             }
         }
-        
+
         /* --- Título dentro do cartão --- */
         .card-title {
             text-align: center;
@@ -134,7 +138,7 @@ def show_login_form():
             margin-bottom: 2rem;
             font-weight: 300;
         }
-        
+
         /* --- Botão Principal --- */
         .stButton button {
             background-color: #003366;
@@ -168,13 +172,13 @@ def show_login_form():
             text-decoration: none;
         }
         .forgot-password-link a:hover { text-decoration: underline; }
-        
-        /* --- Footer (ícones e versão) --- */
+
+        /* --- Footer --- */
         .login-footer {
+            position: fixed;
+            bottom: 20px;
             text-align: center;
-            margin-top: 30px;
             width: 100%;
-            max-width: 400px;
         }
         .social-icons a { margin: 0 10px; }
         .social-icons img {
@@ -192,14 +196,13 @@ def show_login_form():
         .version-text {
             font-size: 12px;
             color: #57606a;
-            margin-top: 15px;
+            margin-top: 10px;
         }
         @media (prefers-color-scheme: dark) { .version-text { color: #8b949e; } }
     </style>
     """, unsafe_allow_html=True)
 
     # --- ESTRUTURA DA PÁGINA ---
-    
     st.markdown(
         """
         <div class="login-logo-text">
@@ -208,10 +211,10 @@ def show_login_form():
         """,
         unsafe_allow_html=True
     )
-    
+
     if 'show_reset_form' not in st.session_state:
         st.session_state.show_reset_form = False
-    
+
     if st.session_state.show_reset_form:
         with st.form("form_reset_request"):
             st.markdown('<h1 class="card-title">Redefinir Senha</h1>', unsafe_allow_html=True)
@@ -265,6 +268,7 @@ def show_login_form():
         unsafe_allow_html=True
     )
 
+
 def logout():
     """Faz o logout do utilizador, limpando a sessão."""
     st.session_state['logged_in'] = False
@@ -272,4 +276,3 @@ def logout():
     for key in keys_to_pop:
         st.session_state.pop(key, None)
     st.rerun()
-
