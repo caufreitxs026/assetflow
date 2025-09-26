@@ -3,8 +3,7 @@ import hashlib
 from sqlalchemy import text
 import secrets
 from datetime import datetime, timedelta
-# Importamos a nossa nova função de envio de e-mail. Certifique-se de que o ficheiro email_utils.py está na mesma pasta.
-from email_utils import enviar_email_de_redefinicao
+from email_utils import enviar_email_de_redefinicao  # função de envio de e-mail
 
 
 def get_db_connection():
@@ -23,19 +22,16 @@ def check_login(username, password):
     hashed_password = hash_password(password)
 
     query = "SELECT * FROM usuarios WHERE login = :login AND senha = :senha"
-
     user_df = conn.query(query, params={"login": username, "senha": hashed_password})
 
     if not user_df.empty:
         user = user_df.iloc[0].to_dict()
-
         st.session_state['logged_in'] = True
         st.session_state['user_login'] = user['login']
         st.session_state['user_role'] = user['cargo']
         st.session_state['user_name'] = user['nome']
         st.session_state['user_id'] = user['id']
         return True
-
     return False
 
 
@@ -63,7 +59,7 @@ def iniciar_redefinicao_de_senha(login):
         s.commit()
 
         if enviar_email_de_redefinicao(destinatario_email=login, destinatario_nome=user.nome, token=token):
-            st.success("Um e-mail com as instruções para redefinir a sua senha foi enviado. Por favor, verifique a sua caixa de entrada e spam.")
+            st.success("Um e-mail com instruções foi enviado. Verifique sua caixa de entrada ou spam.")
             st.info("O link é válido por 15 minutos.")
         else:
             st.warning("Não foi possível enviar o e-mail. Verifique as configurações e tente novamente.")
@@ -100,8 +96,8 @@ def show_login_form():
         [data-testid="stAppViewContainer"] > .main {
             display: flex;
             flex-direction: column;
-            align-items: center;      /* centraliza horizontal */
-            justify-content: center;  /* centraliza vertical */
+            align-items: center;
+            justify-content: center;
             width: 100%;
             text-align: center;
         }
@@ -111,12 +107,7 @@ def show_login_form():
             font-family: 'Courier New', monospace;
             font-size: 38px;
             font-weight: bold;
-            text-align: center;
             margin-bottom: 2rem;
-            width: 100%;
-            max-width: 400px;
-            margin-left: auto;
-            margin-right: auto;
         }
         .login-logo-asset { color: #003366; }
         .login-logo-flow { color: #E30613; }
@@ -125,7 +116,7 @@ def show_login_form():
             .login-logo-flow { color: #FF4B4B; }
         }
 
-        /* --- Formulário estilizado como um cartão --- */
+        /* --- Formulário estilizado como cartão --- */
         [data-testid="stForm"] {
             background-color: #f6f8fa;
             padding: 2rem;
@@ -166,17 +157,14 @@ def show_login_form():
             background-color: #0055A4;
         }
 
-        /* --- Labels e Links do Formulário --- */
+        /* --- Labels e Links --- */
         .form-label-container {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 5px;
         }
-        .form-label {
-            font-weight: 600;
-            font-size: 14px;
-        }
+        .form-label { font-weight: 600; font-size: 14px; }
         .forgot-password-link a {
             color: #0969da;
             font-size: 12px;
@@ -185,42 +173,48 @@ def show_login_form():
         .forgot-password-link a:hover { text-decoration: underline; }
 
         /* --- Footer --- */
-        .login-footer {
-            text-align: center;
-            width: 100%;
-            max-width: 400px;
-            margin-left: auto;
-            margin-right: auto;
-        }
+        .login-footer { text-align: center; max-width: 400px; margin: 0 auto; }
+        .social-icons { margin-bottom: 10px; }
         .social-icons a { margin: 0 10px; }
         .social-icons img {
-            width: 28px;
-            height: 28px;
+            width: 28px; height: 28px;
             filter: grayscale(1) opacity(0.6);
             transition: filter 0.3s, opacity 0.3s;
         }
-        .social-icons img:hover {
-            filter: grayscale(0) opacity(1);
-        }
+        .social-icons img:hover { filter: grayscale(0) opacity(1); }
         @media (prefers-color-scheme: dark) {
             .social-icons img { filter: grayscale(1) opacity(0.7) invert(1); }
         }
-        .version-text {
+
+        /* --- Versão como badge --- */
+        .version-badge {
+            display: inline-block;
+            background-color: #e6f0ff;
+            color: #003366;
             font-size: 12px;
-            color: #57606a;
-            margin-top: 15px;
+            font-weight: bold;
+            padding: 4px 10px;
+            border-radius: 12px;
+            border: 1px solid #b3c6ff;
         }
-        @media (prefers-color-scheme: dark) { .version-text { color: #8b949e; } }
+        @media (prefers-color-scheme: dark) {
+            .version-badge {
+                background-color: #1e2735;
+                color: #c9d1d9;
+                border: 1px solid #30363d;
+            }
+        }
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Estrutura da Página ---
+    # --- Logo ---
     st.markdown("""
         <div class="login-logo-text">
             <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
         </div>
     """, unsafe_allow_html=True)
 
+    # --- Formulário ---
     if 'show_reset_form' not in st.session_state:
         st.session_state.show_reset_form = False
 
@@ -232,7 +226,6 @@ def show_login_form():
             submitted = st.form_submit_button("Enviar E-mail de Redefinição")
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
-
         if st.button("Voltar para o Login", use_container_width=True):
             st.session_state.show_reset_form = False
             st.rerun()
@@ -241,7 +234,6 @@ def show_login_form():
             st.markdown('<h1 class="card-title">Entrar no AssetFlow</h1>', unsafe_allow_html=True)
             st.markdown('<p class="form-label">Utilizador ou e-mail</p>', unsafe_allow_html=True)
             username = st.text_input("Utilizador ou e-mail", key="login_username_input", label_visibility="collapsed")
-
             st.markdown("""
                 <div class="form-label-container">
                     <span class="form-label">Senha</span>
@@ -257,6 +249,7 @@ def show_login_form():
                 else:
                     st.error("Utilizador ou senha inválidos.")
 
+    # --- Footer ---
     st.markdown(f"""
         <div class="login-footer">
             <div class="social-icons">
@@ -267,7 +260,9 @@ def show_login_form():
                     <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg">
                 </a>
             </div>
-            <p class="version-text">V 3.1.1</p>
+            <div>
+                <span class="version-badge">Versão 3.1.1</span>
+            </div>
         </div>
     """, unsafe_allow_html=True)
 
