@@ -27,7 +27,8 @@ def check_login(username, password):
         user = user_df.iloc[0].to_dict()
         
         st.session_state['logged_in'] = True
-        st.session_state['username'] = user['login']
+        # --- CORREÇÃO: Renomeia a chave para evitar conflitos ---
+        st.session_state['user_login'] = user['login'] 
         st.session_state['user_role'] = user['cargo']
         st.session_state['user_name'] = user['nome']
         st.session_state['user_id'] = user['id'] 
@@ -72,7 +73,6 @@ def show_login_form():
         st.session_state.show_reset_form = True
         st.query_params.clear()
     
-    # --- CSS COMPLETO PARA A TELA DE LOGIN ---
     st.markdown("""
     <style>
         /* --- Fundo e Layout Geral --- */
@@ -94,8 +94,8 @@ def show_login_form():
             border-radius: 10px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             width: 100%;
-            max-width: 450px; /* Limita a largura em ecrãs grandes */
-            margin: auto; /* Centraliza o cartão */
+            max-width: 450px;
+            margin: auto;
         }
         @media (prefers-color-scheme: dark) {
             .login-card {
@@ -117,34 +117,42 @@ def show_login_form():
             .login-logo-asset { color: #FFFFFF; }
             .login-logo-flow { color: #FF4B4B; }
         }
+        
+        /* --- AJUSTE PARA O FORMULÁRIO --- */
+        [data-testid="stForm"] {
+            background: transparent;
+            border: none;
+            padding: 0;
+        }
+        
         /* --- Botão Principal --- */
         .stButton button {
             background-color: #003366;
             color: white;
             border-radius: 50px !important;
-            padding: 10px 0;
+            padding: 8px 25px; /* Botão menos alto */
             font-weight: bold;
             border: none;
-            width: 100%;
+            width: auto; /* Largura automática */
             transition: background-color 0.2s, transform 0.2s;
         }
         .stButton button:hover {
             background-color: #0055A4;
-            transform: scale(1.02);
+            transform: scale(1.05);
         }
+
         /* --- Link "Esqueceu a senha?" --- */
-        .forgot-password-link {
+        .forgot-password-link-inline {
             text-align: right;
-            margin-top: -15px; /* Puxa o link para mais perto do botão */
-            margin-bottom: 20px;
+            padding-top: 8px; /* Alinhamento vertical com o botão */
         }
-        .forgot-password-link a {
+        .forgot-password-link-inline a {
             color: #5a5a5a;
             font-size: 14px;
             text-decoration: none;
         }
-        .forgot-password-link a:hover { text-decoration: underline; }
-        @media (prefers-color-scheme: dark) { .forgot-password-link a { color: #b3b3b3; } }
+        .forgot-password-link-inline a:hover { text-decoration: underline; }
+        @media (prefers-color-scheme: dark) { .forgot-password-link-inline a { color: #b3b3b3; } }
         
         /* --- Divisor --- */
         hr {
@@ -157,7 +165,6 @@ def show_login_form():
         .social-footer { text-align: center; }
         .social-footer p {
             font-size: 14px;
-            font-weight: bold;
             color: #5a5a5a;
             margin-bottom: 1rem;
         }
@@ -189,13 +196,11 @@ def show_login_form():
     """, unsafe_allow_html=True)
 
     # --- ESTRUTURA DA PÁGINA ---
-    # Colunas para centralizar o conteúdo principal
     _, main_col, _ = st.columns([1, 1.5, 1])
 
     with main_col:
         st.markdown('<div class="login-card">', unsafe_allow_html=True)
         
-        # Logo
         st.markdown(
             """
             <div class="login-logo-text">
@@ -222,23 +227,25 @@ def show_login_form():
             with st.form("login_form"):
                 username = st.text_input("Utilizador ou e-mail", key="username")
                 password = st.text_input("Senha", type="password", key="password")
-                submitted = st.form_submit_button("Entrar")
+
+                # --- NOVA ESTRUTURA PARA BOTÃO E LINK ---
+                col_btn, col_link = st.columns([1, 1])
+                with col_btn:
+                    submitted = st.form_submit_button("Entrar")
+                with col_link:
+                    st.markdown(
+                        '<div class="forgot-password-link-inline"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></div>',
+                        unsafe_allow_html=True
+                    )
 
                 if submitted:
                     if check_login(username, password):
                         st.rerun()
                     else:
                         st.error("Utilizador ou senha inválidos.")
-            
-            # Link "Esqueceu a senha?"
-            st.markdown(
-                '<div class="forgot-password-link"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></div>',
-                unsafe_allow_html=True
-            )
 
             st.markdown("<hr>", unsafe_allow_html=True)
 
-            # Footer com ícones
             st.markdown(
                 f"""
                 <div class="social-footer">
@@ -256,15 +263,15 @@ def show_login_form():
                 unsafe_allow_html=True
             )
 
-        st.markdown('</div>', unsafe_allow_html=True) # Fecha login-card
+        st.markdown('</div>', unsafe_allow_html=True) 
         
-        # Texto da Versão
         st.markdown('<p class="version-text">V 3.1.1</p>', unsafe_allow_html=True)
 
 def logout():
     """Faz o logout do utilizador, limpando a sessão."""
     st.session_state['logged_in'] = False
-    keys_to_pop = ['username', 'user_role', 'user_name', 'user_id']
+    # --- CORREÇÃO: Renomeia a chave aqui também para consistência ---
+    keys_to_pop = ['user_login', 'user_role', 'user_name', 'user_id']
     for key in keys_to_pop:
         st.session_state.pop(key, None)
     st.rerun()
