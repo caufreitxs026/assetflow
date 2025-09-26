@@ -229,12 +229,6 @@ def show_login_form():
     """, unsafe_allow_html=True)
 
     # --- Estrutura da Página ---
-    st.markdown("""
-        <div class="login-logo-text">
-            <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
-        </div>
-    """, unsafe_allow_html=True)
-
     if 'show_reset_form' not in st.session_state:
         st.session_state.show_reset_form = False
 
@@ -252,9 +246,13 @@ def show_login_form():
             st.rerun()
     else:
         with st.form("login_form"):
-            st.markdown('<h1 class="card-title">Entrar no AssetFlow</h1>', unsafe_allow_html=True)
-            st.markdown('<p class="form-label">Utilizador ou e-mail</p>', unsafe_allow_html=True)
-            username = st.text_input("Utilizador ou e-mail", key="login_username_input", label_visibility="collapsed")
+            st.markdown("""
+            <div class="login-logo-text">
+            <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown('<p class="form-label">Login</p>', unsafe_allow_html=True)
+            username = st.text_input("Login", key="login_username_input", label_visibility="collapsed")
 
             st.markdown("""
                 <div class="form-label-container">
@@ -293,3 +291,4 @@ def logout():
     for key in keys_to_pop:
         st.session_state.pop(key, None)
     st.rerun()
+
