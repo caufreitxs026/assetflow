@@ -99,11 +99,11 @@ def show_login_form():
         /* --- Cartão de Login (Inspirado no Spotify/GitHub) --- */
         .login-card {
             background-color: #f6f8fa;
-            padding: 1.5rem 2rem;
+            padding: 2.5rem; /* Aumenta o padding para um visual mais quadrado */
             border-radius: 10px;
             border: 1px solid #d0d7de;
             width: 100%;
-            max-width: 380px;
+            max-width: 400px; /* Levemente mais largo */
         }
         @media (prefers-color-scheme: dark) {
             .login-card {
@@ -117,7 +117,7 @@ def show_login_form():
             font-size: 38px;
             font-weight: bold;
             text-align: center;
-            margin-bottom: 1.5rem;
+            margin-bottom: 2rem; /* Aumenta a margem */
         }
         .login-logo-asset { color: #003366; } /* Azul */
         .login-logo-flow { color: #E30613; } /* Vermelho */
@@ -130,7 +130,7 @@ def show_login_form():
         .card-title {
             text-align: center;
             font-size: 24px;
-            margin-bottom: 1.5rem;
+            margin-bottom: 2rem; /* Aumenta a margem */
             font-weight: 300;
         }
         
@@ -151,6 +151,7 @@ def show_login_form():
             border: 1px solid rgba(27, 31, 36, 0.15);
             width: 100%;
             transition: background-color 0.2s;
+            margin-top: 1rem; /* Adiciona espaço acima do botão */
         }
         .stButton button:hover {
             background-color: #0055A4;
