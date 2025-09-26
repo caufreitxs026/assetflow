@@ -209,7 +209,6 @@ def show_login_form():
             st.session_state.show_reset_form = False
         
         if st.session_state.show_reset_form:
-            st.subheader("Redefinir Senha")
             with st.form("form_reset_request"):
                 login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email")
                 submitted = st.form_submit_button("Enviar E-mail de Redefinição")
