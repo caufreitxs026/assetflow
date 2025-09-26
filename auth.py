@@ -81,21 +81,28 @@ def show_login_form():
         }
         @media (prefers-color-scheme: dark) {
             [data-testid="stAppViewContainer"] {
-                background-color: #0d1117;
+                background-color: #0d1117; /* Cor de fundo do GitHub Dark */
             }
         }
         [data-testid="stSidebar"], [data-testid="stHeader"] {
             display: none;
         }
-        /* --- CORREÇÃO: Força o container principal a ser um flexbox centralizado --- */
-        [data-testid="stAppViewContainer"] > .main > div:first-child {
+        /* --- Container Principal --- */
+        .login-container {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
         }
         
+        /* --- Bloco de Conteúdo --- */
+        .login-content {
+            padding: 20px;
+            width: 100%;
+            max-width: 400px; /* Define a largura máxima de todo o bloco */
+        }
+
         /* --- Logo --- */
         .login-logo-text {
             font-family: 'Courier New', monospace;
@@ -194,8 +201,9 @@ def show_login_form():
     </style>
     """, unsafe_allow_html=True)
 
-
     # --- ESTRUTURA DA PÁGINA ---
+    st.markdown('<div class="login-container">', unsafe_allow_html=True)
+    st.markdown('<div class="login-content">', unsafe_allow_html=True) # Novo container para o conteúdo
     
     st.markdown(
         """
@@ -261,6 +269,9 @@ def show_login_form():
         """,
         unsafe_allow_html=True
     )
+    
+    st.markdown('</div>', unsafe_allow_html=True) # Fecha login-content
+    st.markdown('</div>', unsafe_allow_html=True) # Fecha login-container
 
 def logout():
     """Faz o logout do utilizador, limpando a sessão."""
