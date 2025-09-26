@@ -27,7 +27,7 @@ def check_login(username, password):
         user = user_df.iloc[0].to_dict()
         
         st.session_state['logged_in'] = True
-        st.session_state['user_login'] = user['login'] 
+        st.session_state['username'] = user['login']
         st.session_state['user_role'] = user['cargo']
         st.session_state['user_name'] = user['nome']
         st.session_state['user_id'] = user['id'] 
@@ -40,6 +40,7 @@ def iniciar_redefinicao_de_senha(login):
     conn = get_db_connection()
     with conn.session as s:
         s.begin()
+        # 1. Encontrar o utilizador pelo login para obter o ID e o nome
         query_user = text("SELECT id, nome FROM usuarios WHERE login = :login")
         user = s.execute(query_user, {"login": login}).fetchone()
 
@@ -48,8 +49,9 @@ def iniciar_redefinicao_de_senha(login):
             s.rollback()
             return
 
+        # 2. Gerar e guardar o token seguro
         token = secrets.token_urlsafe(32)
-        expires_at = datetime.now() + timedelta(minutes=15)
+        expires_at = datetime.now() + timedelta(minutes=15) # Token válido por 15 minutos
 
         query_insert_token = text("""
             INSERT INTO password_resets (user_id, reset_token, expires_at)
@@ -58,6 +60,7 @@ def iniciar_redefinicao_de_senha(login):
         s.execute(query_insert_token, {"user_id": user.id, "token": token, "expires": expires_at})
         s.commit()
 
+        # 3. Enviar o e-mail
         if enviar_email_de_redefinicao(destinatario_email=login, destinatario_nome=user.nome, token=token):
             st.success("Um e-mail com as instruções para redefinir a sua senha foi enviado. Por favor, verifique a sua caixa de entrada e spam.")
             st.info("O link é válido por 15 minutos.")
@@ -66,144 +69,85 @@ def iniciar_redefinicao_de_senha(login):
 
 
 def show_login_form():
-    """Exibe o formulário de login centralizado e com novo design."""
+    """Exibe o formulário de login centralizado e personalizado."""
 
+    # --- NOVA LÓGICA PARA ATIVAR O FORMULÁRIO DE RESET ATRAVÉS DE UM LINK ---
     if "forgot_password" in st.query_params:
         st.session_state.show_reset_form = True
+        # Limpa o parâmetro da URL para evitar que o estado fique preso na próxima interação
         st.query_params.clear()
     
-    # --- CSS COMPLETO PARA A TELA DE LOGIN ---
+    # CSS para a logo e footer da tela de login
     st.markdown("""
     <style>
-        /* --- Fundo e Layout Geral --- */
-        [data-testid="stAppViewContainer"] {
-            background-color: #FFFFFF;
-        }
-        @media (prefers-color-scheme: dark) {
-            [data-testid="stAppViewContainer"] {
-                background-color: #0d1117; /* Cor de fundo do GitHub Dark */
-            }
-        }
-        [data-testid="stSidebar"], [data-testid="stHeader"] {
+        /* Oculta o menu lateral na tela de login */
+        [data-testid="stSidebar"] {
             display: none;
         }
-        /* --- Container Principal --- */
-        .login-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            padding: 20px;
-        }
-        /* --- Cartão de Login (Inspirado no Spotify/GitHub) --- */
-        .login-card {
-            background-color: #f6f8fa;
-            padding: 1.5rem 2rem;
-            border-radius: 10px;
-            border: 1px solid #d0d7de;
-            width: 100%;
-            max-width: 380px;
-        }
-        @media (prefers-color-scheme: dark) {
-            .login-card {
-                background-color: #161b22;
-                border: 1px solid #30363d;
-            }
-        }
-        /* --- Logo --- */
+
         .login-logo-text {
             font-family: 'Courier New', monospace;
-            font-size: 38px;
+            font-size: 48px;
             font-weight: bold;
             text-align: center;
-            margin-bottom: 1.5rem;
-        }
-        .login-logo-asset { color: #003366; } /* Azul */
-        .login-logo-flow { color: #E30613; } /* Vermelho */
-        @media (prefers-color-scheme: dark) {
-            .login-logo-asset { color: #FFFFFF; }
-            .login-logo-flow { color: #FF4B4B; }
-        }
-        
-        /* --- Título dentro do cartão --- */
-        .card-title {
-            text-align: center;
-            font-size: 24px;
-            margin-bottom: 1.5rem;
-            font-weight: 300;
-        }
-        
-        /* --- Formulário --- */
-        [data-testid="stForm"] {
-            background: transparent;
-            border: none;
-            padding: 0;
-        }
-        
-        /* --- Botão Principal --- */
-        .stButton button {
-            background-color: #003366;
-            color: white;
-            border-radius: 6px !important;
-            padding: 10px 0;
-            font-weight: bold;
-            border: 1px solid rgba(27, 31, 36, 0.15);
-            width: 100%;
-            transition: background-color 0.2s;
-        }
-        .stButton button:hover {
-            background-color: #0055A4;
+            margin-bottom: 20px;
         }
 
-        /* --- Labels e Links do Formulário --- */
-        .form-label-container {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 5px;
+        /* --- ESTILOS ATUALIZADOS PARA A LOGO --- */
+        /* Estilos para o tema claro (light) */
+        .login-logo-asset {
+            color: #FFFFFF; /* Fonte branca */
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Sombra preta */
         }
-        .form-label {
-            font-weight: 600;
-            font-size: 14px;
+        .login-logo-flow {
+            color: #E30613; /* Fonte vermelha */
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Sombra preta */
         }
-        .forgot-password-link a {
-            color: #0969da;
-            font-size: 12px;
-            text-decoration: none;
-        }
-        .forgot-password-link a:hover { text-decoration: underline; }
         
-        /* --- Footer (ícones e versão) --- */
+        /* Estilos para o tema escuro (dark) */
+        @media (prefers-color-scheme: dark) {
+            .login-logo-asset {
+                color: #FFFFFF;
+                text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Mantém a sombra preta para contraste */
+            }
+            .login-logo-flow {
+                color: #FF4B4B; /* Um vermelho mais vibrante para o tema escuro */
+                text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7); /* Sombra preta */
+            }
+        }
+
         .login-footer {
             text-align: center;
             margin-top: 30px;
         }
-        .social-icons a { margin: 0 10px; }
-        .social-icons img {
-            width: 28px;
-            height: 28px;
-            filter: grayscale(1) opacity(0.6);
-            transition: filter 0.3s, opacity 0.3s;
+        .login-footer a {
+            margin: 0 10px;
         }
-        .social-icons img:hover {
-            filter: grayscale(0) opacity(1);
+        .login-footer img {
+            width: 25px;
+            height: 25px;
+            /* --- ALTERAÇÃO AQUI: Adiciona drop-shadow --- */
+            filter: grayscale(1) opacity(0.5) drop-shadow(2px 2px 3px rgba(0,0,0,0.4));
+            transition: filter 0.3s;
+        }
+        .login-footer img:hover {
+             /* --- ALTERAÇÃO AQUI: Adiciona drop-shadow no hover --- */
+            filter: grayscale(0) opacity(1) drop-shadow(2px 2px 3px rgba(0,0,0,0.4));
         }
         @media (prefers-color-scheme: dark) {
-            .social-icons img { filter: grayscale(1) opacity(0.7) invert(1); }
+            .login-footer img {
+                 /* --- ALTERAÇÃO AQUI: Adiciona drop-shadow no tema escuro --- */
+                filter: grayscale(1) opacity(0.6) invert(1) drop-shadow(2px 2px 4px rgba(0,0,0,0.6));
+            }
+            .login-footer img:hover {
+                 /* --- ALTERAÇÃO AQUI: Adiciona drop-shadow no hover do tema escuro --- */
+                filter: opacity(1) invert(1) drop-shadow(2px 2px 4px rgba(0,0,0,0.6));
+            }
         }
-        .version-text {
-            font-size: 12px;
-            color: #57606a;
-            margin-top: 15px;
-        }
-        @media (prefers-color-scheme: dark) { .version-text { color: #8b949e; } }
     </style>
     """, unsafe_allow_html=True)
 
-    # --- ESTRUTURA DA PÁGINA ---
-    st.markdown('<div class="login-container">', unsafe_allow_html=True)
-    
+    # Logo
     st.markdown(
         """
         <div class="login-logo-text">
@@ -213,73 +157,63 @@ def show_login_form():
         unsafe_allow_html=True
     )
     
-    st.markdown('<div class="login-card">', unsafe_allow_html=True)
-        
     if 'show_reset_form' not in st.session_state:
         st.session_state.show_reset_form = False
     
-    if st.session_state.show_reset_form:
-        st.markdown('<h1 class="card-title">Redefinir Senha</h1>', unsafe_allow_html=True)
-        with st.form("form_reset_request"):
-            st.markdown('<p class="form-label">Seu login (e-mail)</p>', unsafe_allow_html=True)
-            login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email_input", label_visibility="collapsed")
-            submitted = st.form_submit_button("Enviar E-mail de Redefinição")
-            if submitted:
-                iniciar_redefinicao_de_senha(login_para_reset)
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+    
+    with col2:
+        if st.session_state.show_reset_form:
+            st.subheader("Redefinir Senha")
+            with st.form("form_reset_request"):
+                login_para_reset = st.text_input("Digite o seu login (e-mail) para receber o link")
+                submitted = st.form_submit_button("Enviar E-mail de Redefinição", use_container_width=True)
+                if submitted:
+                    iniciar_redefinicao_de_senha(login_para_reset)
 
-        if st.button("Voltar para o Login", use_container_width=True):
-            st.session_state.show_reset_form = False
-            st.rerun()
-    else:
-        st.markdown('<h1 class="card-title">Entrar no AssetFlow</h1>', unsafe_allow_html=True)
-        with st.form("login_form"):
-            st.markdown('<p class="form-label">Utilizador ou e-mail</p>', unsafe_allow_html=True)
-            username = st.text_input("Utilizador ou e-mail", key="login_username_input", label_visibility="collapsed")
+            if st.button("Voltar para o Login", use_container_width=True):
+                st.session_state.show_reset_form = False
+                st.rerun()
+        else:
+            with st.form("login_form"):
+                st.subheader("Login")
+                username = st.text_input("Utilizador", placeholder="Usuário")
+                password = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+                submitted = st.form_submit_button("Entrar", use_container_width=True)
 
+                if submitted:
+                    if check_login(username, password):
+                        st.rerun()
+                    else:
+                        st.error("Utilizador ou senha inválidos.")
+            
+            # --- Link de texto "Esqueceu a senha?" ---
             st.markdown(
-                """
-                <div class="form-label-container">
-                    <span class="form-label">Senha</span>
-                    <span class="forgot-password-link"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></span>
-                </div>
-                """,
+                '<div style="text-align: right; margin-top: -10px;"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></div>',
                 unsafe_allow_html=True
             )
-            password = st.text_input("Senha", type="password", key="login_password_input", label_visibility="collapsed")
 
-            submitted = st.form_submit_button("Entrar")
-            if submitted:
-                if check_login(username, password):
-                    st.rerun()
-                else:
-                    st.error("Utilizador ou senha inválidos.")
-
-    st.markdown('</div>', unsafe_allow_html=True) # Fecha login-card
-    
+    # Footer com ícones
     st.markdown(
         f"""
         <div class="login-footer">
-            <div class="social-icons">
-                <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub">
-                    <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg">
-                </a>
-                <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn">
-                    <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg">
-                </a>
-            </div>
-            <p class="version-text">V 3.1.1</p>
+            <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub">
+                <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg">
+            </a>
+            <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn">
+                <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg">
+            </a>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    st.markdown('</div>', unsafe_allow_html=True) # Fecha login-container
-
 def logout():
     """Faz o logout do utilizador, limpando a sessão."""
     st.session_state['logged_in'] = False
-    keys_to_pop = ['user_login', 'user_role', 'user_name', 'user_id']
+    keys_to_pop = ['username', 'user_role', 'user_name', 'user_id']
     for key in keys_to_pop:
         st.session_state.pop(key, None)
     st.rerun()
+
 
