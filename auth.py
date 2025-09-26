@@ -153,13 +153,13 @@ def show_login_form():
         }
         @media (prefers-color-scheme: dark) { .version-badge { background-color: #0055A4; border: 1px solid #30363d; } }
 
-        /* Botão minimalista no canto direito */
+        /* Botão minimalista abaixo da box, alinhado à direita */
         .voltar-btn-right {
             display: flex;
             justify-content: flex-end;
-            margin-top: 0.5rem;
-            max-width: 400px;
             width: 100%;
+            max-width: 400px;
+            margin-bottom: 1.5rem;
         }
         .voltar-btn-right button {
             background: none !important;
@@ -192,13 +192,14 @@ def show_login_form():
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
 
-        # Botão no canto direito da box
+        # Botão fora da box, alinhado à direita
+        if st.button("Voltar para o Login", key="voltar_login"):
+            st.session_state.show_reset_form = False
+            st.rerun()
+
+        # Div wrapper para alinhamento à direita
         st.markdown("""
-            <div class="voltar-btn-right">
-                <form action="">
-                    <button type="submit" onclick="window.location.reload();">Voltar para o Login</button>
-                </form>
-            </div>
+            <div class="voltar-btn-right"></div>
         """, unsafe_allow_html=True)
 
     else:
