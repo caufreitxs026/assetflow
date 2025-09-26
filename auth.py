@@ -81,22 +81,12 @@ def show_login_form():
         }
         @media (prefers-color-scheme: dark) {
             [data-testid="stAppViewContainer"] {
-                background-color: #0d1117; /* Cor de fundo do GitHub Dark */
+                background-color: #0d1117;
             }
         }
         [data-testid="stSidebar"], [data-testid="stHeader"] {
             display: none;
         }
-        /* --- Container Principal --- */
-        .login-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            padding: 20px;
-        }
-
         /* --- CORREÇÃO: Força o container principal a ser um flexbox centralizado --- */
         [data-testid="stAppViewContainer"] > .main > div:first-child {
             display: flex;
@@ -181,6 +171,8 @@ def show_login_form():
         .login-footer {
             text-align: center;
             margin-top: 30px;
+            width: 100%;
+            max-width: 400px;
         }
         .social-icons a { margin: 0 10px; }
         .social-icons img {
@@ -205,7 +197,6 @@ def show_login_form():
     """, unsafe_allow_html=True)
 
     # --- ESTRUTURA DA PÁGINA ---
-    st.markdown('<div class="login-container">', unsafe_allow_html=True)
     
     st.markdown(
         """
@@ -216,47 +207,44 @@ def show_login_form():
         unsafe_allow_html=True
     )
     
-    # Centraliza o conteúdo com colunas
-    col1, col2, col3 = st.columns([1, 1.5, 1])
-    with col2:
-        if 'show_reset_form' not in st.session_state:
+    if 'show_reset_form' not in st.session_state:
+        st.session_state.show_reset_form = False
+    
+    if st.session_state.show_reset_form:
+        with st.form("form_reset_request"):
+            st.markdown('<h1 class="card-title">Redefinir Senha</h1>', unsafe_allow_html=True)
+            st.markdown('<p class="form-label">Seu login (e-mail)</p>', unsafe_allow_html=True)
+            login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email_input", label_visibility="collapsed")
+            submitted = st.form_submit_button("Enviar E-mail de Redefinição")
+            if submitted:
+                iniciar_redefinicao_de_senha(login_para_reset)
+
+        if st.button("Voltar para o Login", use_container_width=True):
             st.session_state.show_reset_form = False
-        
-        if st.session_state.show_reset_form:
-            with st.form("form_reset_request"):
-                st.markdown('<h1 class="card-title">Redefinir Senha</h1>', unsafe_allow_html=True)
-                st.markdown('<p class="form-label">Seu login (e-mail)</p>', unsafe_allow_html=True)
-                login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email_input", label_visibility="collapsed")
-                submitted = st.form_submit_button("Enviar E-mail de Redefinição")
-                if submitted:
-                    iniciar_redefinicao_de_senha(login_para_reset)
+            st.rerun()
+    else:
+        with st.form("login_form"):
+            st.markdown('<h1 class="card-title">Entrar no AssetFlow</h1>', unsafe_allow_html=True)
+            st.markdown('<p class="form-label">Utilizador ou e-mail</p>', unsafe_allow_html=True)
+            username = st.text_input("Utilizador ou e-mail", key="login_username_input", label_visibility="collapsed")
 
-            if st.button("Voltar para o Login", use_container_width=True):
-                st.session_state.show_reset_form = False
-                st.rerun()
-        else:
-            with st.form("login_form"):
-                st.markdown('<h1 class="card-title">Entrar no AssetFlow</h1>', unsafe_allow_html=True)
-                st.markdown('<p class="form-label">Utilizador ou e-mail</p>', unsafe_allow_html=True)
-                username = st.text_input("Utilizador ou e-mail", key="login_username_input", label_visibility="collapsed")
+            st.markdown(
+                """
+                <div class="form-label-container">
+                    <span class="form-label">Senha</span>
+                    <span class="forgot-password-link"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            password = st.text_input("Senha", type="password", key="login_password_input", label_visibility="collapsed")
 
-                st.markdown(
-                    """
-                    <div class="form-label-container">
-                        <span class="form-label">Senha</span>
-                        <span class="forgot-password-link"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-                password = st.text_input("Senha", type="password", key="login_password_input", label_visibility="collapsed")
-
-                submitted = st.form_submit_button("Entrar")
-                if submitted:
-                    if check_login(username, password):
-                        st.rerun()
-                    else:
-                        st.error("Utilizador ou senha inválidos.")
+            submitted = st.form_submit_button("Entrar")
+            if submitted:
+                if check_login(username, password):
+                    st.rerun()
+                else:
+                    st.error("Utilizador ou senha inválidos.")
 
     st.markdown(
         f"""
@@ -274,8 +262,6 @@ def show_login_form():
         """,
         unsafe_allow_html=True
     )
-
-    st.markdown('</div>', unsafe_allow_html=True) # Fecha login-container
 
 def logout():
     """Faz o logout do utilizador, limpando a sessão."""
