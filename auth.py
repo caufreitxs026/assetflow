@@ -168,7 +168,7 @@ def show_login_form():
             # Botões lado a lado dentro do form
             col1, col2 = st.columns([2, 1])
             with col1:
-                submitted = st.form_submit_button("Enviar E-mail de Redefinição")
+                submitted = st.form_submit_button("Redefinição")
             with col2:
                 voltar = st.form_submit_button("Login")
 
@@ -218,4 +218,5 @@ def logout():
     for key in ['user_login', 'user_role', 'user_name', 'user_id']:
         st.session_state.pop(key, None)
     st.rerun()
+
 
