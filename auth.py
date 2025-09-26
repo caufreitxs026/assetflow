@@ -178,9 +178,6 @@ def show_login_form():
             width: 100%;
             max-width: 400px;
         }
-        .social-icons {
-            margin-bottom: 15px; /* Espaço entre os ícones e a versão */
-        }
         .social-icons a { margin: 0 10px; }
         .social-icons img {
             width: 28px;
@@ -201,6 +198,7 @@ def show_login_form():
             padding: 3px 10px;
             border-radius: 15px;
             display: inline-block;
+            margin-bottom: 15px; /* Espaço entre a versão e os ícones */
         }
         @media (prefers-color-scheme: dark) { 
             .version-text { 
@@ -264,6 +262,7 @@ def show_login_form():
     st.markdown(
         f"""
         <div class="login-footer">
+            <p class="version-text">Versão 3.1.1</p>
             <div class="social-icons">
                 <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub">
                     <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg">
@@ -272,7 +271,6 @@ def show_login_form():
                     <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg">
                 </a>
             </div>
-            <p class="version-text">Versão 3.1.1</p>
         </div>
         """,
         unsafe_allow_html=True
