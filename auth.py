@@ -3,7 +3,7 @@ import hashlib
 from sqlalchemy import text
 import secrets
 from datetime import datetime, timedelta
-# Importamos a nossa nova função de envio de e-mail. Certifique-se de que o ficheiro email_utils.py está na mesma pasta.
+# Importamos a nossa função de envio de e-mail. Certifique-se de que email_utils.py está na mesma pasta.
 from email_utils import enviar_email_de_redefinicao
 
 
@@ -79,7 +79,7 @@ def show_login_form():
     # --- CSS COMPLETO PARA A TELA DE LOGIN ---
     st.markdown("""
     <style>
-        /* --- Fundo e Layout Geral --- */
+        /* Fundo e Layout Geral */
         [data-testid="stAppViewContainer"] {
             background-color: #FFFFFF;
             display: flex;
@@ -96,7 +96,7 @@ def show_login_form():
             display: none;
         }
 
-        /* --- Centralização completa --- */
+        /* Centralização completa */
         [data-testid="stAppViewContainer"] > .main {
             display: flex;
             flex-direction: column;
@@ -106,7 +106,7 @@ def show_login_form():
             text-align: center;
         }
 
-        /* --- Logo --- */
+        /* Logo */
         .login-logo-text {
             font-family: 'Courier New', monospace;
             font-size: 38px;
@@ -125,7 +125,7 @@ def show_login_form():
             .login-logo-flow { color: #FF4B4B; }
         }
 
-        /* --- Formulário estilizado como um cartão --- */
+        /* Formulário estilizado como cartão */
         [data-testid="stForm"] {
             background-color: #f6f8fa;
             padding: 2rem;
@@ -142,7 +142,7 @@ def show_login_form():
             }
         }
 
-        /* --- Título dentro do cartão --- */
+        /* Título dentro do cartão */
         .card-title {
             text-align: center;
             font-size: 24px;
@@ -150,7 +150,7 @@ def show_login_form():
             font-weight: 300;
         }
 
-        /* --- Botão Principal --- */
+        /* Botão principal */
         .stButton button {
             background-color: #003366;
             color: white;
@@ -166,23 +166,7 @@ def show_login_form():
             background-color: #0055A4;
         }
 
-        /* --- Botão Voltar --- */
-        .voltar-btn button {
-            background-color: #6c757d !important;
-            color: white !important;
-            border-radius: 6px !important;
-            padding: 10px 0 !important;
-            font-weight: bold !important;
-            border: 1px solid rgba(27, 31, 36, 0.15) !important;
-            width: 100% !important;
-            transition: background-color 0.2s !important;
-            margin-top: 1rem !important;
-        }
-        .voltar-btn button:hover {
-            background-color: #5a6268 !important;
-        }
-
-        /* --- Labels e Links do Formulário --- */
+        /* Labels e links do formulário */
         .form-label-container {
             display: flex;
             justify-content: space-between;
@@ -200,7 +184,7 @@ def show_login_form():
         }
         .forgot-password-link a:hover { text-decoration: underline; }
 
-        /* --- Footer --- */
+        /* Footer */
         .login-footer {
             text-align: center;
             width: 100%;
@@ -222,7 +206,7 @@ def show_login_form():
             .social-icons img { filter: grayscale(1) opacity(0.7) invert(1); }
         }
 
-        /* --- Badge da versão --- */
+        /* Badge da versão */
         .version-badge {
             display: inline-block;
             margin-top: 15px;
@@ -241,10 +225,27 @@ def show_login_form():
                 border: 1px solid #30363d;
             }
         }
+
+        /* Botão minimalista "Voltar" */
+        .voltar-btn-minimal button {
+            background: none !important;
+            color: #0969da !important;
+            border: none !important;
+            padding: 0 !important;
+            font-weight: 600 !important;
+            text-decoration: underline;
+            cursor: pointer;
+            width: 100% !important;
+            font-size: 14px !important;
+            margin-top: 1rem;
+        }
+        .voltar-btn-minimal button:hover {
+            color: #0645ad !important;
+        }
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Estrutura da Página ---
+    # --- Logo ---
     st.markdown("""
         <div class="login-logo-text">
             <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
@@ -263,13 +264,13 @@ def show_login_form():
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
 
-        # botão voltar estilizado
+        # botão minimalista "Voltar para o Login"
         voltar_container = st.container()
         with voltar_container:
-            if st.button("Voltar para o Login", use_container_width=True, key="voltar_btn"):
+            if st.button("Voltar para o Login", key="voltar_btn"):
                 st.session_state.show_reset_form = False
                 st.rerun()
-        voltar_container.markdown('<div class="voltar-btn"></div>', unsafe_allow_html=True)
+        voltar_container.markdown('<div class="voltar-btn-minimal"></div>', unsafe_allow_html=True)
 
     else:
         with st.form("login_form"):
@@ -292,6 +293,7 @@ def show_login_form():
                 else:
                     st.error("Utilizador ou senha inválidos.")
 
+    # --- Footer ---
     st.markdown(f"""
         <div class="login-footer">
             <div class="social-icons">
