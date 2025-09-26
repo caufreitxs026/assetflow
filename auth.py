@@ -87,13 +87,13 @@ def show_login_form():
         [data-testid="stSidebar"], [data-testid="stHeader"] {
             display: none;
         }
-        /* --- CORREÇÃO: Força o container principal a ser um flexbox centralizado --- */
-        [data-testid="stAppViewContainer"] > .main > div:first-child {
+        /* --- Container Principal que centraliza tudo --- */
+        .login-container {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
         }
         
         /* --- Logo --- */
@@ -199,71 +199,76 @@ def show_login_form():
     """, unsafe_allow_html=True)
 
     # --- ESTRUTURA DA PÁGINA ---
+    st.markdown('<div class="login-container">', unsafe_allow_html=True)
     
-    st.markdown(
-        """
-        <div class="login-logo-text">
-            <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-    
-    if 'show_reset_form' not in st.session_state:
-        st.session_state.show_reset_form = False
-    
-    if st.session_state.show_reset_form:
-        with st.form("form_reset_request"):
-            st.markdown('<h1 class="card-title">Redefinir Senha</h1>', unsafe_allow_html=True)
-            st.markdown('<p class="form-label">Seu login (e-mail)</p>', unsafe_allow_html=True)
-            login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email_input", label_visibility="collapsed")
-            submitted = st.form_submit_button("Enviar E-mail de Redefinição")
-            if submitted:
-                iniciar_redefinicao_de_senha(login_para_reset)
-
-        if st.button("Voltar para o Login", use_container_width=True):
-            st.session_state.show_reset_form = False
-            st.rerun()
-    else:
-        with st.form("login_form"):
-            st.markdown('<h1 class="card-title">Entrar no AssetFlow</h1>', unsafe_allow_html=True)
-            st.markdown('<p class="form-label">Utilizador ou e-mail</p>', unsafe_allow_html=True)
-            username = st.text_input("Utilizador ou e-mail", key="login_username_input", label_visibility="collapsed")
-
-            st.markdown(
-                """
-                <div class="form-label-container">
-                    <span class="form-label">Senha</span>
-                    <span class="forgot-password-link"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></span>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-            password = st.text_input("Senha", type="password", key="login_password_input", label_visibility="collapsed")
-
-            submitted = st.form_submit_button("Entrar")
-            if submitted:
-                if check_login(username, password):
-                    st.rerun()
-                else:
-                    st.error("Utilizador ou senha inválidos.")
-
-    st.markdown(
-        f"""
-        <div class="login-footer">
-            <div class="social-icons">
-                <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub">
-                    <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg">
-                </a>
-                <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn">
-                    <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg">
-                </a>
+    # Coloca a logo, o formulário e o footer dentro de um st.container para serem tratados como um bloco
+    with st.container():
+        st.markdown(
+            """
+            <div class="login-logo-text">
+                <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
             </div>
-            <p class="version-text">V 3.1.1</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+            """,
+            unsafe_allow_html=True
+        )
+        
+        if 'show_reset_form' not in st.session_state:
+            st.session_state.show_reset_form = False
+        
+        if st.session_state.show_reset_form:
+            with st.form("form_reset_request"):
+                st.markdown('<h1 class="card-title">Redefinir Senha</h1>', unsafe_allow_html=True)
+                st.markdown('<p class="form-label">Seu login (e-mail)</p>', unsafe_allow_html=True)
+                login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email_input", label_visibility="collapsed")
+                submitted = st.form_submit_button("Enviar E-mail de Redefinição")
+                if submitted:
+                    iniciar_redefinicao_de_senha(login_para_reset)
+
+            if st.button("Voltar para o Login", use_container_width=True):
+                st.session_state.show_reset_form = False
+                st.rerun()
+        else:
+            with st.form("login_form"):
+                st.markdown('<h1 class="card-title">Entrar no AssetFlow</h1>', unsafe_allow_html=True)
+                st.markdown('<p class="form-label">Utilizador ou e-mail</p>', unsafe_allow_html=True)
+                username = st.text_input("Utilizador ou e-mail", key="login_username_input", label_visibility="collapsed")
+
+                st.markdown(
+                    """
+                    <div class="form-label-container">
+                        <span class="form-label">Senha</span>
+                        <span class="forgot-password-link"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                password = st.text_input("Senha", type="password", key="login_password_input", label_visibility="collapsed")
+
+                submitted = st.form_submit_button("Entrar")
+                if submitted:
+                    if check_login(username, password):
+                        st.rerun()
+                    else:
+                        st.error("Utilizador ou senha inválidos.")
+
+        st.markdown(
+            f"""
+            <div class="login-footer">
+                <div class="social-icons">
+                    <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub">
+                        <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg">
+                    </a>
+                    <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn">
+                        <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg">
+                    </a>
+                </div>
+                <p class="version-text">V 3.1.1</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.markdown('</div>', unsafe_allow_html=True) # Fecha login-container
 
 def logout():
     """Faz o logout do utilizador, limpando a sessão."""
