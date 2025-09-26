@@ -5,14 +5,11 @@ import secrets
 from datetime import datetime, timedelta
 from email_utils import enviar_email_de_redefinicao
 
-
 def get_db_connection():
     return st.connection("supabase", type="sql")
 
-
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
-
 
 def check_login(username, password):
     conn = get_db_connection()
@@ -28,7 +25,6 @@ def check_login(username, password):
         st.session_state['user_id'] = user['id']
         return True
     return False
-
 
 def iniciar_redefinicao_de_senha(login):
     conn = get_db_connection()
@@ -53,7 +49,6 @@ def iniciar_redefinicao_de_senha(login):
             st.info("O link é válido por 15 minutos.")
         else:
             st.warning("Não foi possível enviar o e-mail. Verifique as configurações e tente novamente.")
-
 
 def show_login_form():
     if "forgot_password" in st.query_params:
@@ -152,14 +147,6 @@ def show_login_form():
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         @media (prefers-color-scheme: dark) { .version-badge { background-color: #0055A4; border: 1px solid #30363d; } }
-
-        /* Botão minimalista colado abaixo do submit */
-        .voltar-btn-right {
-            display: flex;
-            justify-content: flex-start;
-            margin-top: 0.25rem;
-            width: 100%;
-        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -177,16 +164,20 @@ def show_login_form():
             st.markdown('<h1 class="card-title">Redefinir Senha</h1>', unsafe_allow_html=True)
             st.markdown('<p class="form-label">Seu login (e-mail)</p>', unsafe_allow_html=True)
             login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email_input", label_visibility="collapsed")
-            submitted = st.form_submit_button("Enviar E-mail de Redefinição")
+
+            # Botões lado a lado dentro do form
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                submitted = st.form_submit_button("Enviar E-mail de Redefinição")
+            with col2:
+                voltar = st.form_submit_button("Voltar para o Login")
+
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
 
-        # botão colado logo abaixo do submit e funcional
-        st.markdown('<div class="voltar-btn-right">', unsafe_allow_html=True)
-        if st.button("Voltar para o Login", key="back_to_login"):
-            st.session_state.show_reset_form = False
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+            if voltar:
+                st.session_state.show_reset_form = False
+                st.rerun()
 
     else:
         with st.form("login_form"):
@@ -222,7 +213,6 @@ def show_login_form():
             <div class="version-badge">V 3.1.1</div>
         </div>
     """, unsafe_allow_html=True)
-
 
 def logout():
     st.session_state['logged_in'] = False
