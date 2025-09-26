@@ -81,7 +81,7 @@ def show_login_form():
         }
         @media (prefers-color-scheme: dark) {
             [data-testid="stAppViewContainer"] {
-                background-color: #0d1117; /* Cor de fundo do GitHub */
+                background-color: #0d1117; /* Cor de fundo do GitHub Dark */
             }
         }
         [data-testid="stSidebar"], [data-testid="stHeader"] {
@@ -96,7 +96,7 @@ def show_login_form():
             min-height: 100vh;
             padding: 20px;
         }
-        /* --- Cartão de Login --- */
+        /* --- Cartão de Login (Inspirado no Spotify/GitHub) --- */
         .login-card {
             background-color: #f6f8fa;
             padding: 1.5rem 2rem;
@@ -119,8 +119,8 @@ def show_login_form():
             text-align: center;
             margin-bottom: 1.5rem;
         }
-        .login-logo-asset { color: #003366; }
-        .login-logo-flow { color: #E30613; }
+        .login-logo-asset { color: #003366; } /* Azul */
+        .login-logo-flow { color: #E30613; } /* Vermelho */
         @media (prefers-color-scheme: dark) {
             .login-logo-asset { color: #FFFFFF; }
             .login-logo-flow { color: #FF4B4B; }
@@ -184,10 +184,10 @@ def show_login_form():
             width: 28px;
             height: 28px;
             filter: grayscale(1) opacity(0.6);
-            transition: opacity 0.3s;
+            transition: filter 0.3s, opacity 0.3s;
         }
         .social-icons img:hover {
-            opacity: 1;
+            filter: grayscale(0) opacity(1);
         }
         @media (prefers-color-scheme: dark) {
             .social-icons img { filter: grayscale(1) opacity(0.7) invert(1); }
