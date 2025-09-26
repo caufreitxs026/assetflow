@@ -170,7 +170,7 @@ def show_login_form():
             with col1:
                 submitted = st.form_submit_button("Enviar E-mail de Redefinição")
             with col2:
-                voltar = st.form_submit_button("Voltar para o Login")
+                voltar = st.form_submit_button("Login")
 
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
@@ -181,9 +181,8 @@ def show_login_form():
 
     else:
         with st.form("login_form"):
-            st.markdown('<h1 class="card-title">Entrar no AssetFlow</h1>', unsafe_allow_html=True)
-            st.markdown('<p class="form-label">Utilizador ou e-mail</p>', unsafe_allow_html=True)
-            username = st.text_input("Utilizador ou e-mail", key="login_username_input", label_visibility="collapsed")
+            st.markdown('<p class="form-label">E-mail</p>', unsafe_allow_html=True)
+            username = st.text_input("E-mail", key="login_username_input", label_visibility="collapsed")
 
             st.markdown("""
                 <div class="form-label-container">
@@ -219,3 +218,4 @@ def logout():
     for key in ['user_login', 'user_role', 'user_name', 'user_id']:
         st.session_state.pop(key, None)
     st.rerun()
+
