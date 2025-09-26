@@ -73,6 +73,10 @@ def show_login_form():
         /* --- Fundo e Layout Geral --- */
         [data-testid="stAppViewContainer"] {
             background-color: #FFFFFF;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh; /* ocupa a tela inteira */
         }
         @media (prefers-color-scheme: dark) {
             [data-testid="stAppViewContainer"] {
@@ -83,14 +87,8 @@ def show_login_form():
             display: none;
         }
 
-        /* --- Centralizar todo o conteúdo do login --- */
+        /* --- Força o conteúdo centralizado em coluna --- */
         [data-testid="stAppViewContainer"] > .main {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh; /* ocupa a tela toda */
-        }
-        [data-testid="stAppViewContainer"] > .main > div {
             display: flex;
             flex-direction: column;
             align-items: center;
