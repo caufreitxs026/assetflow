@@ -100,8 +100,8 @@ def show_login_form():
         [data-testid="stAppViewContainer"] > .main {
             display: flex;
             flex-direction: column;
-            align-items: center;      /* centraliza horizontal */
-            justify-content: center;  /* centraliza vertical */
+            align-items: center;
+            justify-content: center;
             width: 100%;
             text-align: center;
         }
@@ -164,6 +164,22 @@ def show_login_form():
         }
         .stButton button:hover {
             background-color: #0055A4;
+        }
+
+        /* --- Botão Voltar --- */
+        .voltar-btn button {
+            background-color: #6c757d !important;
+            color: white !important;
+            border-radius: 6px !important;
+            padding: 10px 0 !important;
+            font-weight: bold !important;
+            border: 1px solid rgba(27, 31, 36, 0.15) !important;
+            width: 100% !important;
+            transition: background-color 0.2s !important;
+            margin-top: 1rem !important;
+        }
+        .voltar-btn button:hover {
+            background-color: #5a6268 !important;
         }
 
         /* --- Labels e Links do Formulário --- */
@@ -229,6 +245,12 @@ def show_login_form():
     """, unsafe_allow_html=True)
 
     # --- Estrutura da Página ---
+    st.markdown("""
+        <div class="login-logo-text">
+            <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
+        </div>
+    """, unsafe_allow_html=True)
+
     if 'show_reset_form' not in st.session_state:
         st.session_state.show_reset_form = False
 
@@ -241,18 +263,19 @@ def show_login_form():
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
 
-        if st.button("Voltar para o Login", use_container_width=True):
-            st.session_state.show_reset_form = False
-            st.rerun()
+        # botão voltar estilizado
+        voltar_container = st.container()
+        with voltar_container:
+            if st.button("Voltar para o Login", use_container_width=True, key="voltar_btn"):
+                st.session_state.show_reset_form = False
+                st.rerun()
+        voltar_container.markdown('<div class="voltar-btn"></div>', unsafe_allow_html=True)
+
     else:
         with st.form("login_form"):
-            st.markdown("""
-            <div class="login-logo-text">
-            <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
-            </div>
-            """, unsafe_allow_html=True)
-            st.markdown('<p class="form-label">Login</p>', unsafe_allow_html=True)
-            username = st.text_input("Login", key="login_username_input", label_visibility="collapsed")
+            st.markdown('<h1 class="card-title">Login/h1>', unsafe_allow_html=True)
+            st.markdown('<p class="form-label">E-mail</p>', unsafe_allow_html=True)
+            username = st.text_input("E-mail", key="login_username_input", label_visibility="collapsed")
 
             st.markdown("""
                 <div class="form-label-container">
@@ -291,4 +314,3 @@ def logout():
     for key in keys_to_pop:
         st.session_state.pop(key, None)
     st.rerun()
-
