@@ -148,12 +148,11 @@ def show_login_form():
         }
         @media (prefers-color-scheme: dark) { .version-badge { background-color: #0055A4; border: 1px solid #30363d; } }
 
-        /* Botão minimalista abaixo centralizado */
+        /* Botão minimalista colado abaixo do submit */
         .voltar-btn-right {
             display: flex;
-            justify-content: center; /* centraliza */
-            margin-top: 1rem;
-            max-width: 400px;
+            justify-content: flex-start; /* ou center */
+            margin-top: 0.25rem; /* espaço mínimo */
             width: 100%;
         }
         .voltar-btn-right button {
@@ -164,6 +163,7 @@ def show_login_form():
             text-decoration: underline;
             cursor: pointer;
             font-size: 14px !important;
+            padding: 0;
         }
         .voltar-btn-right button:hover { color: #0645ad !important; }
     </style>
@@ -187,14 +187,12 @@ def show_login_form():
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
 
-        # Botão agora centralizado abaixo da box
-        st.markdown("""
-            <div class="voltar-btn-right">
-                <form action="">
-                    <button type="submit" onclick="window.location.reload();">Voltar para o Login</button>
-                </form>
-            </div>
-        """, unsafe_allow_html=True)
+            # botão colado logo abaixo do submit
+            st.markdown("""
+                <div class="voltar-btn-right">
+                    <button type="button" onclick="window.location.reload();">Voltar para o Login</button>
+                </div>
+            """, unsafe_allow_html=True)
 
     else:
         with st.form("login_form"):
