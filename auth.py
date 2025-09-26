@@ -96,6 +96,15 @@ def show_login_form():
             min-height: 100vh;
             padding: 20px;
         }
+
+        /* --- CORREÇÃO: Força o container principal a ser um flexbox centralizado --- */
+        [data-testid="stAppViewContainer"] > .main > div:first-child {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
         
         /* --- Logo --- */
         .login-logo-text {
