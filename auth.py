@@ -69,9 +69,7 @@ def show_login_form():
             align-items: center;
             height: 100vh;
         }
-        @media (prefers-color-scheme: dark) {
-            [data-testid="stAppViewContainer"] { background-color: #0d1117; }
-        }
+        @media (prefers-color-scheme: dark) { [data-testid="stAppViewContainer"] { background-color: #0d1117; } }
         [data-testid="stSidebar"], [data-testid="stHeader"] { display: none; }
 
         [data-testid="stAppViewContainer"] > .main {
@@ -96,10 +94,7 @@ def show_login_form():
         }
         .login-logo-asset { color: #003366; }
         .login-logo-flow { color: #E30613; }
-        @media (prefers-color-scheme: dark) {
-            .login-logo-asset { color: #FFFFFF; }
-            .login-logo-flow { color: #FF4B4B; }
-        }
+        @media (prefers-color-scheme: dark) { .login-logo-asset { color: #FFFFFF; } .login-logo-flow { color: #FF4B4B; } }
 
         [data-testid="stForm"] {
             background-color: #f6f8fa;
@@ -110,9 +105,7 @@ def show_login_form():
             max-width: 400px;
             margin: 0 auto 2rem auto;
         }
-        @media (prefers-color-scheme: dark) {
-            [data-testid="stForm"] { background-color: #161b22; border: 1px solid #30363d; }
-        }
+        @media (prefers-color-scheme: dark) { [data-testid="stForm"] { background-color: #161b22; border: 1px solid #30363d; } }
 
         .card-title { text-align: center; font-size: 24px; margin-bottom: 2rem; font-weight: 300; }
 
@@ -160,19 +153,24 @@ def show_login_form():
         }
         @media (prefers-color-scheme: dark) { .version-badge { background-color: #0055A4; border: 1px solid #30363d; } }
 
-        /* Botão minimalista alinhado */
-        .voltar-btn-minimal { display: flex; justify-content: center; margin-top: 1rem; }
-        .voltar-btn-minimal button {
+        /* Botão minimalista no canto direito */
+        .voltar-btn-right {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 0.5rem;
+            max-width: 400px;
+            width: 100%;
+        }
+        .voltar-btn-right button {
             background: none !important;
             color: #0969da !important;
             border: none !important;
             font-weight: 600 !important;
             text-decoration: underline;
             cursor: pointer;
-            width: 100%;
             font-size: 14px !important;
         }
-        .voltar-btn-minimal button:hover { color: #0645ad !important; }
+        .voltar-btn-right button:hover { color: #0645ad !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -194,9 +192,9 @@ def show_login_form():
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
 
-        # Botão "Voltar" alinhado com a box
+        # Botão no canto direito da box
         st.markdown("""
-            <div class="voltar-btn-minimal">
+            <div class="voltar-btn-right">
                 <form action="">
                     <button type="submit" onclick="window.location.reload();">Voltar para o Login</button>
                 </form>
