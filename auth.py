@@ -3,83 +3,60 @@ import hashlib
 from sqlalchemy import text
 import secrets
 from datetime import datetime, timedelta
-# Importamos a nossa função de envio de e-mail. Certifique-se de que email_utils.py está na mesma pasta.
 from email_utils import enviar_email_de_redefinicao
 
-
 def get_db_connection():
-    """Retorna uma conexão ao banco de dados Supabase."""
     return st.connection("supabase", type="sql")
 
-
 def hash_password(password):
-    """Gera um hash seguro para a senha."""
     return hashlib.sha256(password.encode()).hexdigest()
 
-
 def check_login(username, password):
-    """Verifica as credenciais do utilizador no banco de dados PostgreSQL."""
     conn = get_db_connection()
     hashed_password = hash_password(password)
-
     query = "SELECT * FROM usuarios WHERE login = :login AND senha = :senha"
-
     user_df = conn.query(query, params={"login": username, "senha": hashed_password})
-
     if not user_df.empty:
         user = user_df.iloc[0].to_dict()
-
         st.session_state['logged_in'] = True
         st.session_state['user_login'] = user['login']
         st.session_state['user_role'] = user['cargo']
         st.session_state['user_name'] = user['nome']
         st.session_state['user_id'] = user['id']
         return True
-
     return False
 
-
 def iniciar_redefinicao_de_senha(login):
-    """Inicia o processo de redefinição de senha para um utilizador."""
     conn = get_db_connection()
     with conn.session as s:
         s.begin()
         query_user = text("SELECT id, nome FROM usuarios WHERE login = :login")
         user = s.execute(query_user, {"login": login}).fetchone()
-
         if not user:
             st.error("Login não encontrado no sistema.")
             s.rollback()
             return
-
         token = secrets.token_urlsafe(32)
         expires_at = datetime.now() + timedelta(minutes=15)
-
         query_insert_token = text("""
             INSERT INTO password_resets (user_id, reset_token, expires_at)
             VALUES (:user_id, :token, :expires)
         """)
         s.execute(query_insert_token, {"user_id": user.id, "token": token, "expires": expires_at})
         s.commit()
-
         if enviar_email_de_redefinicao(destinatario_email=login, destinatario_nome=user.nome, token=token):
-            st.success("Um e-mail com as instruções para redefinir a sua senha foi enviado. Por favor, verifique a sua caixa de entrada e spam.")
+            st.success("Um e-mail com as instruções para redefinir a sua senha foi enviado. Verifique sua caixa de entrada/spam.")
             st.info("O link é válido por 15 minutos.")
         else:
             st.warning("Não foi possível enviar o e-mail. Verifique as configurações e tente novamente.")
 
-
 def show_login_form():
-    """Exibe o formulário de login centralizado e com novo design."""
-
     if "forgot_password" in st.query_params:
         st.session_state.show_reset_form = True
         st.query_params.clear()
 
-    # --- CSS COMPLETO PARA A TELA DE LOGIN ---
     st.markdown("""
     <style>
-        /* Fundo e Layout Geral */
         [data-testid="stAppViewContainer"] {
             background-color: #FFFFFF;
             display: flex;
@@ -87,16 +64,9 @@ def show_login_form():
             align-items: center;
             height: 100vh;
         }
-        @media (prefers-color-scheme: dark) {
-            [data-testid="stAppViewContainer"] {
-                background-color: #0d1117;
-            }
-        }
-        [data-testid="stSidebar"], [data-testid="stHeader"] {
-            display: none;
-        }
+        @media (prefers-color-scheme: dark) { [data-testid="stAppViewContainer"] { background-color: #0d1117; } }
+        [data-testid="stSidebar"], [data-testid="stHeader"] { display: none; }
 
-        /* Centralização completa */
         [data-testid="stAppViewContainer"] > .main {
             display: flex;
             flex-direction: column;
@@ -106,7 +76,6 @@ def show_login_form():
             text-align: center;
         }
 
-        /* Logo */
         .login-logo-text {
             font-family: 'Courier New', monospace;
             font-size: 38px;
@@ -120,12 +89,8 @@ def show_login_form():
         }
         .login-logo-asset { color: #003366; }
         .login-logo-flow { color: #E30613; }
-        @media (prefers-color-scheme: dark) {
-            .login-logo-asset { color: #FFFFFF; }
-            .login-logo-flow { color: #FF4B4B; }
-        }
+        @media (prefers-color-scheme: dark) { .login-logo-asset { color: #FFFFFF; } .login-logo-flow { color: #FF4B4B; } }
 
-        /* Formulário estilizado como cartão */
         [data-testid="stForm"] {
             background-color: #f6f8fa;
             padding: 2rem;
@@ -135,22 +100,10 @@ def show_login_form():
             max-width: 400px;
             margin: 0 auto 2rem auto;
         }
-        @media (prefers-color-scheme: dark) {
-            [data-testid="stForm"] {
-                background-color: #161b22;
-                border: 1px solid #30363d;
-            }
-        }
+        @media (prefers-color-scheme: dark) { [data-testid="stForm"] { background-color: #161b22; border: 1px solid #30363d; } }
 
-        /* Título dentro do cartão */
-        .card-title {
-            text-align: center;
-            font-size: 24px;
-            margin-bottom: 2rem;
-            font-weight: 300;
-        }
+        .card-title { text-align: center; font-size: 24px; margin-bottom: 2rem; font-weight: 300; }
 
-        /* Botão principal */
         .stButton button {
             background-color: #003366;
             color: white;
@@ -162,29 +115,13 @@ def show_login_form():
             transition: background-color 0.2s;
             margin-top: 1rem;
         }
-        .stButton button:hover {
-            background-color: #0055A4;
-        }
+        .stButton button:hover { background-color: #0055A4; }
 
-        /* Labels e links do formulário */
-        .form-label-container {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 5px;
-        }
-        .form-label {
-            font-weight: 600;
-            font-size: 14px;
-        }
-        .forgot-password-link a {
-            color: #0969da;
-            font-size: 12px;
-            text-decoration: none;
-        }
+        .form-label-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        .form-label { font-weight: 600; font-size: 14px; }
+        .forgot-password-link a { color: #0969da; font-size: 12px; text-decoration: none; }
         .forgot-password-link a:hover { text-decoration: underline; }
 
-        /* Footer */
         .login-footer {
             text-align: center;
             width: 100%;
@@ -193,20 +130,10 @@ def show_login_form():
             margin-right: auto;
         }
         .social-icons a { margin: 0 10px; }
-        .social-icons img {
-            width: 28px;
-            height: 28px;
-            filter: grayscale(1) opacity(0.6);
-            transition: filter 0.3s, opacity 0.3s;
-        }
-        .social-icons img:hover {
-            filter: grayscale(0) opacity(1);
-        }
-        @media (prefers-color-scheme: dark) {
-            .social-icons img { filter: grayscale(1) opacity(0.7) invert(1); }
-        }
+        .social-icons img { width: 28px; height: 28px; filter: grayscale(1) opacity(0.6); transition: filter 0.3s, opacity 0.3s; }
+        .social-icons img:hover { filter: grayscale(0) opacity(1); }
+        @media (prefers-color-scheme: dark) { .social-icons img { filter: grayscale(1) opacity(0.7) invert(1); } }
 
-        /* Badge da versão */
         .version-badge {
             display: inline-block;
             margin-top: 15px;
@@ -219,33 +146,29 @@ def show_login_form():
             border: 1px solid rgba(0,0,0,0.1);
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        @media (prefers-color-scheme: dark) {
-            .version-badge {
-                background-color: #0055A4;
-                border: 1px solid #30363d;
-            }
-        }
+        @media (prefers-color-scheme: dark) { .version-badge { background-color: #0055A4; border: 1px solid #30363d; } }
 
-        /* Botão minimalista "Voltar" */
-        .voltar-btn-minimal button {
+        /* Botão minimalista abaixo centralizado */
+        .voltar-btn-right {
+            display: flex;
+            justify-content: center; /* centraliza */
+            margin-top: 1rem;
+            max-width: 400px;
+            width: 100%;
+        }
+        .voltar-btn-right button {
             background: none !important;
             color: #0969da !important;
             border: none !important;
-            padding: 0 !important;
             font-weight: 600 !important;
             text-decoration: underline;
             cursor: pointer;
-            width: 100% !important;
             font-size: 14px !important;
-            margin-top: 1rem;
         }
-        .voltar-btn-minimal button:hover {
-            color: #0645ad !important;
-        }
+        .voltar-btn-right button:hover { color: #0645ad !important; }
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Logo ---
     st.markdown("""
         <div class="login-logo-text">
             <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
@@ -264,13 +187,14 @@ def show_login_form():
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
 
-        # botão minimalista "Voltar para o Login"
-        voltar_container = st.container()
-        with voltar_container:
-            if st.button("Voltar para o Login", key="voltar_btn"):
-                st.session_state.show_reset_form = False
-                st.rerun()
-        voltar_container.markdown('<div class="voltar-btn-minimal"></div>', unsafe_allow_html=True)
+        # Botão agora centralizado abaixo da box
+        st.markdown("""
+            <div class="voltar-btn-right">
+                <form action="">
+                    <button type="submit" onclick="window.location.reload();">Voltar para o Login</button>
+                </form>
+            </div>
+        """, unsafe_allow_html=True)
 
     else:
         with st.form("login_form"):
@@ -293,7 +217,6 @@ def show_login_form():
                 else:
                     st.error("Utilizador ou senha inválidos.")
 
-    # --- Footer ---
     st.markdown(f"""
         <div class="login-footer">
             <div class="social-icons">
@@ -308,11 +231,8 @@ def show_login_form():
         </div>
     """, unsafe_allow_html=True)
 
-
 def logout():
-    """Faz o logout do utilizador, limpando a sessão."""
     st.session_state['logged_in'] = False
-    keys_to_pop = ['user_login', 'user_role', 'user_name', 'user_id']
-    for key in keys_to_pop:
+    for key in ['user_login', 'user_role', 'user_name', 'user_id']:
         st.session_state.pop(key, None)
     st.rerun()
