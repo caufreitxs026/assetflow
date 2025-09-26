@@ -96,49 +96,42 @@ def show_login_form():
             min-height: 100vh;
             padding: 20px;
         }
-        /* --- Cartão de Login (Inspirado no Spotify/GitHub) --- */
-        .login-card {
-            background-color: #f6f8fa;
-            padding: 2.5rem; /* Aumenta o padding para um visual mais quadrado */
-            border-radius: 10px;
-            border: 1px solid #d0d7de;
-            width: 100%;
-            max-width: 400px; /* Levemente mais largo */
-        }
-        @media (prefers-color-scheme: dark) {
-            .login-card {
-                background-color: #161b22;
-                border: 1px solid #30363d;
-            }
-        }
+        
         /* --- Logo --- */
         .login-logo-text {
             font-family: 'Courier New', monospace;
             font-size: 38px;
             font-weight: bold;
             text-align: center;
-            margin-bottom: 2rem; /* Aumenta a margem */
+            margin-bottom: 2rem;
         }
-        .login-logo-asset { color: #003366; } /* Azul */
-        .login-logo-flow { color: #E30613; } /* Vermelho */
+        .login-logo-asset { color: #003366; }
+        .login-logo-flow { color: #E30613; }
         @media (prefers-color-scheme: dark) {
             .login-logo-asset { color: #FFFFFF; }
             .login-logo-flow { color: #FF4B4B; }
+        }
+        
+        /* --- Formulário estilizado como um cartão --- */
+        [data-testid="stForm"] {
+            background-color: #f6f8fa;
+            padding: 2rem;
+            border-radius: 10px;
+            border: 1px solid #d0d7de;
+        }
+        @media (prefers-color-scheme: dark) {
+            [data-testid="stForm"] {
+                background-color: #161b22;
+                border: 1px solid #30363d;
+            }
         }
         
         /* --- Título dentro do cartão --- */
         .card-title {
             text-align: center;
             font-size: 24px;
-            margin-bottom: 2rem; /* Aumenta a margem */
+            margin-bottom: 2rem;
             font-weight: 300;
-        }
-        
-        /* --- Formulário --- */
-        [data-testid="stForm"] {
-            background: transparent;
-            border: none;
-            padding: 0;
         }
         
         /* --- Botão Principal --- */
@@ -151,7 +144,7 @@ def show_login_form():
             border: 1px solid rgba(27, 31, 36, 0.15);
             width: 100%;
             transition: background-color 0.2s;
-            margin-top: 1rem; /* Adiciona espaço acima do botão */
+            margin-top: 1rem;
         }
         .stButton button:hover {
             background-color: #0055A4;
@@ -214,49 +207,48 @@ def show_login_form():
         unsafe_allow_html=True
     )
     
-    st.markdown('<div class="login-card">', unsafe_allow_html=True)
-        
-    if 'show_reset_form' not in st.session_state:
-        st.session_state.show_reset_form = False
-    
-    if st.session_state.show_reset_form:
-        st.markdown('<h1 class="card-title">Redefinir Senha</h1>', unsafe_allow_html=True)
-        with st.form("form_reset_request"):
-            st.markdown('<p class="form-label">Seu login (e-mail)</p>', unsafe_allow_html=True)
-            login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email_input", label_visibility="collapsed")
-            submitted = st.form_submit_button("Enviar E-mail de Redefinição")
-            if submitted:
-                iniciar_redefinicao_de_senha(login_para_reset)
-
-        if st.button("Voltar para o Login", use_container_width=True):
+    # Centraliza o conteúdo com colunas
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+    with col2:
+        if 'show_reset_form' not in st.session_state:
             st.session_state.show_reset_form = False
-            st.rerun()
-    else:
-        st.markdown('<h1 class="card-title">Entrar no AssetFlow</h1>', unsafe_allow_html=True)
-        with st.form("login_form"):
-            st.markdown('<p class="form-label">Utilizador ou e-mail</p>', unsafe_allow_html=True)
-            username = st.text_input("Utilizador ou e-mail", key="login_username_input", label_visibility="collapsed")
+        
+        if st.session_state.show_reset_form:
+            with st.form("form_reset_request"):
+                st.markdown('<h1 class="card-title">Redefinir Senha</h1>', unsafe_allow_html=True)
+                st.markdown('<p class="form-label">Seu login (e-mail)</p>', unsafe_allow_html=True)
+                login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email_input", label_visibility="collapsed")
+                submitted = st.form_submit_button("Enviar E-mail de Redefinição")
+                if submitted:
+                    iniciar_redefinicao_de_senha(login_para_reset)
 
-            st.markdown(
-                """
-                <div class="form-label-container">
-                    <span class="form-label">Senha</span>
-                    <span class="forgot-password-link"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></span>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-            password = st.text_input("Senha", type="password", key="login_password_input", label_visibility="collapsed")
+            if st.button("Voltar para o Login", use_container_width=True):
+                st.session_state.show_reset_form = False
+                st.rerun()
+        else:
+            with st.form("login_form"):
+                st.markdown('<h1 class="card-title">Entrar no AssetFlow</h1>', unsafe_allow_html=True)
+                st.markdown('<p class="form-label">Utilizador ou e-mail</p>', unsafe_allow_html=True)
+                username = st.text_input("Utilizador ou e-mail", key="login_username_input", label_visibility="collapsed")
 
-            submitted = st.form_submit_button("Entrar")
-            if submitted:
-                if check_login(username, password):
-                    st.rerun()
-                else:
-                    st.error("Utilizador ou senha inválidos.")
+                st.markdown(
+                    """
+                    <div class="form-label-container">
+                        <span class="form-label">Senha</span>
+                        <span class="forgot-password-link"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                password = st.text_input("Senha", type="password", key="login_password_input", label_visibility="collapsed")
 
-    st.markdown('</div>', unsafe_allow_html=True) # Fecha login-card
-    
+                submitted = st.form_submit_button("Entrar")
+                if submitted:
+                    if check_login(username, password):
+                        st.rerun()
+                    else:
+                        st.error("Utilizador ou senha inválidos.")
+
     st.markdown(
         f"""
         <div class="login-footer">
