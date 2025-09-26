@@ -27,7 +27,6 @@ def check_login(username, password):
         user = user_df.iloc[0].to_dict()
         
         st.session_state['logged_in'] = True
-        # --- CORREÇÃO: Renomeia a chave para evitar conflitos ---
         st.session_state['user_login'] = user['login'] 
         st.session_state['user_role'] = user['cargo']
         st.session_state['user_name'] = user['nome']
@@ -87,13 +86,21 @@ def show_login_form():
         [data-testid="stSidebar"], [data-testid="stHeader"] {
             display: none;
         }
+        /* --- Container Principal --- */
+        .login-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
         /* --- Cartão de Login --- */
         .login-card {
             background-color: #F0F2F6;
             padding: 2rem;
             border-radius: 10px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            width: 100%;
+            width: 90%;
             max-width: 450px;
             margin: auto;
         }
@@ -189,88 +196,88 @@ def show_login_form():
             font-size: 12px;
             color: #a0a0a0;
             text-align: center;
-            margin-top: 40px;
+            margin-top: 20px;
         }
         @media (prefers-color-scheme: dark) { .version-text { color: #5a5a5a; } }
     </style>
     """, unsafe_allow_html=True)
 
     # --- ESTRUTURA DA PÁGINA ---
-    _, main_col, _ = st.columns([1, 1.5, 1])
+    st.markdown('<div class="login-container">', unsafe_allow_html=True)
+    
+    st.markdown('<div class="login-card">', unsafe_allow_html=True)
+    
+    st.markdown(
+        """
+        <div class="login-logo-text">
+            <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    if 'show_reset_form' not in st.session_state:
+        st.session_state.show_reset_form = False
+    
+    if st.session_state.show_reset_form:
+        with st.form("form_reset_request"):
+            login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email_input")
+            submitted = st.form_submit_button("Enviar E-mail de Redefinição")
+            if submitted:
+                iniciar_redefinicao_de_senha(login_para_reset)
 
-    with main_col:
-        st.markdown('<div class="login-card">', unsafe_allow_html=True)
-        
+        if st.button("Voltar para o Login", use_container_width=True):
+            st.session_state.show_reset_form = False
+            st.rerun()
+    else:
+        with st.form("login_form"):
+            # --- CORREÇÃO: Renomeia as chaves dos inputs para evitar conflitos ---
+            username = st.text_input("Utilizador ou e-mail", key="login_username_input")
+            password = st.text_input("Senha", type="password", key="login_password_input")
+
+            col_btn, col_link = st.columns([1, 1])
+            with col_btn:
+                submitted = st.form_submit_button("Entrar")
+            with col_link:
+                st.markdown(
+                    '<div class="forgot-password-link-inline"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></div>',
+                    unsafe_allow_html=True
+                )
+
+            if submitted:
+                if check_login(username, password):
+                    st.rerun()
+                else:
+                    st.error("Utilizador ou senha inválidos.")
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+
         st.markdown(
-            """
-            <div class="login-logo-text">
-                <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
+            f"""
+            <div class="social-footer">
+                <p>Conecte-se com o desenvolvedor</p>
+                <div class="social-icons">
+                    <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub">
+                        <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg">
+                    </a>
+                    <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn">
+                        <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg">
+                    </a>
+                </div>
             </div>
             """,
             unsafe_allow_html=True
         )
-        
-        if 'show_reset_form' not in st.session_state:
-            st.session_state.show_reset_form = False
-        
-        if st.session_state.show_reset_form:
-            with st.form("form_reset_request"):
-                login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email")
-                submitted = st.form_submit_button("Enviar E-mail de Redefinição")
-                if submitted:
-                    iniciar_redefinicao_de_senha(login_para_reset)
 
-            if st.button("Voltar para o Login", use_container_width=True):
-                st.session_state.show_reset_form = False
-                st.rerun()
-        else:
-            with st.form("login_form"):
-                username = st.text_input("Utilizador ou e-mail", key="username")
-                password = st.text_input("Senha", type="password", key="password")
+    st.markdown('</div>', unsafe_allow_html=True) 
+    
+    st.markdown('<p class="version-text">V 3.1.1</p>', unsafe_allow_html=True)
 
-                # --- NOVA ESTRUTURA PARA BOTÃO E LINK ---
-                col_btn, col_link = st.columns([1, 1])
-                with col_btn:
-                    submitted = st.form_submit_button("Entrar")
-                with col_link:
-                    st.markdown(
-                        '<div class="forgot-password-link-inline"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></div>',
-                        unsafe_allow_html=True
-                    )
-
-                if submitted:
-                    if check_login(username, password):
-                        st.rerun()
-                    else:
-                        st.error("Utilizador ou senha inválidos.")
-
-            st.markdown("<hr>", unsafe_allow_html=True)
-
-            st.markdown(
-                f"""
-                <div class="social-footer">
-                    <p>Conecte-se com o desenvolvedor</p>
-                    <div class="social-icons">
-                        <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub">
-                            <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg">
-                        </a>
-                        <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn">
-                            <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg">
-                        </a>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-        st.markdown('</div>', unsafe_allow_html=True) 
-        
-        st.markdown('<p class="version-text">V 3.1.1</p>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def logout():
     """Faz o logout do utilizador, limpando a sessão."""
     st.session_state['logged_in'] = False
-    # --- CORREÇÃO: Renomeia a chave aqui também para consistência ---
     keys_to_pop = ['user_login', 'user_role', 'user_name', 'user_id']
     for key in keys_to_pop:
         st.session_state.pop(key, None)
