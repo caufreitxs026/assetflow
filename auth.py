@@ -81,19 +81,20 @@ def show_login_form():
         }
         @media (prefers-color-scheme: dark) {
             [data-testid="stAppViewContainer"] {
-                background-color: #0d1117;
+                background-color: #0d1117; /* Cor de fundo do GitHub Dark */
             }
         }
         [data-testid="stSidebar"], [data-testid="stHeader"] {
             display: none;
         }
-        /* --- Container Principal que centraliza tudo --- */
+        /* --- Container Principal --- */
         .login-container {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             min-height: 100vh;
+            padding: 20px;
         }
         
         /* --- Logo --- */
@@ -117,8 +118,6 @@ def show_login_form():
             padding: 2rem;
             border-radius: 10px;
             border: 1px solid #d0d7de;
-            width: 100%;
-            max-width: 400px;
         }
         @media (prefers-color-scheme: dark) {
             [data-testid="stForm"] {
@@ -173,8 +172,6 @@ def show_login_form():
         .login-footer {
             text-align: center;
             margin-top: 30px;
-            width: 100%;
-            max-width: 400px;
         }
         .social-icons a { margin: 0 10px; }
         .social-icons img {
@@ -201,17 +198,18 @@ def show_login_form():
     # --- ESTRUTURA DA PÁGINA ---
     st.markdown('<div class="login-container">', unsafe_allow_html=True)
     
-    # Coloca a logo, o formulário e o footer dentro de um st.container para serem tratados como um bloco
-    with st.container():
-        st.markdown(
-            """
-            <div class="login-logo-text">
-                <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-        
+    st.markdown(
+        """
+        <div class="login-logo-text">
+            <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    # Centraliza o conteúdo com colunas
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+    with col2:
         if 'show_reset_form' not in st.session_state:
             st.session_state.show_reset_form = False
         
@@ -251,22 +249,22 @@ def show_login_form():
                     else:
                         st.error("Utilizador ou senha inválidos.")
 
-        st.markdown(
-            f"""
-            <div class="login-footer">
-                <div class="social-icons">
-                    <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub">
-                        <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg">
-                    </a>
-                    <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn">
-                        <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg">
-                    </a>
-                </div>
-                <p class="version-text">V 3.1.1</p>
+    st.markdown(
+        f"""
+        <div class="login-footer">
+            <div class="social-icons">
+                <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub">
+                    <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg">
+                </a>
+                <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn">
+                    <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg">
+                </a>
             </div>
-            """,
-            unsafe_allow_html=True
-        )
+            <p class="version-text">V 3.1.1</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     st.markdown('</div>', unsafe_allow_html=True) # Fecha login-container
 
