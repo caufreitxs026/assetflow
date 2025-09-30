@@ -150,12 +150,6 @@ def show_login_form():
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("""
-        <div class="login-logo-text">
-            <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
-        </div>
-    """, unsafe_allow_html=True)
-
     if 'show_reset_form' not in st.session_state:
         st.session_state.show_reset_form = False
 
@@ -224,6 +218,7 @@ def logout():
     for key in ['user_login', 'user_role', 'user_name', 'user_id']:
         st.session_state.pop(key, None)
     st.rerun()
+
 
 
 
