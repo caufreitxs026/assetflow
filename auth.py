@@ -220,15 +220,13 @@ def show_login_form():
 
     else:
         with st.form("login_form"):
-            st.markdown('<p class="form-label">E-mail</p>', unsafe_allow_html=True)
-            username = st.text_input("E-mail", key="login_username_input", label_visibility="collapsed")
-
             st.markdown("""
-                <div class="form-label-container">
-                    <span class="form-label">Senha</span>
-                    <span class="forgot-password-link"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></span>
+                <div class="login-logo-text">
+                    <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
                 </div>
             """, unsafe_allow_html=True)
+            st.markdown('<p class="form-label">E-mail</p>', unsafe_allow_html=True)
+            username = st.text_input("E-mail", key="login_username_input", label_visibility="collapsed")
             password = st.text_input("Senha", type="password", key="login_password_input", label_visibility="collapsed")
 
             submitted = st.form_submit_button("Entrar")
@@ -262,4 +260,5 @@ def logout():
     for key in ['user_login', 'user_role', 'user_name', 'user_id']:
         st.session_state.pop(key, None)
     st.rerun()
+
 
