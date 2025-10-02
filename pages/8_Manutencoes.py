@@ -114,11 +114,14 @@ def carregar_dados_para_selects_manutencao():
     colaboradores_df = conn.query("SELECT DISTINCT colaborador_snapshot FROM manutencoes WHERE colaborador_snapshot IS NOT NULL ORDER BY colaborador_snapshot;")
     # Status de manutenção para o filtro do histórico
     status_manutencao_df = conn.query("SELECT DISTINCT status_manutencao FROM manutencoes ORDER BY status_manutencao;")
+    # Responsabilidade de Custo para o filtro do histórico
+    responsabilidade_df = conn.query("SELECT DISTINCT responsabilidade_custo FROM manutencoes WHERE responsabilidade_custo IS NOT NULL ORDER BY responsabilidade_custo;")
     
     return (
         aparelhos_df.to_dict('records'), 
         ["Todos"] + colaboradores_df['colaborador_snapshot'].tolist(),
-        ["Todos"] + status_manutencao_df['status_manutencao'].tolist()
+        ["Todos"] + status_manutencao_df['status_manutencao'].tolist(),
+        ["Todos"] + responsabilidade_df['responsabilidade_custo'].tolist()
     )
 
 def abrir_ordem_servico(aparelho_id, fornecedor, defeito):
@@ -182,7 +185,7 @@ def carregar_manutencoes_em_andamento(order_by="m.data_envio ASC"):
         df[col] = df[col].fillna('')
     return df
 
-def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
+def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome, responsabilidade_custo):
     conn = get_db_connection()
     try:
         with conn.session as s:
@@ -208,16 +211,23 @@ def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
             
             query_update_manut = text("""
                 UPDATE manutencoes 
-                SET data_retorno = :data, solucao_aplicada = :solucao, custo_reparo = :custo, status_manutencao = :status_m
+                SET data_retorno = :data, solucao_aplicada = :solucao, custo_reparo = :custo, 
+                    status_manutencao = :status_m, responsabilidade_custo = :resp_custo
                 WHERE id = :id
             """)
             s.execute(query_update_manut, {
                 "data": date.today(), "solucao": solucao, "custo": custo, 
-                "status_m": status_manutencao, "id": manutencao_id
+                "status_m": status_manutencao, "id": manutencao_id,
+                "resp_custo": responsabilidade_custo
             })
             
             s.execute(text("UPDATE aparelhos SET status_id = :status_id WHERE id = :ap_id"), 
                       {"status_id": novo_status_id, "ap_id": aparelho_id})
+            
+            obs_historico = (
+                f"Retorno da manutenção. Solução: {solucao}. "
+                f"Custo: R${custo or 0:.2f} ({responsabilidade_custo})."
+            )
             
             query_insert_hist = text("""
                 INSERT INTO historico_movimentacoes (data_movimentacao, aparelho_id, colaborador_id, status_id, localizacao_atual, observacoes, colaborador_snapshot)
@@ -225,7 +235,7 @@ def fechar_ordem_servico(manutencao_id, solucao, custo, novo_status_nome):
             """)
             s.execute(query_insert_hist, {
                 "data": datetime.now(), "ap_id": aparelho_id, "status_id": novo_status_id,
-                "obs": f"Retorno da manutenção. Solução: {solucao}. Custo: R${custo or 0:.2f}",
+                "obs": obs_historico,
                 "col_snap": colab_snapshot
             })
             
@@ -253,12 +263,12 @@ def atualizar_manutencao(manutencao_id, fornecedor, defeito):
         return False
 
 @st.cache_data(ttl=30)
-def carregar_historico_manutencoes(status_filter=None, colaborador_filter=None, start_date=None, end_date=None, start_date_retorno=None, end_date_retorno=None):
+def carregar_historico_manutencoes(status_filter=None, colaborador_filter=None, responsabilidade_filter=None, start_date=None, end_date=None, start_date_retorno=None, end_date_retorno=None):
     conn = get_db_connection()
     query = """
         SELECT 
             m.id, a.numero_serie, mo.nome_modelo, m.colaborador_snapshot as colaborador,
-            m.data_envio, m.data_retorno, m.custo_reparo, m.status_manutencao, m.fornecedor,
+            m.data_envio, m.data_retorno, m.custo_reparo, m.responsabilidade_custo, m.status_manutencao, m.fornecedor,
             m.defeito_reportado, m.solucao_aplicada
         FROM manutencoes m
         JOIN aparelhos a ON m.aparelho_id = a.id
@@ -272,20 +282,21 @@ def carregar_historico_manutencoes(status_filter=None, colaborador_filter=None, 
     if colaborador_filter and colaborador_filter != "Todos":
         where_clauses.append("m.colaborador_snapshot = :colab")
         params['colab'] = colaborador_filter
+    if responsabilidade_filter and responsabilidade_filter != "Todos":
+        where_clauses.append("m.responsabilidade_custo = :resp")
+        params['resp'] = responsabilidade_filter
     if start_date:
         where_clauses.append("CAST(m.data_envio AS DATE) >= :start_date")
         params['start_date'] = start_date
     if end_date:
         where_clauses.append("CAST(m.data_envio AS DATE) <= :end_date")
         params['end_date'] = end_date
-    # --- NOVO FILTRO ADICIONADO AQUI ---
     if start_date_retorno:
         where_clauses.append("CAST(m.data_retorno AS DATE) >= :start_date_retorno")
         params['start_date_retorno'] = start_date_retorno
     if end_date_retorno:
         where_clauses.append("CAST(m.data_retorno AS DATE) <= :end_date_retorno")
         params['end_date_retorno'] = end_date_retorno
-    # -------------------------------------
     if where_clauses:
         query += " WHERE " + " AND ".join(where_clauses)
     query += " ORDER BY m.data_envio DESC"
@@ -297,7 +308,7 @@ st.title("Fluxo de Manutenção")
 st.markdown("---")
 
 try:
-    aparelhos_list, colaboradores_options, status_manutencao_options = carregar_dados_para_selects_manutencao()
+    aparelhos_list, colaboradores_options, status_manutencao_options, responsabilidade_options = carregar_dados_para_selects_manutencao()
 
     option = st.radio(
         "Selecione a operação:",
@@ -328,9 +339,6 @@ try:
                         aparelho_id = aparelhos_dict[aparelho_selecionado_str]
                         if abrir_ordem_servico(aparelho_id, fornecedor, defeito):
                             st.cache_data.clear()
-                            for key in list(st.session_state.keys()):
-                                if key.startswith('original_manutencoes_df_'):
-                                    del st.session_state[key]
                             st.rerun()
 
     elif option == "Acompanhar e Fechar O.S.":
@@ -393,7 +401,13 @@ try:
                     index=None, placeholder="Selecione...", help="Clique na lista e comece a digitar para pesquisar."
                 )
                 solucao = st.text_area("Solução Aplicada / Laudo Técnico*")
-                custo = st.number_input("Custo do Reparo (R$)", min_value=0.0, value=0.0, format="%.2f")
+                
+                col_custo1, col_custo2 = st.columns(2)
+                with col_custo1:
+                    custo = st.number_input("Custo do Reparo (R$)", min_value=0.0, value=0.0, format="%.2f")
+                with col_custo2:
+                    responsabilidade = st.selectbox("Responsabilidade do Custo*", ["Empresa", "Colaborador", "Empresa / Colaborador"])
+
                 novo_status_final = st.selectbox("Status Final do Aparelho*", ["Em estoque", "Baixado/Inutilizado"])
 
                 if st.form_submit_button("Fechar Ordem de Serviço", use_container_width=True, type="primary"):
@@ -401,7 +415,7 @@ try:
                         st.error("Ordem de Serviço e Solução são campos obrigatórios.")
                     else:
                         os_id = os_dict[os_selecionada_str]
-                        if fechar_ordem_servico(os_id, solucao, custo, novo_status_final):
+                        if fechar_ordem_servico(os_id, solucao, custo, novo_status_final, responsabilidade):
                             st.cache_data.clear()
                             if 'original_manutencoes_df' in st.session_state:
                                 del st.session_state.original_manutencoes_df
@@ -410,26 +424,31 @@ try:
     elif option == "Histórico de Manutenções":
         st.subheader("Histórico Completo de Manutenções")
 
-        col_filtro1, col_filtro2 = st.columns(2)
+        col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
         with col_filtro1:
             status_filtro = st.selectbox("Filtrar por Status da O.S.:", options=status_manutencao_options)
-            data_inicio_envio = st.date_input("Período de Envio (de):", value=None, format="DD/MM/YYYY")
         with col_filtro2:
             colaborador_filtro = st.selectbox("Filtrar por Colaborador:", options=colaboradores_options)
-            data_fim_envio = st.date_input("Até Envio (até):", value=None, format="DD/MM/YYYY")
-        
-        col_filtro3, col_filtro4 = st.columns(2)
         with col_filtro3:
-            data_inicio_retorno = st.date_input("Período de Retorno (de):", value=None, format="DD/MM/YYYY")
-        with col_filtro4:
-            data_fim_retorno = st.date_input("Até Retorno (até):", value=None, format="DD/MM/YYYY")
+            responsabilidade_filtro = st.selectbox("Filtrar por Respons. Custo:", options=responsabilidade_options)
 
-        # --- NOVA LINHA DE FILTROS PARA DATA DE RETORNO ---
         st.markdown("---") # Separador visual
+
+        col_data1, col_data2 = st.columns(2)
+        with col_data1:
+            st.markdown("###### Período de Envio")
+            data_inicio_envio = st.date_input("De:", value=None, format="DD/MM/YYYY", key="envio_de")
+            data_fim_envio = st.date_input("Até:", value=None, format="DD/MM/YYYY", key="envio_ate")
+        with col_data2:
+            st.markdown("###### Período de Retorno")
+            data_inicio_retorno = st.date_input("De:", value=None, format="DD/MM/YYYY", key="retorno_de")
+            data_fim_retorno = st.date_input("Até:", value=None, format="DD/MM/YYYY", key="retorno_ate")
+
 
         historico_df = carregar_historico_manutencoes(
             status_filter=status_filtro, 
             colaborador_filter=colaborador_filtro,
+            responsabilidade_filter=responsabilidade_filtro,
             start_date=data_inicio_envio,
             end_date=data_fim_envio,
             start_date_retorno=data_inicio_retorno,
@@ -444,6 +463,7 @@ try:
                           "data_envio": st.column_config.DateColumn("Data Envio", format="DD/MM/YYYY"),
                           "data_retorno": st.column_config.DateColumn("Data Retorno", format="DD/MM/YYYY"),
                           "custo_reparo": st.column_config.NumberColumn("Custo", format="R$ %.2f"),
+                          "responsabilidade_custo": "Respons. Custo",
                           "status_manutencao": "Status O.S.",
                           "fornecedor": "Fornecedor",
                           "defeito_reportado": "Defeito Reportado",
@@ -454,5 +474,4 @@ except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de manutenções: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
     traceback.print_exc()
-
 
