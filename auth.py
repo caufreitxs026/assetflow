@@ -3,80 +3,58 @@ import hashlib
 from sqlalchemy import text
 import secrets
 from datetime import datetime, timedelta
-# Importamos a nossa nova função de envio de e-mail. Certifique-se de que o ficheiro email_utils.py está na mesma pasta.
 from email_utils import enviar_email_de_redefinicao
 
-
 def get_db_connection():
-    """Retorna uma conexão ao banco de dados Supabase."""
     return st.connection("supabase", type="sql")
 
-
 def hash_password(password):
-    """Gera um hash seguro para a senha."""
     return hashlib.sha256(password.encode()).hexdigest()
 
-
 def check_login(username, password):
-    """Verifica as credenciais do utilizador no banco de dados PostgreSQL."""
     conn = get_db_connection()
     hashed_password = hash_password(password)
-
     query = "SELECT * FROM usuarios WHERE login = :login AND senha = :senha"
-
     user_df = conn.query(query, params={"login": username, "senha": hashed_password})
-
     if not user_df.empty:
         user = user_df.iloc[0].to_dict()
-
         st.session_state['logged_in'] = True
         st.session_state['user_login'] = user['login']
         st.session_state['user_role'] = user['cargo']
         st.session_state['user_name'] = user['nome']
         st.session_state['user_id'] = user['id']
         return True
-
     return False
 
-
 def iniciar_redefinicao_de_senha(login):
-    """Inicia o processo de redefinição de senha para um utilizador."""
     conn = get_db_connection()
     with conn.session as s:
         s.begin()
         query_user = text("SELECT id, nome FROM usuarios WHERE login = :login")
         user = s.execute(query_user, {"login": login}).fetchone()
-
         if not user:
             st.error("Login não encontrado no sistema.")
             s.rollback()
             return
-
         token = secrets.token_urlsafe(32)
         expires_at = datetime.now() + timedelta(minutes=15)
-
         query_insert_token = text("""
             INSERT INTO password_resets (user_id, reset_token, expires_at)
             VALUES (:user_id, :token, :expires)
         """)
         s.execute(query_insert_token, {"user_id": user.id, "token": token, "expires": expires_at})
         s.commit()
-
         if enviar_email_de_redefinicao(destinatario_email=login, destinatario_nome=user.nome, token=token):
-            st.success("Um e-mail com as instruções para redefinir a sua senha foi enviado. Verifique a sua caixa de entrada e spam.")
+            st.success("Um e-mail com as instruções para redefinir a sua senha foi enviado. Verifique sua caixa de entrada/spam.")
             st.info("O link é válido por 15 minutos.")
         else:
             st.warning("Não foi possível enviar o e-mail. Verifique as configurações e tente novamente.")
 
-
 def show_login_form():
-    """Exibe o formulário de login centralizado e com novo design."""
-
     if "forgot_password" in st.query_params:
         st.session_state.show_reset_form = True
         st.query_params.clear()
 
-    # --- CSS COMPLETO PARA A TELA DE LOGIN ---
     st.markdown("""
     <style>
         [data-testid="stAppViewContainer"] {
@@ -185,26 +163,20 @@ def show_login_form():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Estrutura da Página ---
-    
-    # Bloco principal que contém a logo e o formulário
-    st.markdown('<div class="login-block">', unsafe_allow_html=True)
-    
-    st.markdown("""
-        <div class="login-logo-text">
-            <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
-        </div>
-    """, unsafe_allow_html=True)
-
     if 'show_reset_form' not in st.session_state:
         st.session_state.show_reset_form = False
 
     if st.session_state.show_reset_form:
         with st.form("form_reset_request"):
+            st.markdown("""
+                <div class="login-logo-text">
+                    <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
+                </div>
+            """, unsafe_allow_html=True)
             st.markdown('<h1 class="card-title">Redefinir Senha</h1>', unsafe_allow_html=True)
-            st.markdown('<p class="form-label" style="text-align: left;">Seu login (e-mail)</p>', unsafe_allow_html=True)
+            st.markdown('<p class="form-label">Seu login (e-mail)</p>', unsafe_allow_html=True)
             login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email_input", label_visibility="collapsed")
-            
+
             # Botões lado a lado dentro do form
             col1, col2 = st.columns([2, 1])
             with col1:
@@ -221,6 +193,12 @@ def show_login_form():
 
     else:
         with st.form("login_form"):
+
+            st.markdown("""
+                <div class="login-logo-text">
+                    <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
+                </div>
+            """, unsafe_allow_html=True)
             st.markdown('<p class="form-label">E-mail</p>', unsafe_allow_html=True)
             username = st.text_input("E-mail", key="login_username_input", label_visibility="collapsed")
 
@@ -239,9 +217,6 @@ def show_login_form():
                 else:
                     st.error("Utilizador ou senha inválidos.")
 
-    st.markdown('</div>', unsafe_allow_html=True) # Fecha o login-block
-
-    # --- Footer Fixo no Final da Página ---
     st.markdown(f"""
         <div class="login-footer">
             <div class="social-icons">
@@ -256,9 +231,7 @@ def show_login_form():
         </div>
     """, unsafe_allow_html=True)
 
-
 def logout():
-    """Faz o logout do utilizador, limpando a sessão."""
     st.session_state['logged_in'] = False
     for key in ['user_login', 'user_role', 'user_name', 'user_id']:
         st.session_state.pop(key, None)
