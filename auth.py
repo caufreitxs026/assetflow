@@ -55,6 +55,11 @@ def show_login_form():
         st.session_state.show_reset_form = True
         st.query_params.clear()
 
+    # Importando Font Awesome automaticamente
+    st.markdown("""
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
+    """, unsafe_allow_html=True)
+
     st.markdown("""
     <style>
         [data-testid="stAppViewContainer"] {
@@ -104,18 +109,32 @@ def show_login_form():
 
         .card-title { text-align: center; font-size: 24px; margin-bottom: 2rem; font-weight: 300; }
 
-        .stButton button {
-            background-color: #003366;
-            color: white;
+        /* Botão Entrar customizado */
+        .stButton > button:first-child {
+            background-color: #1677FF !important;
+            color: white !important;
             border-radius: 6px !important;
-            padding: 10px 0;
-            font-weight: bold;
-            border: 1px solid rgba(27, 31, 36, 0.15);
-            width: 100%;
-            transition: background-color 0.2s;
-            margin-top: 1rem;
+            padding: 12px 0 !important;
+            font-weight: 600 !important;
+            border: none !important;
+            width: 100% !important;
+            transition: background-color 0.2s ease-in-out;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 10px !important;
+            font-size: 16px !important;
         }
-        .stButton button:hover { background-color: #0055A4; }
+        .stButton > button:first-child:hover {
+            background-color: #0f5dcc !important;
+        }
+        /* Ícone login */
+        .stButton > button:first-child:before {
+            font-family: "Font Awesome 5 Free";
+            font-weight: 900;
+            content: "\\f2f6"; /* fa-sign-in-alt */
+            font-size: 16px;
+        }
 
         .form-label-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
         .form-label { font-weight: 600; font-size: 14px; }
@@ -144,19 +163,19 @@ def show_login_form():
         }
         .version-badge {
             display: inline-block;
-            margin-top: 15px; /* Espaço entre os ícones e o badge */
+            margin-top: 15px;
             padding: 4px 12px;
             font-size: 12px;
             font-weight: 600;
-            color: #fff; /* Cor da fonte branca para melhor contraste */
-            background-color: #E30613; /* Cor de fundo vermelha */
+            color: #fff;
+            background-color: #E30613;
             border-radius: 12px;
             border: 1px solid rgba(0,0,0,0.1);
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         @media (prefers-color-scheme: dark) { 
             .version-badge { 
-                background-color: #FF4B4B; /* Vermelho mais claro para o tema escuro */
+                background-color: #FF4B4B;
                 border: 1px solid #30363d;
             } 
         }
@@ -177,7 +196,6 @@ def show_login_form():
             st.markdown('<p class="form-label">Seu login (e-mail)</p>', unsafe_allow_html=True)
             login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email_input", label_visibility="collapsed")
 
-            # Botões lado a lado dentro do form
             col1, col2 = st.columns([2, 1])
             with col1:
                 submitted = st.form_submit_button("Redefinição")
@@ -210,7 +228,9 @@ def show_login_form():
             """, unsafe_allow_html=True)
             password = st.text_input("Senha", type="password", key="login_password_input", label_visibility="collapsed")
 
-            submitted = st.form_submit_button("Entrar")
+            # Botão estilizado com ícone
+            submitted = st.form_submit_button("Entrar", use_container_width=True)
+
             if submitted:
                 if check_login(username, password):
                     st.rerun()
