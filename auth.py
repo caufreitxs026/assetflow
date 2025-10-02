@@ -189,17 +189,12 @@ def show_login_form():
     
     # Bloco principal que contém a logo e o formulário
     st.markdown('<div class="login-block">', unsafe_allow_html=True)
-    
+
     if 'show_reset_form' not in st.session_state:
         st.session_state.show_reset_form = False
 
     if st.session_state.show_reset_form:
         with st.form("form_reset_request"):
-            st.markdown("""
-                <div class="login-logo-text">
-                    <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
-                </div>
-            """, unsafe_allow_html=True)
             st.markdown('<h1 class="card-title">Redefinir Senha</h1>', unsafe_allow_html=True)
             st.markdown('<p class="form-label" style="text-align: left;">Seu login (e-mail)</p>', unsafe_allow_html=True)
             login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email_input", label_visibility="collapsed")
@@ -221,8 +216,9 @@ def show_login_form():
     else:
         with st.form("login_form"):
             st.markdown("""
-                <div class="login-logo-text">
-                    <span class="login-logo-asset">ASSET</span><span class="login-logo-flow">FLOW</span>
+                <div class="form-label-container">
+                    <span class="form-label">Senha</span>
+                    <span class="forgot-password-link"><a href="?forgot_password=true" target="_self">Esqueceu a senha?</a></span>
                 </div>
             """, unsafe_allow_html=True)
             st.markdown('<p class="form-label">E-mail</p>', unsafe_allow_html=True)
@@ -260,5 +256,3 @@ def logout():
     for key in ['user_login', 'user_role', 'user_name', 'user_id']:
         st.session_state.pop(key, None)
     st.rerun()
-
-
