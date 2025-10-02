@@ -1,8 +1,18 @@
-# AssetFlow v3.1 - Gestão de Ativos com IA e Banco de Dados na Nuvem
+# AssetFlow v3.1.1 - Gestão de Ativos com IA e Banco de Dados na Nuvem
 
-Uma aplicação web completa e robusta construída com Python e Streamlit para gerir todo o ciclo de vida de ativos de TI. A versão 3.1 representa uma evolução crucial, migrando de um banco de dados local para uma solução **PostgreSQL na nuvem (Supabase)**, garantindo persistência, segurança e escalabilidade dos dados.
+Uma aplicação web completa e robusta construída com Python e Streamlit para gerir todo o ciclo de vida de ativos de TI. A versão 3.1.1 representa uma evolução crucial em segurança e usabilidade, **introduzindo um fluxo completo de redefinição de senha por e-mail e aprimorando significativamente a interface do utilizador e as regras de negócio**.
 
-Esta versão mantém o **Flow**, o assistente de IA conversacional, agora operando sobre uma base de dados fiável e permanente.
+Esta versão mantém a base sólida da v3.1, **com o assistente de IA Flow e o banco de dados PostgreSQL na nuvem (Supabase)**, garantindo persistência, segurança e escalabilidade dos dados.
+
+## Novidades da Versão 3.1.1
+
+-   **Fluxo Completo de Redefinição de Senha:** Utilizadores podem agora redefinir as suas senhas de forma autónoma através de um link seguro enviado para o seu e-mail, com tokens de uso único e tempo de expiração.
+-   **Interface de Login Profissional:** A tela de login foi completamente redesenhada, com um layout moderno, centralizado, menu lateral oculto e um rodapé fixo com informações de versão e links sociais.
+-   **Gestão Financeira em Manutenções:** Ao fechar uma Ordem de Serviço, agora é possível definir a responsabilidade do custo com opções fixas (Empresa, Colaborador, Empresa / Colaborador), permitindo uma auditoria financeira mais precisa.
+-   **Flexibilidade no Cadastro de Colaboradores:** O sistema agora permite o registo de códigos de colaborador duplicados no mesmo setor (para casos de transição), mas emite um alerta e exige confirmação do administrador, garantindo controlo e integridade.
+-   **Melhorias na Experiência do Administrador:** A página de gestão de utilizadores foi aprimorada para incluir a redefinição de senhas de qualquer utilizador diretamente pela interface.
+
+---
 
 ## Funcionalidades Principais
 
