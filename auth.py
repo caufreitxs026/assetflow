@@ -109,8 +109,8 @@ def show_login_form():
 
         .card-title { text-align: center; font-size: 24px; margin-bottom: 2rem; font-weight: 300; }
 
-        /* Botão Entrar customizado */
-        .stButton > button:first-child {
+        /* Estilo padrão para todos botões */
+        .stButton > button {
             background-color: #1677FF !important;
             color: white !important;
             border-radius: 6px !important;
@@ -125,11 +125,28 @@ def show_login_form():
             gap: 10px !important;
             font-size: 16px !important;
         }
-        .stButton > button:first-child:hover {
+        .stButton > button:hover {
             background-color: #0f5dcc !important;
         }
-        /* Ícone login */
-        .stButton > button:first-child:before {
+
+        /* Ícone do botão Entrar */
+        div[data-testid="stForm"] div.stButton > button:has(span:contains("Entrar")):before {
+            font-family: "Font Awesome 5 Free";
+            font-weight: 900;
+            content: "\\f2f6"; /* fa-sign-in-alt */
+            font-size: 16px;
+        }
+
+        /* Ícone do botão Redefinição */
+        div[data-testid="stForm"] div.stButton > button:has(span:contains("Redefinição")):before {
+            font-family: "Font Awesome 5 Free";
+            font-weight: 900;
+            content: "\\f021"; /* fa-sync-alt */
+            font-size: 16px;
+        }
+
+        /* Ícone do botão Login */
+        div[data-testid="stForm"] div.stButton > button:has(span:contains("Login")):before {
             font-family: "Font Awesome 5 Free";
             font-weight: 900;
             content: "\\f2f6"; /* fa-sign-in-alt */
@@ -198,9 +215,9 @@ def show_login_form():
 
             col1, col2 = st.columns([2, 1])
             with col1:
-                submitted = st.form_submit_button("Redefinição")
+                submitted = st.form_submit_button("Redefinição", use_container_width=True)
             with col2:
-                voltar = st.form_submit_button("Login")
+                voltar = st.form_submit_button("Login", use_container_width=True)
 
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
