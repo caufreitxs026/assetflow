@@ -92,7 +92,7 @@ def show_login_form():
             display: none;
         }
 
-        /* --- Centralização completa --- */
+        /* --- Centralização completa e limitação de largura --- */
         [data-testid="stAppViewContainer"] > .main {
             display: flex;
             flex-direction: column;
@@ -102,16 +102,11 @@ def show_login_form():
             width: 100%;
         }
         
+        /* Este é o container que o Streamlit cria para o nosso conteúdo. Limitamos a largura dele. */
         .main > div:first-child {
             width: 100%;
             max-width: 400px;
-        }
-
-        /* --- Bloco de Conteúdo (Logo + Formulário) --- */
-        .login-block {
-            width: 100%;
-            max-width: 400px;
-            margin: 0 auto; /* Garante centralização */
+            margin: 0 auto;
         }
         
         /* --- Logo --- */
@@ -201,7 +196,7 @@ def show_login_form():
 
         /* --- Footer --- */
         .login-footer {
-            position: absolute;
+            position: fixed; /* Fixa o rodapé na parte inferior da tela */
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
@@ -242,7 +237,6 @@ def show_login_form():
     """, unsafe_allow_html=True)
 
     # --- Estrutura da Página ---
-    st.markdown('<div class="login-block">', unsafe_allow_html=True) # Container para alinhar tudo
     
     st.markdown("""
         <div class="login-logo-text">
@@ -258,6 +252,8 @@ def show_login_form():
             st.markdown('<h1 class="card-title">Redefinir Senha</h1>', unsafe_allow_html=True)
             st.markdown('<p class="form-label" style="text-align: left;">Seu login (e-mail)</p>', unsafe_allow_html=True)
             login_para_reset = st.text_input("Seu login (e-mail)", key="reset_email_input", label_visibility="collapsed")
+            
+            # Botão de redefinição
             submitted = st.form_submit_button("Enviar E-mail de Redefinição")
             if submitted:
                 iniciar_redefinicao_de_senha(login_para_reset)
@@ -289,8 +285,6 @@ def show_login_form():
                 else:
                     st.error("Utilizador ou senha inválidos.")
 
-    st.markdown('</div>', unsafe_allow_html=True) # Fecha login-block
-
     # --- Footer Fixo no Final da Página ---
     st.markdown(f"""
         <div class="login-footer">
@@ -313,3 +307,4 @@ def logout():
     for key in ['user_login', 'user_role', 'user_name', 'user_id']:
         st.session_state.pop(key, None)
     st.rerun()
+
