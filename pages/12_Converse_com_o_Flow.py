@@ -223,12 +223,44 @@ def executar_criar_colaborador(dados):
             return f"Ocorreu um erro técnico: {e}"
 
 def executar_criar_aparelho(dados):
-    # (Implementação futura)
+    # (Implementação futura - pode seguir a lógica das outras funções de criação)
     return "A função para criar aparelhos ainda está em desenvolvimento."
 
+# --- SUGESTÃO: Implementação da função de criar conta Gmail ---
 def executar_criar_conta_gmail(dados):
-    # (Implementação futura)
-    return "A função para criar contas Gmail ainda está em desenvolvimento."
+    req_keys = ['email', 'senha']
+    if not dados or not all(k in dados for k in req_keys):
+        return f"Não foi possível criar a conta. Faltam informações: {', '.join(k for k in req_keys if k not in dados)}."
+    
+    conn = get_db_connection()
+    with conn.session as s:
+        try:
+            s.begin()
+            colaborador_id = None
+            if dados.get("nome_colaborador"):
+                query_colab = text("SELECT id FROM colaboradores WHERE nome_completo ILIKE :nome")
+                colab_result = s.execute(query_colab, {"nome": f"%{dados['nome_colaborador']}%"}).fetchone()
+                if not colab_result:
+                    return f"Colaborador '{dados['nome_colaborador']}' não encontrado. A conta Gmail será criada sem vínculo."
+                colaborador_id = colab_result[0]
+            
+            query_insert = text("""
+                INSERT INTO contas_gmail (email, senha, telefone_recuperacao, email_recuperacao, colaborador_id)
+                VALUES (:email, :senha, :tel, :email_rec, :col_id)
+            """)
+            s.execute(query_insert, {
+                "email": dados['email'], "senha": dados['senha'], 
+                "tel": dados.get('telefone_recuperacao'), "email_rec": dados.get('email_recuperacao'),
+                "col_id": colaborador_id
+            })
+            s.commit()
+            st.cache_data.clear()
+            return f"Conta Gmail '{dados['email']}' criada com sucesso!"
+        except Exception as e:
+            s.rollback()
+            if 'unique constraint' in str(e).lower():
+                return f"Ocorreu um erro: o e-mail '{dados['email']}' já está cadastrado."
+            return f"Ocorreu um erro técnico ao criar a conta Gmail: {e}"
 
 # --- Lógica do Chatbot ---
 schema = {
@@ -287,7 +319,6 @@ async def get_flow_response(prompt, user_name):
     except KeyError:
         return {"acao": "desconhecido", "filtros": {"erro": "Chave de API não configurada."}}
 
-    # --- CORREÇÃO: Usa o modelo recomendado e mais recente ---
     apiUrl = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key={apiKey}"
     
     result = await make_api_call(apiUrl, payload)
@@ -342,7 +373,7 @@ def get_info_text():
 CAMPOS_CADASTRO = {
     "colaborador": ["codigo", "nome_completo", "cpf", "gmail", "nome_setor"],
     "aparelho": ["marca", "modelo", "numero_serie", "valor", "imei1", "imei2"],
-    "conta_gmail": ["email", "senha", "telefone_recuperacao", "email_recuperacao", "nome_setor", "nome_colaborador"]
+    "conta_gmail": ["email", "senha", "telefone_recuperacao", "email_recuperacao", "nome_colaborador"]
 }
 
 def reset_chat_state():
@@ -369,22 +400,18 @@ async def handle_prompt(user_prompt):
     st.session_state.messages.append({"role": "user", "content": user_prompt})
     prompt_lower = user_prompt.strip().lower()
 
-    # --- CORREÇÃO: Lógica para continuar uma conversa de cadastro ---
     if st.session_state.get('conversa_em_andamento'):
         entidade = st.session_state.conversa_em_andamento
         campos = CAMPOS_CADASTRO[entidade]
         dados_recolhidos = st.session_state.dados_recolhidos
         
-        # Encontra o campo atual para salvar a resposta
         campo_atual = campos[len(dados_recolhidos)]
         dados_recolhidos[campo_atual] = user_prompt.strip()
 
-        # Verifica se ainda há campos a serem preenchidos
         if len(dados_recolhidos) < len(campos):
             proximo_campo = campos[len(dados_recolhidos)]
             st.session_state.messages.append({"role": "assistant", "content": f"Entendido. Agora, qual é o **{proximo_campo.replace('_', ' ')}**?"})
         else:
-            # Todos os dados foram recolhidos, executa a ação
             with st.spinner("A processar o seu pedido de criação..."):
                 resultado_criacao = ""
                 if entidade == "colaborador":
@@ -395,16 +422,18 @@ async def handle_prompt(user_prompt):
                     resultado_criacao = executar_criar_conta_gmail(dados_recolhidos)
                 
                 st.session_state.messages.append({"role": "assistant", "content": resultado_criacao})
-                reset_conversation_flow() # Limpa o estado da conversa
+                reset_conversation_flow()
         st.rerun()
 
-    # Processa comandos universais primeiro
     elif prompt_lower == '#info':
         st.session_state.messages.append({"role": "assistant", "content": get_info_text()})
+        st.rerun()
     elif prompt_lower == 'limpar chat':
         reset_chat_state()
+        st.rerun()
     elif prompt_lower in ['cancelar', 'voltar', 'menu']:
         st.session_state.messages.append({"role": "assistant", "content": "Não há nenhuma ação em andamento para cancelar."})
+        st.rerun()
     else:
         with st.spinner("A pensar..."):
             response_data = await get_flow_response(user_prompt, st.session_state['user_name'])
@@ -426,8 +455,7 @@ async def handle_prompt(user_prompt):
             elif acao == 'consultar_movimentacoes': resultados = consultar_movimentacoes(filtros)
             elif acao == 'consultar_gmail': resultados = consultar_gmail(filtros)
             elif acao == 'logout':
-                st.session_state.messages.append({"role": "assistant", "content": "A encerrar a sessão..."})
-                logout(rerun=False) # Evita o rerun imediato para mostrar a mensagem
+                logout() 
                 st.switch_page("app.py")
             elif acao == 'saudacao':
                 st.session_state.messages.append({"role": "assistant", "content": f"Olá {st.session_state['user_name']}! Sou o Flow. Diga `#info` para ver os comandos."})
@@ -442,7 +470,7 @@ async def handle_prompt(user_prompt):
                     st.session_state.messages.append({"role": "assistant", "content": "Não encontrei nenhum resultado com esses critérios."})
                 else:
                     st.session_state.messages.append({"role": "assistant", "content": resultados})
-    st.rerun()
+        st.rerun()
 
 # --- Loop de Exibição e Captura de Input ---
 for message in st.session_state.messages:
@@ -460,3 +488,4 @@ for message in st.session_state.messages:
 
 if prompt := st.chat_input("Como posso ajudar?"):
     asyncio.run(handle_prompt(prompt))
+
