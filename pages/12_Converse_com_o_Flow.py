@@ -50,12 +50,26 @@ st.markdown("""
     .sidebar-footer img { width: 25px; height: 25px; filter: grayscale(1) opacity(0.5); transition: filter 0.3s; }
     .sidebar-footer img:hover { filter: grayscale(0) opacity(1); }
     @media (prefers-color-scheme: dark) { .sidebar-footer img { filter: grayscale(1) opacity(0.6) invert(1); } .sidebar-footer img:hover { filter: opacity(1) invert(1); } }
-    /* Estilos para a Logo do Chat */
+    
+    /* --- ESTILOS ATUALIZADOS PARA A LOGO DO CHAT --- */
     .flow-title { display: flex; align-items: center; padding-bottom: 10px; }
     .flow-title .icon { font-size: 2.5em; margin-right: 15px; }
-    .flow-title h1 { font-family: 'Courier New', monospace; font-size: 3em; font-weight: bold; margin: 0; padding: 0; line-height: 1; }
-    .flow-title .text-chat { color: #003366; } .flow-title .text-flow { color: #E30613; }
-    @media (prefers-color-scheme: dark) { .flow-title .text-chat { color: #FFFFFF; } .flow-title .text-flow { color: #FF4B4B; } }
+    .flow-title h1 { 
+        font-family: 'Courier New', monospace; 
+        font-size: 3em; 
+        font-weight: bold; 
+        margin: 0; 
+        padding: 0; 
+        line-height: 1;
+        /* Adiciona a sombra a todo o texto do título */
+        text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
+    }
+    .flow-title .text-chat { color: #003366; } 
+    .flow-title .text-flow { color: #E30613; }
+    @media (prefers-color-scheme: dark) { 
+        .flow-title .text-chat { color: #FFFFFF; } 
+        .flow-title .text-flow { color: #FF4B4B; } 
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -113,7 +127,7 @@ def consultar_aparelho_completo(filtros):
     
     query_info = f"""
         SELECT ma.nome_marca || ' - ' || mo.nome_modelo as modelo, a.numero_serie, a.imei1, a.imei2, s.nome_status,
-               CASE WHEN s.nome_status = 'Em uso' THEN h.colaborador_snapshot ELSE 'N/A' END as responsavel
+                CASE WHEN s.nome_status = 'Em uso' THEN h.colaborador_snapshot ELSE 'N/A' END as responsavel
         FROM aparelhos a
         LEFT JOIN modelos mo ON a.modelo_id = mo.id LEFT JOIN marcas ma ON mo.marca_id = ma.id
         LEFT JOIN status s ON a.status_id = s.id
@@ -177,18 +191,44 @@ def consultar_gmail(filtros):
     return conn.query(query, params=params)
 
 def executar_criar_colaborador(dados):
-    if not dados or not all(k in dados for k in ['nome_completo', 'codigo', 'cpf', 'nome_setor']):
-        return "Não foi possível criar o colaborador. Faltam informações essenciais (nome, código, CPF e setor)."
-    # ... (o resto da sua função de criar colaborador aqui)
-    pass
+    req_keys = ['nome_completo', 'codigo', 'cpf', 'nome_setor']
+    if not dados or not all(k in dados for k in req_keys):
+        return f"Não foi possível criar o colaborador. Faltam informações: {', '.join(k for k in req_keys if k not in dados)}."
+    
+    conn = get_db_connection()
+    with conn.session as s:
+        try:
+            s.begin()
+            query_setor = text("SELECT id FROM setores WHERE nome_setor ILIKE :nome_setor")
+            setor_result = s.execute(query_setor, {"nome_setor": dados['nome_setor']}).fetchone()
+            if not setor_result:
+                return f"Setor '{dados['nome_setor']}' não encontrado. Cadastro cancelado."
+            setor_id = setor_result[0]
+
+            query_insert = text("""
+                INSERT INTO colaboradores (nome_completo, cpf, gmail, setor_id, data_cadastro, codigo, status) 
+                VALUES (:nome, :cpf, :gmail, :setor_id, :data, :codigo, 'Ativo')
+            """)
+            s.execute(query_insert, {
+                "nome": dados['nome_completo'], "cpf": dados['cpf'], "gmail": dados.get('gmail', ''), 
+                "setor_id": setor_id, "data": date.today(), "codigo": dados['codigo']
+            })
+            s.commit()
+            st.cache_data.clear() # Limpa o cache para refletir o novo cadastro
+            return f"Colaborador '{dados['nome_completo']}' criado com sucesso!"
+        except Exception as e:
+            s.rollback()
+            if 'unique constraint' in str(e).lower():
+                return "Ocorreu um erro: o CPF ou o Código/Setor já existem."
+            return f"Ocorreu um erro técnico: {e}"
 
 def executar_criar_aparelho(dados):
-    # ... (o resto da sua função de criar aparelho aqui)
-    pass
+    # (Implementação futura)
+    return "A função para criar aparelhos ainda está em desenvolvimento."
 
 def executar_criar_conta_gmail(dados):
-    # ... (o resto da sua função de criar conta gmail aqui)
-    pass
+    # (Implementação futura)
+    return "A função para criar contas Gmail ainda está em desenvolvimento."
 
 # --- Lógica do Chatbot ---
 schema = {
@@ -247,7 +287,8 @@ async def get_flow_response(prompt, user_name):
     except KeyError:
         return {"acao": "desconhecido", "filtros": {"erro": "Chave de API não configurada."}}
 
-    apiUrl = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={apiKey}"
+    # --- CORREÇÃO: Usa o modelo recomendado e mais recente ---
+    apiUrl = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key={apiKey}"
     
     result = await make_api_call(apiUrl, payload)
 
@@ -257,8 +298,8 @@ async def get_flow_response(prompt, user_name):
         try:
             json_text = result['candidates'][0]['content']['parts'][0]['text']
             return json.loads(json_text)
-        except (json.JSONDecodeError, KeyError):
-             return {"acao": "desconhecido", "filtros": {"erro": "A API retornou uma resposta em formato inesperado."}}
+        except (json.JSONDecodeError, KeyError, IndexError):
+            return {"acao": "desconhecido", "filtros": {"erro": "A API retornou uma resposta em formato inesperado."}}
     return {"acao": "desconhecido", "filtros": {"erro": f"Resposta inválida da API: {result}"}}
 
 def get_info_text():
@@ -328,16 +369,42 @@ async def handle_prompt(user_prompt):
     st.session_state.messages.append({"role": "user", "content": user_prompt})
     prompt_lower = user_prompt.strip().lower()
 
+    # --- CORREÇÃO: Lógica para continuar uma conversa de cadastro ---
+    if st.session_state.get('conversa_em_andamento'):
+        entidade = st.session_state.conversa_em_andamento
+        campos = CAMPOS_CADASTRO[entidade]
+        dados_recolhidos = st.session_state.dados_recolhidos
+        
+        # Encontra o campo atual para salvar a resposta
+        campo_atual = campos[len(dados_recolhidos)]
+        dados_recolhidos[campo_atual] = user_prompt.strip()
+
+        # Verifica se ainda há campos a serem preenchidos
+        if len(dados_recolhidos) < len(campos):
+            proximo_campo = campos[len(dados_recolhidos)]
+            st.session_state.messages.append({"role": "assistant", "content": f"Entendido. Agora, qual é o **{proximo_campo.replace('_', ' ')}**?"})
+        else:
+            # Todos os dados foram recolhidos, executa a ação
+            with st.spinner("A processar o seu pedido de criação..."):
+                resultado_criacao = ""
+                if entidade == "colaborador":
+                    resultado_criacao = executar_criar_colaborador(dados_recolhidos)
+                elif entidade == "aparelho":
+                    resultado_criacao = executar_criar_aparelho(dados_recolhidos)
+                elif entidade == "conta_gmail":
+                    resultado_criacao = executar_criar_conta_gmail(dados_recolhidos)
+                
+                st.session_state.messages.append({"role": "assistant", "content": resultado_criacao})
+                reset_conversation_flow() # Limpa o estado da conversa
+        st.rerun()
+
     # Processa comandos universais primeiro
-    if prompt_lower == '#info':
+    elif prompt_lower == '#info':
         st.session_state.messages.append({"role": "assistant", "content": get_info_text()})
     elif prompt_lower == 'limpar chat':
         reset_chat_state()
     elif prompt_lower in ['cancelar', 'voltar', 'menu']:
-        if st.session_state.get('conversa_em_andamento'):
-            reset_conversation_flow()
-        else:
-            st.session_state.messages.append({"role": "assistant", "content": "Não há nenhuma ação em andamento para cancelar."})
+        st.session_state.messages.append({"role": "assistant", "content": "Não há nenhuma ação em andamento para cancelar."})
     else:
         with st.spinner("A pensar..."):
             response_data = await get_flow_response(user_prompt, st.session_state['user_name'])
@@ -360,7 +427,8 @@ async def handle_prompt(user_prompt):
             elif acao == 'consultar_gmail': resultados = consultar_gmail(filtros)
             elif acao == 'logout':
                 st.session_state.messages.append({"role": "assistant", "content": "A encerrar a sessão..."})
-                logout(rerun=False)
+                logout(rerun=False) # Evita o rerun imediato para mostrar a mensagem
+                st.switch_page("app.py")
             elif acao == 'saudacao':
                 st.session_state.messages.append({"role": "assistant", "content": f"Olá {st.session_state['user_name']}! Sou o Flow. Diga `#info` para ver os comandos."})
             else:
@@ -371,7 +439,7 @@ async def handle_prompt(user_prompt):
                 if isinstance(resultados, pd.DataFrame) and resultados.empty:
                     st.session_state.messages.append({"role": "assistant", "content": "Não encontrei nenhum resultado com esses critérios."})
                 elif isinstance(resultados, dict) and resultados.get("info", pd.DataFrame()).empty:
-                     st.session_state.messages.append({"role": "assistant", "content": "Não encontrei nenhum resultado com esses critérios."})
+                    st.session_state.messages.append({"role": "assistant", "content": "Não encontrei nenhum resultado com esses critérios."})
                 else:
                     st.session_state.messages.append({"role": "assistant", "content": resultados})
     st.rerun()
@@ -382,19 +450,13 @@ for message in st.session_state.messages:
         if isinstance(message["content"], pd.DataFrame):
             st.dataframe(message["content"], hide_index=True, use_container_width=True)
         elif isinstance(message["content"], dict) and 'info' in message["content"]:
-             st.write("**Informações do Aparelho:**")
-             st.dataframe(message["content"]["info"], hide_index=True, use_container_width=True)
-             st.write("**Histórico de Movimentações:**")
-             st.dataframe(message["content"]["historico"], hide_index=True, use_container_width=True,
-                          column_config={"data_movimentacao": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY HH:mm")})
+            st.write("**Informações do Aparelho:**")
+            st.dataframe(message["content"]["info"], hide_index=True, use_container_width=True)
+            st.write("**Histórico de Movimentações:**")
+            st.dataframe(message["content"]["historico"], hide_index=True, use_container_width=True,
+                         column_config={"data_movimentacao": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY HH:mm")})
         else:
             st.markdown(message["content"], unsafe_allow_html=True)
 
 if prompt := st.chat_input("Como posso ajudar?"):
     asyncio.run(handle_prompt(prompt))
-
-# 3. Processa a última mensagem do utilizador SE ela ainda não foi processada
-if st.session_state.messages[-1]["role"] == "user":
-    asyncio.run(process_response(st.session_state.messages[-1]["content"]))
-
-
