@@ -121,7 +121,7 @@ if option == "Importar em Lote":
             st.subheader("Importar Novos Colaboradores")
             setores_map = get_foreign_key_map("setores", "nome_setor")
             exemplo_setor = list(setores_map.keys())[0] if setores_map else "TI"
-            df_modelo = pd.DataFrame({"codigo": ["1001"], "nome_completo": ["Nome Sobrenome Exemplo"], "cpf": ["12345678900"], "gmail": ["exemplo.email@gmail.com"], "nome_setor": [exemplo_setor]})
+            df_modelo = pd.DataFrame({"codigo": ["1001"], "nome_completo": ["Nome Sobrenome Exemplo"], "cpf": ["123.456.789-00"], "gmail": ["exemplo.email@gmail.com"], "nome_setor": [exemplo_setor]})
             
             output = io.BytesIO()
             df_modelo.to_excel(output, index=False, sheet_name='Colaboradores')
@@ -148,14 +148,16 @@ if option == "Importar em Lote":
                                 s.execute(query, {"codigo": row['codigo'], "nome": row['nome_completo'], "cpf": row['cpf'], "gmail": row['gmail'], "setor_id": setor_id, "data": date.today()})
                                 sucesso += 1
                             except Exception as e:
+                                s.rollback() # Garante que a transação falha seja desfeita
                                 if 'unique constraint' in str(e).lower():
                                     st.warning(f"Linha {index+2}: Colaborador com código, CPF ou setor já existe. Pulando registo.")
                                 else:
                                     st.error(f"Linha {index+2}: Erro inesperado - {e}. Pulando registo.")
                                 erros += 1
-                        s.commit()
+                        if erros == 0:
+                            s.commit()
                     st.success(f"Importação concluída! {sucesso} registos importados com sucesso.")
-                    if erros > 0: st.error(f"{erros} registos continham erros.")
+                    if erros > 0: st.error(f"{erros} registos continham erros e não foram importados.")
                     st.cache_data.clear()
 
         elif tabela_selecionada == "Importar Aparelhos":
@@ -242,11 +244,9 @@ if option == "Importar em Lote":
         
         elif tabela_selecionada == "Importar Contas Gmail":
             st.subheader("Importar Novas Contas Gmail")
-            setores_map = get_foreign_key_map("setores", "nome_setor")
             colaboradores_map = get_foreign_key_map("colaboradores", "nome_completo")
-            exemplo_setor = list(setores_map.keys())[0] if setores_map else "TI"
             exemplo_colaborador = list(colaboradores_map.keys())[0] if colaboradores_map else ""
-            df_modelo = pd.DataFrame({"email": ["conta.exemplo@gmail.com"], "senha": ["senhaforte123"], "telefone_recuperacao": ["11999998888"], "email_recuperacao": ["recuperacao@email.com"], "nome_setor": [exemplo_setor], "nome_colaborador": [exemplo_colaborador]})
+            df_modelo = pd.DataFrame({"email": ["conta.exemplo@gmail.com"], "senha": ["senhaforte123"], "telefone_recuperacao": ["11999998888"], "email_recuperacao": ["recuperacao@email.com"], "nome_colaborador": [exemplo_colaborador]})
             
             output = io.BytesIO()
             df_modelo.to_excel(output, index=False, sheet_name='Contas_Gmail')
@@ -264,11 +264,10 @@ if option == "Importar em Lote":
                     with st.spinner("Importando dados..."), conn.session as s:
                         for index, row in df_upload.iterrows():
                             try:
-                                setor_id = setores_map.get(row['nome_setor'].strip())
                                 colaborador_id = colaboradores_map.get(row['nome_colaborador'].strip()) if row['nome_colaborador'] else None
                                 
-                                query = text("INSERT INTO contas_gmail (email, senha, telefone_recuperacao, email_recuperacao, setor_id, colaborador_id) VALUES (:email, :senha, :tel, :email_rec, :sid, :cid)")
-                                s.execute(query, {"email": row['email'], "senha": row['senha'], "tel": row['telefone_recuperacao'], "email_rec": row['email_recuperacao'], "sid": setor_id, "cid": colaborador_id})
+                                query = text("INSERT INTO contas_gmail (email, senha, telefone_recuperacao, email_recuperacao, colaborador_id) VALUES (:email, :senha, :tel, :email_rec, :cid)")
+                                s.execute(query, {"email": row['email'], "senha": row['senha'], "tel": row['telefone_recuperacao'], "email_rec": row['email_recuperacao'], "cid": colaborador_id})
                                 sucesso += 1
                             except Exception as e:
                                 if 'unique constraint' in str(e).lower():
@@ -333,7 +332,7 @@ if option == "Importar em Lote":
                     st.success(f"Importação concluída! {sucesso} movimentações registadas com sucesso.")
                     if erros > 0: st.error(f"{erros} registos continham erros.")
                     st.cache_data.clear()
-    
+
     except Exception as e:
         st.error(f"Ocorreu um erro ao carregar a página de importação: {e}")
         st.info("Verifique se o banco de dados está inicializado na página '⚙️ Configurações'.")
@@ -344,10 +343,28 @@ elif option == "Exportar Relatórios":
 
     conn = get_db_connection()
 
-    def to_excel(df):
+    def to_excel_single_sheet(df):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Relatorio')
+        processed_data = output.getvalue()
+        return processed_data
+    
+    # --- NOVA FUNÇÃO PARA EXPORTAR COM SUMÁRIOS ---
+    def to_excel_with_summaries(main_df, status_summary_df, setor_summary_df):
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Escreve o relatório principal
+            main_df.to_excel(writer, index=False, sheet_name='Inventario_Completo')
+            
+            # Calcula a posição inicial para o primeiro sumário (2 colunas à direita do principal)
+            start_col_status = main_df.shape[1] + 2
+            status_summary_df.to_excel(writer, index=False, sheet_name='Inventario_Completo', startcol=start_col_status)
+
+            # Calcula a posição para o segundo sumário (2 colunas à direita do primeiro sumário)
+            start_col_setor = start_col_status + status_summary_df.shape[1] + 2
+            setor_summary_df.to_excel(writer, index=False, sheet_name='Inventario_Completo', startcol=start_col_setor)
+            
         processed_data = output.getvalue()
         return processed_data
 
@@ -376,17 +393,26 @@ elif option == "Exportar Relatórios":
             ORDER BY a.id;
         """)
         if not inventario_df.empty:
+            # --- LÓGICA PARA CRIAR OS SUMÁRIOS ---
+            # 1. Sumário por Status
+            status_summary = inventario_df['nome_status'].value_counts().reset_index()
+            status_summary.columns = ['nome_status', 'Aparelhos']
+
+            # 2. Sumário por Setor (apenas para aparelhos 'Em uso')
+            setor_summary = inventario_df[inventario_df['nome_status'] == 'Em uso']['setor_atual'].value_counts().reset_index()
+            setor_summary.columns = ['setor_atual', 'Aparelhos']
+
             st.download_button(
-                label="Baixar Relatório de Inventário",
-                data=to_excel(inventario_df),
-                file_name=f"relatorio_inventario_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                label="Baixar Relatório de Inventário com Sumários",
+                data=to_excel_with_summaries(inventario_df, status_summary, setor_summary),
+                file_name=f"relatorio_inventario_completo_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
         else:
             st.info("Não há dados de inventário para exportar.")
 
-        # Exportar Histórico de Movimentações
+        # Exportar Histórico de Movimentações (sem alterações)
         st.subheader("Histórico Completo de Movimentações")
         historico_df = conn.query("""
             SELECT 
@@ -402,7 +428,7 @@ elif option == "Exportar Relatórios":
         if not historico_df.empty:
             st.download_button(
                 label="Baixar Histórico de Movimentações",
-                data=to_excel(historico_df),
+                data=to_excel_single_sheet(historico_df),
                 file_name=f"relatorio_movimentacoes_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
@@ -412,5 +438,4 @@ elif option == "Exportar Relatórios":
 
     except Exception as e:
         st.error(f"Ocorreu um erro ao gerar os relatórios para exportação: {e}")
-        st.info("Verifique se o banco de dados está inicializado na página '⚙️ Configurações'.")
-
+        st.info("Verifique se o banco de dados está inicializado na página 'Configurações'.")
