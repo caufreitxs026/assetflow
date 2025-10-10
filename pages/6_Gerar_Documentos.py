@@ -289,8 +289,7 @@ def gerar_pdf_etiqueta(dados, logo_string):
                 margin: 0;
                 padding: 5mm; /* Adiciona uma margem interna */
                 box-sizing: border-box;
-                height: 40mm;
-                width: 100mm;
+                /* As dimensões são controladas pelo @page para garantir a precisão */
             }}
             .header {{
                 display: flex;
