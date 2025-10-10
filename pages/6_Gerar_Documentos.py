@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 from auth import show_login_form, logout
 from sqlalchemy import text
-from weasyprint import HTML
+from weasyprint import HTML, CSS
 
 # --- Autenticação ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -122,7 +122,7 @@ def carregar_movimentacoes_entrega():
     return df.to_dict('records')
 
 @st.cache_data(ttl=30)
-def buscar_dados_termo(mov_id):
+def buscar_dados_completos(mov_id):
     conn = get_db_connection()
     query = """
         SELECT
@@ -148,7 +148,7 @@ def carregar_setores_nomes():
 
 
 def gerar_pdf_termo(dados, checklist_data, logo_string):
-    """Gera o PDF a partir de um template HTML, agora incluindo a logo."""
+    """Gera o PDF do Termo de Responsabilidade a partir de um template HTML."""
     
     data_mov = dados.get('data_movimentacao')
     if isinstance(data_mov, str):
@@ -181,21 +181,20 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
     <head>
         <meta charset="UTF-8">
         <style>
-            /* --- AJUSTES AQUI --- */
-            @page {{ size: A4; margin: 1cm; }} /* Margem da folha reduzida */
+            @page {{ size: A4; margin: 1cm; }}
             body {{ font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.3; color: #333; }}
             
             .header {{ 
                 text-align: center; 
                 margin-bottom: 20px;
-                padding-top: 40px; /* Adiciona espaço para a logo não sobrepor o título */
+                padding-top: 40px;
             }}
             h1 {{ color: #003366; font-size: 16pt; margin: 0; }}
 
             .logo {{
                 position: absolute;
-                top: 0cm; /* Move a logo para o topo da margem */
-                left: 0,2cm;  /* Move a logo para a esquerda da margem */
+                top: 0cm;
+                left: 0.2cm; 
                 width: 150px; 
             }}
             
@@ -269,88 +268,234 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
     pdf_bytes = HTML(string=html_string).write_pdf()
     return pdf_bytes
 
-# --- UI ---
-st.title("Gerar Termo de Responsabilidade")
+# --- NOVA FUNÇÃO PARA GERAR ETIQUETAS ---
+def gerar_pdf_etiqueta(dados, logo_string):
+    """Gera o PDF da Etiqueta a partir de um template HTML."""
+    data_formatada = dados.get('data_movimentacao').strftime('%d/%m/%Y') if dados.get('data_movimentacao') else "N/A"
+
+    html_string = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            @page {{
+                size: 100mm 40mm;
+                margin: 0;
+            }}
+            body {{
+                font-family: Arial, sans-serif;
+                font-size: 8pt;
+                color: #000;
+                margin: 0;
+                padding: 5mm; /* Adiciona uma margem interna */
+                box-sizing: border-box;
+                height: 40mm;
+                width: 100mm;
+            }}
+            .header {{
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                padding-bottom: 2mm;
+                border-bottom: 1px solid #000;
+            }}
+            .logo {{
+                width: 30mm;
+                height: auto;
+            }}
+            .date {{
+                font-size: 9pt;
+                font-weight: bold;
+            }}
+            .content {{
+                margin-top: 3mm;
+                display: flex;
+                width: 100%;
+            }}
+            .column {{
+                width: 50%;
+                padding-right: 3mm;
+            }}
+            .column:last-child {{
+                padding-right: 0;
+                padding-left: 3mm;
+                border-left: 1px solid #ccc;
+            }}
+            .field {{
+                margin-bottom: 1.5mm;
+            }}
+            .field-label {{
+                font-weight: bold;
+                display: block;
+                font-size: 7pt;
+                margin-bottom: 0.5mm;
+            }}
+            .field-value {{
+                font-size: 8pt;
+                word-wrap: break-word;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <img src="{logo_string}" class="logo">
+            <span class="date">{data_formatada}</span>
+        </div>
+        <div class="content">
+            <div class="column">
+                <div class="field"><span class="field-label">N°/S:</span><span class="field-value">{dados.get('numero_serie', '')}</span></div>
+                <div class="field"><span class="field-label">MODELO:</span><span class="field-value">{dados.get('nome_marca', '')} {dados.get('nome_modelo', '')}</span></div>
+                <div class="field"><span class="field-label">IMEI 1:</span><span class="field-value">{dados.get('imei1', '')}</span></div>
+                <div class="field"><span class="field-label">IMEI 2:</span><span class="field-value">{dados.get('imei2', '')}</span></div>
+            </div>
+            <div class="column">
+                <div class="field"><span class="field-label">FUNÇÃO:</span><span class="field-value">{dados.get('nome_setor', '')}</span></div>
+                <div class="field"><span class="field-label">CÓDIGO:</span><span class="field-value">{dados.get('codigo_colaborador', '')}</span></div>
+                <div class="field"><span class="field-label">NOME:</span><span class="field-value">{dados.get('nome_completo', '')}</span></div>
+                <div class="field"><span class="field-label">GMAIL:</span><span class="field-value">{dados.get('gmail', '')}</span></div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    pdf_bytes = HTML(string=html_string).write_pdf()
+    return pdf_bytes
+
+# --- UI PRINCIPAL COM ABAS ---
+st.title("Geração de Documentos")
+st.markdown("---")
+
+tab1, tab2 = st.tabs(["Termo de Responsabilidade", "Gerar Etiquetas"])
 
 try:
-    movimentacoes = carregar_movimentacoes_entrega()
+    with tab1:
+        st.header("Gerar Termo de Responsabilidade")
+        movimentacoes = carregar_movimentacoes_entrega()
 
-    if not movimentacoes:
-        st.info("Nenhuma movimentação de 'Em uso' encontrada para gerar termos.")
-    else:
-        mov_dict = {f"{m['data_movimentacao'].strftime('%d/%m/%Y %H:%M')} - {m['nome_completo']} (S/N: {m['numero_serie']})": m['id'] for m in movimentacoes}
-        
-        st.subheader("1. Selecione a Movimentação")
-        mov_selecionada_str = st.selectbox(
-            "Selecione a entrega para gerar o termo:", 
-            options=list(mov_dict.keys()), 
-            index=None, 
-            placeholder="Selecione uma movimentação..."
-        )
-        
-        if mov_selecionada_str:
-            mov_id = mov_dict[mov_selecionada_str]
-            dados_termo_original = buscar_dados_termo(mov_id)
+        if not movimentacoes:
+            st.info("Nenhuma movimentação de 'Em uso' encontrada para gerar termos.")
+        else:
+            mov_dict_termo = {f"{m['data_movimentacao'].strftime('%d/%m/%Y %H:%M')} - {m['nome_completo']} (S/N: {m['numero_serie']})": m['id'] for m in movimentacoes}
+            
+            st.subheader("1. Selecione a Movimentação")
+            mov_selecionada_str_termo = st.selectbox(
+                "Selecione a entrega para gerar o termo:", 
+                options=list(mov_dict_termo.keys()), 
+                index=None, 
+                placeholder="Selecione uma movimentação...",
+                key="termo_select"
+            )
+            
+            if mov_selecionada_str_termo:
+                mov_id_termo = mov_dict_termo[mov_selecionada_str_termo]
+                dados_termo_original = buscar_dados_completos(mov_id_termo)
 
-            if dados_termo_original:
-                st.markdown("---")
-                st.subheader("2. Confira e Edite as Informações (Checkout)")
-
-                with st.form("checkout_form"):
-                    dados_termo_editaveis = dados_termo_original.copy()
-
-                    dados_termo_editaveis['codigo_colaborador'] = st.text_input("Código do Colaborador", value=dados_termo_original.get('codigo_colaborador', ''))
-                    data_str = dados_termo_original['data_movimentacao'].strftime('%d/%m/%Y %H:%M')
-                    dados_termo_editaveis['data_movimentacao'] = st.text_input("Data", value=data_str)
-                    
-                    st.markdown("##### Dados do Colaborador")
-                    dados_termo_editaveis['nome_completo'] = st.text_input("Nome", value=dados_termo_original['nome_completo'])
-                    dados_termo_editaveis['cpf'] = st.text_input("CPF", value=dados_termo_original['cpf'])
-                    
-                    setores_options = carregar_setores_nomes()
-                    try:
-                        current_sector_index = setores_options.index(dados_termo_original['nome_setor'])
-                    except (ValueError, IndexError):
-                        current_sector_index = 0
-                    dados_termo_editaveis['nome_setor'] = st.selectbox("Setor", options=setores_options, index=current_sector_index)
-                    
-                    dados_termo_editaveis['gmail'] = st.text_input("Email", value=dados_termo_original.get('gmail', ''))
-
-                    st.markdown("##### Dados do Smartphone")
-                    dados_termo_editaveis['numero_serie'] = st.text_input("N/S", value=dados_termo_original.get('numero_serie', ''))
-                    dados_termo_editaveis['imei1'] = st.text_input("IMEI 1", value=dados_termo_original.get('imei1', ''))
-                    dados_termo_editaveis['imei2'] = st.text_input("IMEI 2", value=dados_termo_original.get('imei2', ''))
-                    
+                if dados_termo_original:
                     st.markdown("---")
-                    st.subheader("3. Preencha o Checklist")
-                    
-                    checklist_data = {}
-                    itens_checklist = ["Tela", "Carcaça", "Bateria", "Botões", "USB", "Chip", "Carregador", "Cabo USB", "Capa", "Película"]
-                    opcoes_estado = ["NOVO", "BOM", "REGULAR", "AVARIADO", "JÁ DISPÕE"]
-                    
-                    cols = st.columns(2)
-                    for i, item in enumerate(itens_checklist):
-                        with cols[i % 2]:
-                            entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{mov_id}")
-                            estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}_{mov_id}")
-                            checklist_data[item] = {'entregue': entregue, 'estado': estado}
+                    st.subheader("2. Confira e Edite as Informações (Checkout)")
 
-                    submitted = st.form_submit_button("Gerar PDF", use_container_width=True, type="primary")
-                    if submitted:
+                    with st.form("checkout_form"):
+                        dados_termo_editaveis = dados_termo_original.copy()
+
+                        dados_termo_editaveis['codigo_colaborador'] = st.text_input("Código do Colaborador", value=dados_termo_original.get('codigo_colaborador', ''))
+                        data_str = dados_termo_original['data_movimentacao'].strftime('%d/%m/%Y %H:%M')
+                        dados_termo_editaveis['data_movimentacao'] = st.text_input("Data", value=data_str)
+                        
+                        st.markdown("##### Dados do Colaborador")
+                        dados_termo_editaveis['nome_completo'] = st.text_input("Nome", value=dados_termo_original['nome_completo'])
+                        dados_termo_editaveis['cpf'] = st.text_input("CPF", value=dados_termo_original['cpf'])
+                        
+                        setores_options = carregar_setores_nomes()
+                        try:
+                            current_sector_index = setores_options.index(dados_termo_original['nome_setor'])
+                        except (ValueError, IndexError):
+                            current_sector_index = 0
+                        dados_termo_editaveis['nome_setor'] = st.selectbox("Setor", options=setores_options, index=current_sector_index)
+                        
+                        dados_termo_editaveis['gmail'] = st.text_input("Email", value=dados_termo_original.get('gmail', ''))
+
+                        st.markdown("##### Dados do Smartphone")
+                        dados_termo_editaveis['numero_serie'] = st.text_input("N/S", value=dados_termo_original.get('numero_serie', ''))
+                        dados_termo_editaveis['imei1'] = st.text_input("IMEI 1", value=dados_termo_original.get('imei1', ''))
+                        dados_termo_editaveis['imei2'] = st.text_input("IMEI 2", value=dados_termo_original.get('imei2', ''))
+                        
+                        st.markdown("---")
+                        st.subheader("3. Preencha o Checklist")
+                        
+                        checklist_data = {}
+                        itens_checklist = ["Tela", "Carcaça", "Bateria", "Botões", "USB", "Chip", "Carregador", "Cabo USB", "Capa", "Película"]
+                        opcoes_estado = ["NOVO", "BOM", "REGULAR", "AVARIADO", "JÁ DISPÕE"]
+                        
+                        cols = st.columns(2)
+                        for i, item in enumerate(itens_checklist):
+                            with cols[i % 2]:
+                                entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{mov_id_termo}")
+                                estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}_{mov_id_termo}")
+                                checklist_data[item] = {'entregue': entregue, 'estado': estado}
+
+                        submitted = st.form_submit_button("Gerar PDF do Termo", use_container_width=True, type="primary")
+                        if submitted:
+                            logo_string = carregar_logo_base64()
+                            if logo_string:
+                                pdf_bytes = gerar_pdf_termo(dados_termo_editaveis, checklist_data, logo_string)
+                                
+                                safe_name = "".join(c for c in dados_termo_editaveis.get('nome_completo', 'termo') if c.isalnum() or c in " ").rstrip()
+                                pdf_filename = f"Termo_{safe_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                                
+                                st.session_state['pdf_para_download'] = {"data": pdf_bytes, "filename": pdf_filename, "type": "termo"}
+                                st.rerun()
+
+    with tab2:
+        st.header("Gerar Etiqueta do Ativo")
+        movimentacoes_etiqueta = carregar_movimentacoes_entrega() # Reutiliza a mesma função
+
+        if not movimentacoes_etiqueta:
+            st.info("Nenhuma movimentação de 'Em uso' encontrada para gerar etiquetas.")
+        else:
+            mov_dict_etiqueta = {f"{m['data_movimentacao'].strftime('%d/%m/%Y %H:%M')} - {m['nome_completo']} (S/N: {m['numero_serie']})": m['id'] for m in movimentacoes_etiqueta}
+
+            st.subheader("Selecione a Movimentação")
+            mov_selecionada_str_etiqueta = st.selectbox(
+                "Selecione a entrega para gerar a etiqueta:", 
+                options=list(mov_dict_etiqueta.keys()), 
+                index=None, 
+                placeholder="Selecione uma movimentação...",
+                key="etiqueta_select"
+            )
+
+            if mov_selecionada_str_etiqueta:
+                mov_id_etiqueta = mov_dict_etiqueta[mov_selecionada_str_etiqueta]
+                dados_etiqueta = buscar_dados_completos(mov_id_etiqueta)
+
+                if dados_etiqueta:
+                    # Mostra um preview dos dados
+                    st.write("Dados para a etiqueta:")
+                    st.json({
+                        "N°/S": dados_etiqueta.get('numero_serie', ''),
+                        "MODELO": f"{dados_etiqueta.get('nome_marca', '')} {dados_etiqueta.get('nome_modelo', '')}",
+                        "NOME": dados_etiqueta.get('nome_completo', ''),
+                        "FUNÇÃO": dados_etiqueta.get('nome_setor', '')
+                    })
+
+                    if st.button("Gerar PDF da Etiqueta", use_container_width=True, type="primary"):
                         logo_string = carregar_logo_base64()
                         if logo_string:
-                            pdf_bytes = gerar_pdf_termo(dados_termo_editaveis, checklist_data, logo_string)
+                            pdf_bytes = gerar_pdf_etiqueta(dados_etiqueta, logo_string)
                             
-                            safe_name = "".join(c for c in dados_termo_editaveis.get('nome_completo', 'termo') if c.isalnum() or c in " ").rstrip()
-                            pdf_filename = f"Termo_{safe_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                            safe_ns = "".join(c for c in dados_etiqueta.get('numero_serie', 'etiqueta') if c.isalnum()).rstrip()
+                            pdf_filename = f"Etiqueta_{safe_ns}_{datetime.now().strftime('%Y%m%d')}.pdf"
                             
-                            st.session_state['pdf_para_download'] = {"data": pdf_bytes, "filename": pdf_filename}
+                            st.session_state['pdf_para_download'] = {"data": pdf_bytes, "filename": pdf_filename, "type": "etiqueta"}
                             st.rerun()
-    
+
+    # Lógica de download unificada fora das abas
     if 'pdf_para_download' in st.session_state and st.session_state['pdf_para_download']:
         pdf_info = st.session_state.pop('pdf_para_download')
+        doc_type = pdf_info.get("type", "documento").capitalize()
         st.download_button(
-            label="PDF Gerado! Clique para Baixar",
+            label=f"✅ {doc_type} Gerado! Clique para Baixar",
             data=pdf_info['data'],
             file_name=pdf_info['filename'],
             mime="application/pdf",
