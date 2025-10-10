@@ -284,53 +284,53 @@ def gerar_pdf_etiqueta(dados, logo_string):
             }}
             body {{
                 font-family: Arial, sans-serif;
-                font-size: 8pt;
+                font-size: 7.5pt; /* Tamanho de fonte base reduzido */
                 color: #000;
                 margin: 0;
-                padding: 5mm; /* Adiciona uma margem interna */
+                padding: 3mm; /* Margem interna reduzida */
                 box-sizing: border-box;
-                /* As dimensões são controladas pelo @page para garantir a precisão */
+                line-height: 1.2; /* Altura da linha mais compacta */
             }}
             .header {{
                 display: flex;
                 justify-content: space-between;
                 align-items: flex-start;
-                padding-bottom: 2mm;
+                padding-bottom: 1.5mm; /* Espaçamento reduzido */
                 border-bottom: 1px solid #000;
             }}
             .logo {{
-                width: 30mm;
+                width: 28mm; /* Logo ligeiramente menor */
                 height: auto;
             }}
             .date {{
-                font-size: 9pt;
+                font-size: 8pt; /* Tamanho da data ajustado */
                 font-weight: bold;
             }}
             .content {{
-                margin-top: 3mm;
+                margin-top: 2mm; /* Espaçamento reduzido */
                 display: flex;
                 width: 100%;
             }}
             .column {{
                 width: 50%;
-                padding-right: 3mm;
+                padding-right: 2mm; /* Espaçamento entre colunas reduzido */
             }}
             .column:last-child {{
                 padding-right: 0;
-                padding-left: 3mm;
+                padding-left: 2mm; /* Espaçamento entre colunas reduzido */
                 border-left: 1px solid #ccc;
             }}
             .field {{
-                margin-bottom: 1.5mm;
+                margin-bottom: 1mm; /* Espaçamento entre campos reduzido */
             }}
             .field-label {{
                 font-weight: bold;
                 display: block;
-                font-size: 7pt;
-                margin-bottom: 0.5mm;
+                font-size: 6.5pt; /* Rótulos menores */
+                margin-bottom: 0.3mm;
             }}
             .field-value {{
-                font-size: 8pt;
+                font-size: 7.5pt;
                 word-wrap: break-word;
             }}
         </style>
