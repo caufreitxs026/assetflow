@@ -1,13 +1,17 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import date, datetime
+import io
 from auth import show_login_form, logout
 from sqlalchemy import text
-from weasyprint import HTML, CSS
 
-# --- Autenticação ---
+# --- Autenticação e Permissão ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
     st.switch_page("app.py")
+
+if st.session_state.get('user_role') != 'Administrador':
+    st.error("Acesso negado. Apenas administradores podem aceder a esta página.")
+    st.stop()
 
 # --- Configuração de Layout (Header, Footer e CSS) ---
 st.markdown("""
@@ -67,8 +71,7 @@ st.markdown(
 with st.sidebar:
     st.write(f"Bem-vindo, **{st.session_state['user_name']}**!")
     st.write(f"Cargo: **{st.session_state['user_role']}**")
-    if st.button("Logout", key="sidebar_logout_button"):
-        from auth import logout
+    if st.button("Logout", key="import_export_logout"):
         logout()
     st.markdown("---")
     st.markdown(
@@ -81,427 +84,352 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-# --- Funções do DB e Auxiliares ---
+# --- Funções do DB ---
 def get_db_connection():
     return st.connection("supabase", type="sql")
 
-@st.cache_data(ttl=3600)
-def carregar_logo_base64():
-    """Lê a string Base64 da logo a partir de um ficheiro para manter o código limpo."""
-    try:
-        with open("logo.b64", "r") as f:
-            return f.read()
-    except FileNotFoundError:
-        st.error("Ficheiro 'logo.b64' não encontrado. Por favor, crie o ficheiro com o código Base64 da sua logo.")
-        return ""
-
-@st.cache_data(ttl=30)
-def carregar_movimentacoes_entrega():
-    conn = get_db_connection()
-    query = """
-        WITH LatestMovements AS (
-            SELECT
-                aparelho_id,
-                MAX(data_movimentacao) as last_move_date
-            FROM
-                historico_movimentacoes
-            GROUP BY
-                aparelho_id
-        )
-        SELECT
-            h.id, h.data_movimentacao, a.numero_serie, c.nome_completo
-        FROM historico_movimentacoes h
-        JOIN LatestMovements lm ON h.aparelho_id = lm.aparelho_id AND h.data_movimentacao = lm.last_move_date
-        JOIN aparelhos a ON h.aparelho_id = a.id
-        JOIN status s ON a.status_id = s.id
-        LEFT JOIN colaboradores c ON h.colaborador_id = c.id
-        WHERE s.nome_status = 'Em uso' AND c.id IS NOT NULL AND c.status = 'Ativo'
-        ORDER BY h.data_movimentacao DESC;
-    """
-    df = conn.query(query)
-    return df.to_dict('records')
-
-@st.cache_data(ttl=30)
-def buscar_dados_completos(mov_id):
-    conn = get_db_connection()
-    query = """
-        SELECT
-            c.nome_completo, c.cpf, s.nome_setor, c.gmail, c.codigo as codigo_colaborador,
-            ma.nome_marca, mo.nome_modelo, a.imei1, a.imei2, a.numero_serie,
-            h.id as protocolo, h.data_movimentacao
-        FROM historico_movimentacoes h
-        JOIN colaboradores c ON h.colaborador_id = c.id
-        JOIN setores s ON c.setor_id = s.id
-        JOIN aparelhos a ON h.aparelho_id = a.id
-        JOIN modelos mo ON a.modelo_id = mo.id
-        JOIN marcas ma ON mo.marca_id = ma.id
-        WHERE h.id = :mov_id;
-    """
-    result_df = conn.query(query, params={"mov_id": mov_id})
-    return result_df.to_dict('records')[0] if not result_df.empty else None
-
 @st.cache_data(ttl=60)
-def carregar_setores_nomes():
+def get_foreign_key_map(table_name, name_column, key_column='id', join_clause=""):
     conn = get_db_connection()
-    df = conn.query("SELECT nome_setor FROM setores ORDER BY nome_setor;")
-    return df['nome_setor'].tolist()
+    query = f"SELECT {key_column} as key_col, {name_column} as name_col FROM {table_name} {join_clause}"
+    df = conn.query(query)
+    return pd.Series(df['key_col'].values, index=df['name_col']).to_dict()
 
-
-def gerar_pdf_termo(dados, checklist_data, logo_string):
-    """Gera o PDF do Termo de Responsabilidade a partir de um template HTML."""
-    
-    data_mov = dados.get('data_movimentacao')
-    if isinstance(data_mov, str):
-        try:
-            data_formatada = datetime.strptime(data_mov, '%d/%m/%Y %H:%M').strftime('%d/%m/%Y %H:%M')
-        except ValueError:
-            data_formatada = data_mov 
-    elif isinstance(data_mov, datetime):
-        data_formatada = data_mov.strftime('%d/%m/%Y %H:%M')
-    else:
-        data_formatada = "N/A"
-    
-    dados['data_movimentacao_formatada'] = data_formatada
-
-    checklist_html = ""
-    for item, detalhes in checklist_data.items():
-        entregue_str = 'SIM' if detalhes['entregue'] else 'NÃO'
-        estado_str = detalhes['estado']
-        checklist_html += f"<tr><td>{item}</td><td>{entregue_str}</td><td>{estado_str}</td></tr>"
-
-    texto_termos_resumido = """
-    Declaro receber o equipamento descrito para uso profissional, sendo responsável pela sua guarda e conservação. 
-    Comprometo-me a devolvê-lo nas mesmas condições em que o recebi. Danos por mau uso serão de minha responsabilidade 
-    (Art. 462, § 1º da CLT). Autorizo o uso dos meus dados para este fim, de acordo com a LGPD.
-    """
-
-    html_string = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <style>
-            @page {{ size: A4; margin: 1cm; }}
-            body {{ font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.3; color: #333; }}
-            
-            .header {{ 
-                text-align: center; 
-                margin-bottom: 20px;
-                padding-top: 40px;
-            }}
-            h1 {{ color: #003366; font-size: 16pt; margin: 0; }}
-
-            .logo {{
-                position: absolute;
-                top: 0cm;
-                left: 0.2cm; 
-                width: 150px; 
-            }}
-            
-            .section {{ margin-bottom: 8px; }}
-            .section-title {{ background-color: #003366; color: white; padding: 4px 8px; font-weight: bold; font-size: 11pt; border-radius: 4px;}}
-            
-            .info-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; }}
-            .info-table td {{ padding: 3px; border: none; }}
-            .info-table td:first-child {{ font-weight: bold; width: 25%; }}
-            
-            .checklist-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; }}
-            .checklist-table th, .checklist-table td {{ border-bottom: 1px solid #ddd; padding: 4px; text-align: left; }}
-            .checklist-table th {{ background-color: #f2f2f2; text-align: center; border-bottom: 2px solid #ccc;}}
-            .checklist-table td:nth-child(2), .checklist-table td:nth-child(3) {{ text-align: center; }}
-            
-            .disclaimer {{ font-size: 8pt; text-align: justify; margin-top: 5px; padding: 0 5px; }}
-            
-            .signature {{ margin-top: 95px; text-align: center; }} 
-            .signature-line {{ border-top: 1px solid #000; width: 350px; margin: 0 auto; padding-top: 5px; }}
-        </style>
-    </head>
-    <body>
-        <img src="{logo_string}" class="logo">
-        <div class="header">
-            <h1>TERMO DE RESPONSABILIDADE</h1>
-        </div>
-        <div class="section">
-            <div class="section-title">DADOS DA MOVIMENTAÇÃO</div>
-            <table class="info-table">
-                <tr><td>CÓDIGO:</td><td>{dados.get('codigo_colaborador', '')}</td></tr>
-                <tr><td>DATA:</td><td>{dados.get('data_movimentacao_formatada', '')}</td></tr>
-            </table>
-        </div>
-        <div class="section">
-            <div class="section-title">DADOS DO COLABORADOR</div>
-            <table class="info-table">
-                <tr><td>NOME:</td><td>{dados.get('nome_completo', '')}</td></tr>
-                <tr><td>CPF:</td><td>{dados.get('cpf', '')}</td></tr>
-                <tr><td>SETOR:</td><td>{dados.get('nome_setor', '')}</td></tr>
-            </table>
-        </div>
-        <div class="section">
-            <div class="section-title">DADOS DO EQUIPAMENTO</div>
-            <table class="info-table">
-                <tr><td>TIPO:</td><td>SMARTPHONE</td></tr>
-                <tr><td>MARCA:</td><td>{dados.get('nome_marca', '')}</td></tr>
-                <tr><td>MODELO:</td><td>{dados.get('nome_modelo', '')}</td></tr>
-                <tr><td>NÚMERO DE SÉRIE:</td><td>{dados.get('numero_serie', '')}</td></tr>
-                <tr><td>IMEI 1:</td><td>{dados.get('imei1', '')}</td></tr>
-                <tr><td>IMEI 2:</td><td>{dados.get('imei2', '')}</td></tr>
-            </table>
-        </div>
-        <div class="section">
-            <div class="section-title">CHECKLIST DE ITENS ENTREGUES</div>
-            <table class="checklist-table">
-                <thead><tr><th>ITEM</th><th>ENTREGUE</th><th>ESTADO</th></tr></thead>
-                <tbody>{checklist_html}</tbody>
-            </table>
-        </div>
-        <div class="section">
-            <div class="section-title">TERMOS E CONDIÇÕES</div>
-            <p class="disclaimer">{texto_termos_resumido}</p>
-        </div>
-        <div class="signature">
-            <div class="signature-line">{dados.get('nome_completo', '')}</div>
-        </div>
-    </body>
-    </html>
-    """
-    
-    pdf_bytes = HTML(string=html_string).write_pdf()
-    return pdf_bytes
-
-# --- NOVA FUNÇÃO PARA GERAR ETIQUETAS ---
-def gerar_pdf_etiqueta(dados, logo_string):
-    """Gera o PDF da Etiqueta a partir de um template HTML."""
-    data_formatada = dados.get('data_movimentacao').strftime('%d/%m/%Y') if dados.get('data_movimentacao') else "N/A"
-
-    html_string = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <style>
-            @page {{
-                size: 100mm 40mm;
-                margin: 0;
-            }}
-            body {{
-                font-family: Arial, sans-serif;
-                font-size: 8pt;
-                color: #000;
-                margin: 0;
-                padding: 5mm; /* Adiciona uma margem interna */
-                box-sizing: border-box;
-                height: 40mm;
-                width: 100mm;
-            }}
-            .header {{
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-start;
-                padding-bottom: 2mm;
-                border-bottom: 1px solid #000;
-            }}
-            .logo {{
-                width: 30mm;
-                height: auto;
-            }}
-            .date {{
-                font-size: 9pt;
-                font-weight: bold;
-            }}
-            .content {{
-                margin-top: 3mm;
-                display: flex;
-                width: 100%;
-            }}
-            .column {{
-                width: 50%;
-                padding-right: 3mm;
-            }}
-            .column:last-child {{
-                padding-right: 0;
-                padding-left: 3mm;
-                border-left: 1px solid #ccc;
-            }}
-            .field {{
-                margin-bottom: 1.5mm;
-            }}
-            .field-label {{
-                font-weight: bold;
-                display: block;
-                font-size: 7pt;
-                margin-bottom: 0.5mm;
-            }}
-            .field-value {{
-                font-size: 8pt;
-                word-wrap: break-word;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <img src="{logo_string}" class="logo">
-            <span class="date">{data_formatada}</span>
-        </div>
-        <div class="content">
-            <div class="column">
-                <div class="field"><span class="field-label">N°/S:</span><span class="field-value">{dados.get('numero_serie', '')}</span></div>
-                <div class="field"><span class="field-label">MODELO:</span><span class="field-value">{dados.get('nome_marca', '')} {dados.get('nome_modelo', '')}</span></div>
-                <div class="field"><span class="field-label">IMEI 1:</span><span class="field-value">{dados.get('imei1', '')}</span></div>
-                <div class="field"><span class="field-label">IMEI 2:</span><span class="field-value">{dados.get('imei2', '')}</span></div>
-            </div>
-            <div class="column">
-                <div class="field"><span class="field-label">FUNÇÃO:</span><span class="field-value">{dados.get('nome_setor', '')}</span></div>
-                <div class="field"><span class="field-label">CÓDIGO:</span><span class="field-value">{dados.get('codigo_colaborador', '')}</span></div>
-                <div class="field"><span class="field-label">NOME:</span><span class="field-value">{dados.get('nome_completo', '')}</span></div>
-                <div class="field"><span class="field-label">GMAIL:</span><span class="field-value">{dados.get('gmail', '')}</span></div>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    
-    pdf_bytes = HTML(string=html_string).write_pdf()
-    return pdf_bytes
-
-# --- UI PRINCIPAL COM ABAS ---
-st.title("Geração de Documentos")
+# --- UI ---
+st.title("Importar e Exportar Dados")
 st.markdown("---")
 
-tab1, tab2 = st.tabs(["Termo de Responsabilidade", "Gerar Etiquetas"])
+tab1, tab2 = st.tabs(["Importar em Lote", "Exportar Relatórios"])
 
-try:
-    with tab1:
-        st.header("Gerar Termo de Responsabilidade")
-        movimentacoes = carregar_movimentacoes_entrega()
+with tab1:
+    st.info("Selecione a operação, baixe o modelo, preencha com seus dados e faça o upload para importar em massa.")
 
-        if not movimentacoes:
-            st.info("Nenhuma movimentação de 'Em uso' encontrada para gerar termos.")
-        else:
-            mov_dict_termo = {f"{m['data_movimentacao'].strftime('%d/%m/%Y %H:%M')} - {m['nome_completo']} (S/N: {m['numero_serie']})": m['id'] for m in movimentacoes}
+    tabela_selecionada = st.selectbox(
+        "1. Selecione a operação de importação:",
+        ["Importar Colaboradores", "Importar Aparelhos", "Importar Marcas", "Importar Contas Gmail", "Importar Movimentações"]
+    )
+
+    try:
+        if tabela_selecionada == "Importar Colaboradores":
+            st.subheader("Importar Novos Colaboradores")
+            setores_map = get_foreign_key_map("setores", "nome_setor")
+            exemplo_setor = list(setores_map.keys())[0] if setores_map else "TI"
+            df_modelo = pd.DataFrame({"codigo": ["1001"], "nome_completo": ["Nome Sobrenome Exemplo"], "cpf": ["123.456.789-00"], "gmail": ["exemplo.email@gmail.com"], "nome_setor": [exemplo_setor]})
             
-            st.subheader("1. Selecione a Movimentação")
-            mov_selecionada_str_termo = st.selectbox(
-                "Selecione a entrega para gerar o termo:", 
-                options=list(mov_dict_termo.keys()), 
-                index=None, 
-                placeholder="Selecione uma movimentação...",
-                key="termo_select"
-            )
+            output = io.BytesIO()
+            df_modelo.to_excel(output, index=False, sheet_name='Colaboradores')
+            output.seek(0)
             
-            if mov_selecionada_str_termo:
-                mov_id_termo = mov_dict_termo[mov_selecionada_str_termo]
-                dados_termo_original = buscar_dados_completos(mov_id_termo)
+            st.download_button(label="Baixar Planilha Modelo", data=output, file_name="modelo_colaboradores.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-                if dados_termo_original:
-                    st.markdown("---")
-                    st.subheader("2. Confira e Edite as Informações (Checkout)")
-
-                    with st.form("checkout_form"):
-                        dados_termo_editaveis = dados_termo_original.copy()
-
-                        dados_termo_editaveis['codigo_colaborador'] = st.text_input("Código do Colaborador", value=dados_termo_original.get('codigo_colaborador', ''))
-                        data_str = dados_termo_original['data_movimentacao'].strftime('%d/%m/%Y %H:%M')
-                        dados_termo_editaveis['data_movimentacao'] = st.text_input("Data", value=data_str)
-                        
-                        st.markdown("##### Dados do Colaborador")
-                        dados_termo_editaveis['nome_completo'] = st.text_input("Nome", value=dados_termo_original['nome_completo'])
-                        dados_termo_editaveis['cpf'] = st.text_input("CPF", value=dados_termo_original['cpf'])
-                        
-                        setores_options = carregar_setores_nomes()
-                        try:
-                            current_sector_index = setores_options.index(dados_termo_original['nome_setor'])
-                        except (ValueError, IndexError):
-                            current_sector_index = 0
-                        dados_termo_editaveis['nome_setor'] = st.selectbox("Setor", options=setores_options, index=current_sector_index)
-                        
-                        dados_termo_editaveis['gmail'] = st.text_input("Email", value=dados_termo_original.get('gmail', ''))
-
-                        st.markdown("##### Dados do Smartphone")
-                        dados_termo_editaveis['numero_serie'] = st.text_input("N/S", value=dados_termo_original.get('numero_serie', ''))
-                        dados_termo_editaveis['imei1'] = st.text_input("IMEI 1", value=dados_termo_original.get('imei1', ''))
-                        dados_termo_editaveis['imei2'] = st.text_input("IMEI 2", value=dados_termo_original.get('imei2', ''))
-                        
-                        st.markdown("---")
-                        st.subheader("3. Preencha o Checklist")
-                        
-                        checklist_data = {}
-                        itens_checklist = ["Tela", "Carcaça", "Bateria", "Botões", "USB", "Chip", "Carregador", "Cabo USB", "Capa", "Película"]
-                        opcoes_estado = ["NOVO", "BOM", "REGULAR", "AVARIADO", "JÁ DISPÕE"]
-                        
-                        cols = st.columns(2)
-                        for i, item in enumerate(itens_checklist):
-                            with cols[i % 2]:
-                                entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{mov_id_termo}")
-                                estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}_{mov_id_termo}")
-                                checklist_data[item] = {'entregue': entregue, 'estado': estado}
-
-                        submitted = st.form_submit_button("Gerar PDF do Termo", use_container_width=True, type="primary")
-                        if submitted:
-                            logo_string = carregar_logo_base64()
-                            if logo_string:
-                                pdf_bytes = gerar_pdf_termo(dados_termo_editaveis, checklist_data, logo_string)
+            uploaded_file = st.file_uploader("Escolha a planilha de Colaboradores (.xlsx)", type="xlsx", key="upload_colab")
+            if uploaded_file:
+                df_upload = pd.read_excel(uploaded_file, dtype=str).fillna('')
+                st.dataframe(df_upload)
+                if st.button("Importar Dados dos Colaboradores", use_container_width=True, type="primary"):
+                    conn = get_db_connection()
+                    sucesso, erros = 0, 0
+                    with st.spinner("Importando dados..."), conn.session as s:
+                        for index, row in df_upload.iterrows():
+                            try:
+                                setor_id = setores_map.get(row['nome_setor'].strip())
+                                if setor_id is None:
+                                    st.warning(f"Linha {index+2}: Setor '{row['nome_setor']}' não encontrado. Pulando registo.")
+                                    erros += 1; continue
                                 
-                                safe_name = "".join(c for c in dados_termo_editaveis.get('nome_completo', 'termo') if c.isalnum() or c in " ").rstrip()
-                                pdf_filename = f"Termo_{safe_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                                query = text("INSERT INTO colaboradores (codigo, nome_completo, cpf, gmail, setor_id, data_cadastro) VALUES (:codigo, :nome, :cpf, :gmail, :setor_id, :data)")
+                                s.execute(query, {"codigo": row['codigo'], "nome": row['nome_completo'], "cpf": row['cpf'], "gmail": row['gmail'], "setor_id": setor_id, "data": date.today()})
+                                sucesso += 1
+                            except Exception as e:
+                                s.rollback() # Garante que a transação falha seja desfeita
+                                if 'unique constraint' in str(e).lower():
+                                    st.warning(f"Linha {index+2}: Colaborador com código, CPF ou setor já existe. Pulando registo.")
+                                else:
+                                    st.error(f"Linha {index+2}: Erro inesperado - {e}. Pulando registo.")
+                                erros += 1
+                        if erros == 0:
+                            s.commit()
+                    st.success(f"Importação concluída! {sucesso} registos importados com sucesso.")
+                    if erros > 0: st.error(f"{erros} registos continham erros e não foram importados.")
+                    st.cache_data.clear()
+
+        elif tabela_selecionada == "Importar Aparelhos":
+            st.subheader("Importar Novos Aparelhos")
+            modelos_map = get_foreign_key_map("modelos", "ma.nome_marca || ' - ' || mo.nome_modelo", key_column="mo.id", join_clause="mo JOIN marcas ma ON mo.marca_id = ma.id")
+            status_map = get_foreign_key_map("status", "nome_status")
+            exemplo_modelo = list(modelos_map.keys())[0] if modelos_map else "Samsung - Galaxy S24"
+            exemplo_status = 'Em estoque' if 'Em estoque' in status_map else (list(status_map.keys())[0] if status_map else "")
+            df_modelo = pd.DataFrame({"numero_serie": ["ABC123456789"], "imei1": ["111111111111111"], "imei2": ["222222222222222"], "valor": [4999.90], "modelo_completo": [exemplo_modelo], "status_inicial": [exemplo_status]})
+            
+            output = io.BytesIO()
+            df_modelo.to_excel(output, index=False, sheet_name='Aparelhos')
+            output.seek(0)
+            st.download_button(label="Baixar Planilha Modelo", data=output, file_name="modelo_aparelhos.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            
+            uploaded_file = st.file_uploader("Escolha a planilha de Aparelhos (.xlsx)", type="xlsx", key="upload_aparelho")
+            if uploaded_file:
+                df_upload = pd.read_excel(uploaded_file).fillna('')
+                st.dataframe(df_upload)
+                if st.button("Importar Dados dos Aparelhos", use_container_width=True, type="primary"):
+                    conn = get_db_connection()
+                    sucesso, erros = 0, 0
+                    with st.spinner("Importando dados..."), conn.session as s:
+                        for index, row in df_upload.iterrows():
+                            try:
+                                s.begin()
+                                modelo_id = modelos_map.get(str(row['modelo_completo']).strip())
+                                status_id = status_map.get(str(row['status_inicial']).strip())
+                                if not all([modelo_id, status_id]):
+                                    st.warning(f"Linha {index+2}: Modelo ou Status inválido. Pulando registo.")
+                                    erros += 1; s.rollback(); continue
                                 
-                                st.session_state['pdf_para_download'] = {"data": pdf_bytes, "filename": pdf_filename, "type": "termo"}
-                                st.rerun()
+                                q_aparelho = text("INSERT INTO aparelhos (numero_serie, imei1, imei2, valor, modelo_id, status_id, data_cadastro) VALUES (:ns, :i1, :i2, :val, :mid, :sid, :data) RETURNING id")
+                                result = s.execute(q_aparelho, {"ns": str(row['numero_serie']), "i1": str(row['imei1']), "i2": str(row['imei2']), "val": float(row['valor']), "mid": modelo_id, "sid": status_id, "data": date.today()})
+                                aparelho_id = result.scalar_one()
+                                
+                                q_hist = text("INSERT INTO historico_movimentacoes (data_movimentacao, aparelho_id, status_id, localizacao_atual, observacoes) VALUES (:data, :apid, :sid, :loc, :obs)")
+                                s.execute(q_hist, {"data": datetime.now(), "apid": aparelho_id, "sid": status_id, "loc": "Estoque Interno", "obs": "Entrada via importação."})
+                                s.commit()
+                                sucesso += 1
+                            except Exception as e:
+                                s.rollback()
+                                if 'unique constraint' in str(e).lower():
+                                    st.warning(f"Linha {index+2}: Aparelho com N/S já existe. Pulando registo.")
+                                else:
+                                    st.error(f"Linha {index+2}: Erro inesperado - {e}. Pulando registo.")
+                                erros += 1
+                    st.success(f"Importação concluída! {sucesso} registos importados com sucesso.")
+                    if erros > 0: st.error(f"{erros} registos continham erros.")
+                    st.cache_data.clear()
 
-    with tab2:
-        st.header("Gerar Etiqueta do Ativo")
-        movimentacoes_etiqueta = carregar_movimentacoes_entrega() # Reutiliza a mesma função
+        elif tabela_selecionada == "Importar Marcas":
+            st.subheader("Importar Novas Marcas")
+            df_modelo = pd.DataFrame({"nome_marca": ["Nome da Marca Exemplo"]})
+            
+            output = io.BytesIO()
+            df_modelo.to_excel(output, index=False, sheet_name='Marcas')
+            output.seek(0)
+            st.download_button(label="Baixar Planilha Modelo", data=output, file_name="modelo_marcas.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            
+            uploaded_file = st.file_uploader("Escolha a planilha de Marcas (.xlsx)", type="xlsx", key="upload_marca")
+            if uploaded_file:
+                df_upload = pd.read_excel(uploaded_file, dtype=str).fillna('')
+                st.dataframe(df_upload)
+                if st.button("Importar Dados de Marcas", use_container_width=True, type="primary"):
+                    conn = get_db_connection()
+                    sucesso, erros = 0, 0
+                    with st.spinner("Importando dados..."), conn.session as s:
+                        for index, row in df_upload.iterrows():
+                            try:
+                                query = text("INSERT INTO marcas (nome_marca) VALUES (:nome)")
+                                s.execute(query, {"nome": row['nome_marca'].strip()})
+                                sucesso += 1
+                            except Exception as e:
+                                if 'unique constraint' in str(e).lower():
+                                    st.warning(f"Linha {index+2}: Marca '{row['nome_marca']}' já existe. Pulando registo.")
+                                else:
+                                    st.error(f"Linha {index+2}: Erro inesperado - {e}. Pulando registo.")
+                                erros += 1
+                        s.commit()
+                    st.success(f"Importação concluída! {sucesso} registos importados com sucesso.")
+                    if erros > 0: st.error(f"{erros} registos continham erros.")
+                    st.cache_data.clear()
+        
+        elif tabela_selecionada == "Importar Contas Gmail":
+            st.subheader("Importar Novas Contas Gmail")
+            colaboradores_map = get_foreign_key_map("colaboradores", "nome_completo")
+            exemplo_colaborador = list(colaboradores_map.keys())[0] if colaboradores_map else ""
+            df_modelo = pd.DataFrame({"email": ["conta.exemplo@gmail.com"], "senha": ["senhaforte123"], "telefone_recuperacao": ["11999998888"], "email_recuperacao": ["recuperacao@email.com"], "nome_colaborador": [exemplo_colaborador]})
+            
+            output = io.BytesIO()
+            df_modelo.to_excel(output, index=False, sheet_name='Contas_Gmail')
+            output.seek(0)
+            
+            st.download_button(label="Baixar Planilha Modelo", data=output, file_name="modelo_contas_gmail.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            
+            uploaded_file = st.file_uploader("Escolha a planilha de Contas Gmail (.xlsx)", type="xlsx", key="upload_gmail")
+            if uploaded_file:
+                df_upload = pd.read_excel(uploaded_file, dtype=str).fillna('')
+                st.dataframe(df_upload)
+                if st.button("Importar Dados de Contas Gmail", use_container_width=True, type="primary"):
+                    conn = get_db_connection()
+                    sucesso, erros = 0, 0
+                    with st.spinner("Importando dados..."), conn.session as s:
+                        for index, row in df_upload.iterrows():
+                            try:
+                                colaborador_id = colaboradores_map.get(row['nome_colaborador'].strip()) if row['nome_colaborador'] else None
+                                
+                                query = text("INSERT INTO contas_gmail (email, senha, telefone_recuperacao, email_recuperacao, colaborador_id) VALUES (:email, :senha, :tel, :email_rec, :cid)")
+                                s.execute(query, {"email": row['email'], "senha": row['senha'], "tel": row['telefone_recuperacao'], "email_rec": row['email_recuperacao'], "cid": colaborador_id})
+                                sucesso += 1
+                            except Exception as e:
+                                if 'unique constraint' in str(e).lower():
+                                    st.warning(f"Linha {index+2}: E-mail '{row['email']}' já existe. Pulando registo.")
+                                else:
+                                    st.error(f"Linha {index+2}: Erro inesperado - {e}. Pulando registo.")
+                                erros += 1
+                        s.commit()
+                    st.success(f"Importação concluída! {sucesso} registos importados com sucesso.")
+                    if erros > 0: st.error(f"{erros} registos continham erros.")
+                    st.cache_data.clear()
 
-        if not movimentacoes_etiqueta:
-            st.info("Nenhuma movimentação de 'Em uso' encontrada para gerar etiquetas.")
-        else:
-            mov_dict_etiqueta = {f"{m['data_movimentacao'].strftime('%d/%m/%Y %H:%M')} - {m['nome_completo']} (S/N: {m['numero_serie']})": m['id'] for m in movimentacoes_etiqueta}
+        elif tabela_selecionada == "Importar Movimentações":
+            st.subheader("Importar Novas Movimentações (Entregas)")
+            st.warning("Esta funcionalidade é ideal para registar a entrega de aparelhos a colaboradores em massa.")
 
-            st.subheader("Selecione a Movimentação")
-            mov_selecionada_str_etiqueta = st.selectbox(
-                "Selecione a entrega para gerar a etiqueta:", 
-                options=list(mov_dict_etiqueta.keys()), 
-                index=None, 
-                placeholder="Selecione uma movimentação...",
-                key="etiqueta_select"
+            aparelhos_map = get_foreign_key_map("aparelhos", "numero_serie")
+            colaboradores_map = get_foreign_key_map("colaboradores", "nome_completo")
+            status_map = get_foreign_key_map("status", "nome_status")
+            status_em_uso_id = status_map.get("Em uso")
+
+            exemplo_ns = list(aparelhos_map.keys())[0] if aparelhos_map else "NUMERO_DE_SERIE_DO_APARELHO"
+            exemplo_colab = list(colaboradores_map.keys())[0] if colaboradores_map else "Nome Completo do Colaborador"
+            df_modelo = pd.DataFrame({"numero_serie_aparelho": [exemplo_ns], "nome_colaborador": [exemplo_colab], "localizacao": ["Mesa do Colaborador"], "observacoes": ["Entrega para novo colaborador."]})
+            
+            output = io.BytesIO()
+            df_modelo.to_excel(output, index=False, sheet_name='Movimentacoes')
+            output.seek(0)
+            
+            st.download_button(label="Baixar Planilha Modelo de Movimentações", data=output, file_name="modelo_movimentacoes.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+            uploaded_file = st.file_uploader("Escolha a planilha de Movimentações (.xlsx)", type="xlsx", key="upload_mov")
+            if uploaded_file:
+                df_upload = pd.read_excel(uploaded_file, dtype=str).fillna('')
+                st.dataframe(df_upload)
+                if st.button("Importar Movimentações", use_container_width=True, type="primary"):
+                    conn = get_db_connection()
+                    sucesso, erros = 0, 0
+                    with st.spinner("Processando movimentações..."), conn.session as s:
+                        for index, row in df_upload.iterrows():
+                            try:
+                                s.begin()
+                                aparelho_id = aparelhos_map.get(row['numero_serie_aparelho'].strip())
+                                nome_colaborador_snapshot = row['nome_colaborador'].strip()
+                                colaborador_id = colaboradores_map.get(nome_colaborador_snapshot)
+
+                                if not all([aparelho_id, colaborador_id, status_em_uso_id]):
+                                    st.warning(f"Linha {index+2}: Aparelho ou Colaborador não encontrado/disponível. Pulando registo.")
+                                    erros += 1; s.rollback(); continue
+                                
+                                q_hist = text("INSERT INTO historico_movimentacoes (data_movimentacao, aparelho_id, colaborador_id, status_id, localizacao_atual, observacoes, colaborador_snapshot) VALUES (:data, :apid, :cid, :sid, :loc, :obs, :snap)")
+                                s.execute(q_hist, {"data": datetime.now(), "apid": aparelho_id, "cid": colaborador_id, "sid": status_em_uso_id, "loc": row['localizacao'], "obs": row['observacoes'], "snap": nome_colaborador_snapshot})
+                                
+                                q_update = text("UPDATE aparelhos SET status_id = :sid WHERE id = :apid")
+                                s.execute(q_update, {"sid": status_em_uso_id, "apid": aparelho_id})
+                                s.commit()
+                                sucesso += 1
+                            except Exception as e:
+                                s.rollback()
+                                st.error(f"Linha {index+2}: Erro inesperado - {e}. Pulando registo.")
+                                erros += 1
+                    st.success(f"Importação concluída! {sucesso} movimentações registadas com sucesso.")
+                    if erros > 0: st.error(f"{erros} registos continham erros.")
+                    st.cache_data.clear()
+
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao carregar a página de importação: {e}")
+        st.info("Verifique se o banco de dados está inicializado na página '⚙️ Configurações'.")
+
+with tab2:
+    st.header("Exportar Relatórios Completos")
+    st.write("Exporte os dados completos do sistema para uma planilha Excel (.xlsx).")
+
+    conn = get_db_connection()
+
+    def to_excel_single_sheet(df):
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Relatorio')
+        processed_data = output.getvalue()
+        return processed_data
+    
+    # --- NOVA FUNÇÃO PARA EXPORTAR COM SUMÁRIOS ---
+    def to_excel_with_summaries(main_df, status_summary_df, setor_summary_df):
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Escreve o relatório principal
+            main_df.to_excel(writer, index=False, sheet_name='Inventario_Completo')
+            
+            # Calcula a posição inicial para o primeiro sumário (2 colunas à direita do principal)
+            start_col_status = main_df.shape[1] + 2
+            status_summary_df.to_excel(writer, index=False, sheet_name='Inventario_Completo', startcol=start_col_status)
+
+            # Calcula a posição para o segundo sumário (2 colunas à direita do primeiro sumário)
+            start_col_setor = start_col_status + status_summary_df.shape[1] + 2
+            setor_summary_df.to_excel(writer, index=False, sheet_name='Inventario_Completo', startcol=start_col_setor)
+            
+        processed_data = output.getvalue()
+        return processed_data
+
+    try:
+        # Exportar Inventário Completo
+        st.subheader("Inventário Geral de Aparelhos")
+        inventario_df = conn.query("""
+            WITH UltimoResponsavel AS (
+                SELECT
+                    h.aparelho_id, h.colaborador_id, h.colaborador_snapshot,
+                    ROW_NUMBER() OVER(PARTITION BY h.aparelho_id ORDER BY h.data_movimentacao DESC) as rn
+                FROM historico_movimentacoes h
             )
+            SELECT 
+                a.id, a.numero_serie, ma.nome_marca, mo.nome_modelo, s.nome_status,
+                CASE WHEN s.nome_status = 'Em uso' THEN COALESCE(ur.colaborador_snapshot, c.nome_completo) ELSE NULL END as responsavel_atual,
+                CASE WHEN s.nome_status = 'Em uso' THEN setor.nome_setor ELSE NULL END as setor_atual,
+                a.valor, a.imei1, a.imei2, a.data_cadastro
+            FROM aparelhos a
+            LEFT JOIN modelos mo ON a.modelo_id = mo.id
+            LEFT JOIN marcas ma ON mo.marca_id = ma.id
+            LEFT JOIN status s ON a.status_id = s.id
+            LEFT JOIN UltimoResponsavel ur ON a.id = ur.aparelho_id AND ur.rn = 1
+            LEFT JOIN colaboradores c ON ur.colaborador_id = c.id
+            LEFT JOIN setores setor ON c.setor_id = setor.id
+            ORDER BY a.id;
+        """)
+        if not inventario_df.empty:
+            # --- LÓGICA PARA CRIAR OS SUMÁRIOS ---
+            # 1. Sumário por Status
+            status_summary = inventario_df['nome_status'].value_counts().reset_index()
+            status_summary.columns = ['nome_status', 'Aparelhos']
 
-            if mov_selecionada_str_etiqueta:
-                mov_id_etiqueta = mov_dict_etiqueta[mov_selecionada_str_etiqueta]
-                dados_etiqueta = buscar_dados_completos(mov_id_etiqueta)
+            # 2. Sumário por Setor (apenas para aparelhos 'Em uso')
+            setor_summary = inventario_df[inventario_df['nome_status'] == 'Em uso']['setor_atual'].value_counts().reset_index()
+            setor_summary.columns = ['setor_atual', 'Aparelhos']
 
-                if dados_etiqueta:
-                    # Mostra um preview dos dados
-                    st.write("Dados para a etiqueta:")
-                    st.json({
-                        "N°/S": dados_etiqueta.get('numero_serie', ''),
-                        "MODELO": f"{dados_etiqueta.get('nome_marca', '')} {dados_etiqueta.get('nome_modelo', '')}",
-                        "NOME": dados_etiqueta.get('nome_completo', ''),
-                        "FUNÇÃO": dados_etiqueta.get('nome_setor', '')
-                    })
+            st.download_button(
+                label="Baixar Relatório de Inventário com Sumários",
+                data=to_excel_with_summaries(inventario_df, status_summary, setor_summary),
+                file_name=f"relatorio_inventario_completo_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        else:
+            st.info("Não há dados de inventário para exportar.")
 
-                    if st.button("Gerar PDF da Etiqueta", use_container_width=True, type="primary"):
-                        logo_string = carregar_logo_base64()
-                        if logo_string:
-                            pdf_bytes = gerar_pdf_etiqueta(dados_etiqueta, logo_string)
-                            
-                            safe_ns = "".join(c for c in dados_etiqueta.get('numero_serie', 'etiqueta') if c.isalnum()).rstrip()
-                            pdf_filename = f"Etiqueta_{safe_ns}_{datetime.now().strftime('%Y%m%d')}.pdf"
-                            
-                            st.session_state['pdf_para_download'] = {"data": pdf_bytes, "filename": pdf_filename, "type": "etiqueta"}
-                            st.rerun()
+        # Exportar Histórico de Movimentações (sem alterações)
+        st.subheader("Histórico Completo de Movimentações")
+        historico_df = conn.query("""
+            SELECT 
+                h.id, h.data_movimentacao, a.numero_serie, mo.nome_modelo,
+                h.colaborador_snapshot as colaborador, s.nome_status,
+                h.localizacao_atual, h.observacoes
+            FROM historico_movimentacoes h
+            JOIN aparelhos a ON h.aparelho_id = a.id
+            JOIN status s ON h.status_id = s.id
+            LEFT JOIN modelos mo ON a.modelo_id = mo.id
+            ORDER BY h.data_movimentacao DESC;
+        """)
+        if not historico_df.empty:
+            st.download_button(
+                label="Baixar Histórico de Movimentações",
+                data=to_excel_single_sheet(historico_df),
+                file_name=f"relatorio_movimentacoes_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        else:
+            st.info("Não há dados de movimentações para exportar.")
 
-    # Lógica de download unificada fora das abas
-    if 'pdf_para_download' in st.session_state and st.session_state['pdf_para_download']:
-        pdf_info = st.session_state.pop('pdf_para_download')
-        doc_type = pdf_info.get("type", "documento").capitalize()
-        st.download_button(
-            label=f"✅ {doc_type} Gerado! Clique para Baixar",
-            data=pdf_info['data'],
-            file_name=pdf_info['filename'],
-            mime="application/pdf",
-            use_container_width=True
-        )
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao gerar os relatórios para exportação: {e}")
+        st.info("Verifique se o banco de dados está inicializado na página 'Configurações'.")
 
-except Exception as e:
-    st.error(f"Ocorreu um erro ao carregar a página: {e}")
-    st.info("Verifique se o banco de dados está inicializado e se há movimentações do tipo 'Em uso' registadas.")
