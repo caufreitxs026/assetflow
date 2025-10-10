@@ -284,29 +284,27 @@ def gerar_pdf_etiqueta(dados, logo_string):
             }}
             body {{
                 font-family: Arial, sans-serif;
-                font-size: 7.5pt;
+                font-size: 7pt; /* Reduzido */
                 color: #000;
                 margin: 0;
-                padding: 3mm;
+                padding: 2.5mm; /* Margem interna reduzida */
                 box-sizing: border-box;
-                line-height: 1.1; /* Linha mais compacta */
+                line-height: 1.1;
             }}
             .header {{
                 display: flex;
                 justify-content: space-between;
-                align-items: flex-start;
+                align-items: center; /* Centraliza verticalmente */
                 padding-bottom: 1.5mm;
-                border-bottom: 1px solid #000;
-                margin-bottom: 1.5mm; /* Adiciona espaço após a linha */
+                border-bottom: 0.5px solid #000; /* Linha mais fina */
+                margin-bottom: 1.5mm;
             }}
             .logo {{
-                width: 30mm;
+                width: 25mm; /* Logo menor */
                 height: auto;
-                position: relative;
-                top: -2mm; /* Move a logo um pouco para cima */
             }}
             .date {{
-                font-size: 8pt;
+                font-size: 7pt; /* Data menor */
                 font-weight: bold;
             }}
             .content {{
@@ -315,25 +313,25 @@ def gerar_pdf_etiqueta(dados, logo_string):
             }}
             .column {{
                 width: 50%;
-                padding-right: 2mm;
+                padding-right: 1.5mm; /* Espaçamento menor */
             }}
             .column:last-child {{
                 padding-right: 0;
-                padding-left: 2mm;
-                border-left: 1px solid #ccc;
+                padding-left: 1.5mm; /* Espaçamento menor */
+                border-left: 0.5px solid #ccc; /* Linha mais fina */
             }}
             .field {{
-                margin-bottom: 1.2mm; /* Ajusta o espaçamento entre os campos */
+                margin-bottom: 1mm; /* Espaçamento menor */
             }}
             .field-label {{
                 font-weight: bold;
                 display: block;
-                font-size: 6.5pt;
-                margin-bottom: 0.1mm; /* Espaço mínimo entre label e valor */
-                text-transform: uppercase; /* Deixa os rótulos em maiúsculas */
+                font-size: 6pt; /* Rótulo menor */
+                margin-bottom: 0.2mm;
+                text-transform: uppercase;
             }}
             .field-value {{
-                font-size: 7.5pt;
+                font-size: 7pt;
                 word-wrap: break-word;
             }}
         </style>
@@ -513,3 +511,4 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página: {e}")
     st.info("Verifique se o banco de dados está inicializado e se há movimentações do tipo 'Em uso' registadas.")
+
