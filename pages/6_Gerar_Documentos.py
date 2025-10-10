@@ -284,50 +284,53 @@ def gerar_pdf_etiqueta(dados, logo_string):
             }}
             body {{
                 font-family: Arial, sans-serif;
-                font-size: 7.5pt; /* Tamanho de fonte base reduzido */
+                font-size: 7.5pt;
                 color: #000;
                 margin: 0;
-                padding: 3mm; /* Margem interna reduzida */
+                padding: 3mm;
                 box-sizing: border-box;
-                line-height: 1.2; /* Altura da linha mais compacta */
+                line-height: 1.1; /* Linha mais compacta */
             }}
             .header {{
                 display: flex;
                 justify-content: space-between;
                 align-items: flex-start;
-                padding-bottom: 1.5mm; /* Espaçamento reduzido */
+                padding-bottom: 1.5mm;
                 border-bottom: 1px solid #000;
+                margin-bottom: 1.5mm; /* Adiciona espaço após a linha */
             }}
             .logo {{
-                width: 28mm; /* Logo ligeiramente menor */
+                width: 30mm;
                 height: auto;
+                position: relative;
+                top: -2mm; /* Move a logo um pouco para cima */
             }}
             .date {{
-                font-size: 8pt; /* Tamanho da data ajustado */
+                font-size: 8pt;
                 font-weight: bold;
             }}
             .content {{
-                margin-top: 2mm; /* Espaçamento reduzido */
                 display: flex;
                 width: 100%;
             }}
             .column {{
                 width: 50%;
-                padding-right: 2mm; /* Espaçamento entre colunas reduzido */
+                padding-right: 2mm;
             }}
             .column:last-child {{
                 padding-right: 0;
-                padding-left: 2mm; /* Espaçamento entre colunas reduzido */
+                padding-left: 2mm;
                 border-left: 1px solid #ccc;
             }}
             .field {{
-                margin-bottom: 1mm; /* Espaçamento entre campos reduzido */
+                margin-bottom: 1.2mm; /* Ajusta o espaçamento entre os campos */
             }}
             .field-label {{
                 font-weight: bold;
                 display: block;
-                font-size: 6.5pt; /* Rótulos menores */
-                margin-bottom: 0.3mm;
+                font-size: 6.5pt;
+                margin-bottom: 0.1mm; /* Espaço mínimo entre label e valor */
+                text-transform: uppercase; /* Deixa os rótulos em maiúsculas */
             }}
             .field-value {{
                 font-size: 7.5pt;
@@ -348,7 +351,7 @@ def gerar_pdf_etiqueta(dados, logo_string):
                 <div class="field"><span class="field-label">IMEI 2:</span><span class="field-value">{dados.get('imei2', '')}</span></div>
             </div>
             <div class="column">
-                <div class="field"><span class="field-label">FUNÇÃO:</span><span class="field-value">{dados.get('nome_setor', '')}</span></div>
+                <div class="field"><span class="field-label">FUNCAO:</span><span class="field-value">{dados.get('nome_setor', '')}</span></div>
                 <div class="field"><span class="field-label">CÓDIGO:</span><span class="field-value">{dados.get('codigo_colaborador', '')}</span></div>
                 <div class="field"><span class="field-label">NOME:</span><span class="field-value">{dados.get('nome_completo', '')}</span></div>
                 <div class="field"><span class="field-label">GMAIL:</span><span class="field-value">{dados.get('gmail', '')}</span></div>
@@ -510,4 +513,3 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página: {e}")
     st.info("Verifique se o banco de dados está inicializado e se há movimentações do tipo 'Em uso' registadas.")
-
