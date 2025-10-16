@@ -89,7 +89,6 @@ with st.sidebar:
 def get_db_connection():
     return st.connection("supabase", type="sql")
 
-# --- NOVA FUNÇÃO: Conexão com o cliente Supabase para Storage ---
 def init_supabase_client():
     try:
         url = st.secrets["connections"]["supabase_storage"]["url"]
@@ -100,7 +99,14 @@ def init_supabase_client():
         st.info("Por favor, adicione [connections.supabase_storage] com 'url' e 'key' ao seu ficheiro secrets.toml.")
         return None
 
-# Funções para Marcas, Modelos, Setores (sem alterações)
+@st.cache_data(ttl=60)
+def get_foreign_key_map(table_name, name_column, key_column='id', join_clause=""):
+    conn = get_db_connection()
+    query = f"SELECT {key_column} as key_col, {name_column} as name_col FROM {table_name} {join_clause}"
+    df = conn.query(query)
+    return pd.Series(df['key_col'].values, index=df['name_col']).to_dict()
+
+# Funções para Marcas
 @st.cache_data(ttl=30)
 def carregar_marcas():
     conn = get_db_connection()
@@ -125,6 +131,8 @@ def atualizar_marca(marca_id, nome_marca):
             query = text("UPDATE marcas SET nome_marca = :nome WHERE id = :id"); s.execute(query, {"nome": nome_marca, "id": marca_id}); s.commit()
         st.cache_data.clear(); return True
     except Exception as e: st.error(f"Erro ao atualizar marca: {e}"); return False
+
+# Funções para Modelos
 @st.cache_data(ttl=30)
 def carregar_modelos():
     conn = get_db_connection()
@@ -144,6 +152,8 @@ def atualizar_modelo(modelo_id, nome_modelo, marca_id):
             query = text("UPDATE modelos SET nome_modelo = :nome, marca_id = :marca_id WHERE id = :id"); s.execute(query, {"nome": nome_modelo, "marca_id": marca_id, "id": modelo_id}); s.commit()
         st.cache_data.clear(); return True
     except Exception as e: st.error(f"Erro ao atualizar modelo: {e}"); return False
+
+# Funções para Setores
 @st.cache_data(ttl=30)
 def carregar_setores():
     conn = get_db_connection(); return conn.query("SELECT id, nome_setor FROM setores ORDER BY nome_setor;")
@@ -166,7 +176,7 @@ def atualizar_setor(setor_id, nome_setor):
         st.cache_data.clear(); return True
     except Exception as e: st.error(f"Erro ao atualizar setor: {e}"); return False
 
-# --- NOVAS FUNÇÕES: Gestão de Compras ---
+# Funções para Gestão de Compras
 def registrar_compra(dados, anexo):
     supabase_client = init_supabase_client()
     if not supabase_client: return False
@@ -174,7 +184,6 @@ def registrar_compra(dados, anexo):
     path_anexo = None
     if anexo is not None:
         try:
-            # Cria um nome de ficheiro único para evitar conflitos
             file_ext = anexo.name.split('.')[-1]
             path_anexo = f"{date.today().strftime('%Y/%m')}/{uuid.uuid4()}.{file_ext}"
             supabase_client.storage.from_("notas_fiscais").upload(path_anexo, anexo.getvalue())
@@ -212,7 +221,6 @@ def carregar_compras():
     if not df.empty and 'nota_fiscal_path' in df.columns:
         supabase_client = init_supabase_client()
         if supabase_client:
-            # Gera links de download seguros e temporários para os anexos
             df['link_nota_fiscal'] = df['nota_fiscal_path'].apply(
                 lambda path: supabase_client.storage.from_("notas_fiscais").create_signed_url(path, 60)['signedURL'] if path else None
             )
@@ -223,9 +231,16 @@ st.title("Cadastros Gerais")
 st.markdown("---")
 
 try:
-    tab1, tab2, tab3, tab4 = st.tabs(["Registar Compra de Ativos", "Consultar Compras", "Marcas e Modelos", "Setores"])
+    option = st.radio(
+        "Selecione o cadastro:",
+        ("Registar Compra de Ativos", "Consultar Compras", "Marcas e Modelos", "Setores"),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="cadastros_tab_selector"
+    )
+    st.markdown("---")
 
-    with tab1:
+    if option == "Registar Compra de Ativos":
         st.header("Registar Compra de Ativos em Lote")
         with st.form("form_nova_compra", clear_on_submit=True):
             st.subheader("Dados da Mercadoria")
@@ -233,7 +248,7 @@ try:
             
             c1, c2 = st.columns(2)
             data_compra = c1.date_input("Data da Compra*", value=date.today())
-            modelo_selecionado = c2.selectbox("Marca e Modelo Comprado*", options=modelos_map.keys(), index=None, placeholder="Selecione...")
+            modelo_selecionado = c2.selectbox("Marca e Modelo Comprado*", options=list(modelos_map.keys()), index=None, placeholder="Selecione...")
             
             c3, c4 = st.columns(2)
             quantidade = c3.number_input("Quantidade de Aparelhos*", min_value=1, step=1)
@@ -264,7 +279,7 @@ try:
                     if registrar_compra(dados_compra, anexo_nf):
                         st.rerun()
 
-    with tab2:
+    elif option == "Consultar Compras":
         st.header("Histórico de Compras de Ativos")
         df_compras = carregar_compras()
         st.dataframe(df_compras, use_container_width=True, hide_index=True,
@@ -277,33 +292,35 @@ try:
             }
         )
 
-    with tab3:
+    elif option == "Marcas e Modelos":
         col1, col2 = st.columns(2)
         with col1:
-            # (Código de Marcas sem alterações)
-            st.subheader("Marcas"); 
+            st.subheader("Marcas")
             with st.form("form_nova_marca", clear_on_submit=True):
                 novo_nome_marca = st.text_input("Cadastrar nova marca")
-                if st.form_submit_button("Adicionar Marca", use_container_width=True, type="primary"): adicionar_marca(novo_nome_marca); st.rerun()
+                if st.form_submit_button("Adicionar Marca", use_container_width=True, type="primary"):
+                    adicionar_marca(novo_nome_marca); st.rerun()
             with st.expander("Ver e Editar Marcas", expanded=True):
-                marcas_df = carregar_marcas(); session_key_marcas = "original_marcas_df";
+                marcas_df = carregar_marcas(); session_key_marcas = "original_marcas_df"
                 if session_key_marcas not in st.session_state: st.session_state[session_key_marcas] = marcas_df.copy()
                 edited_marcas_df = st.data_editor(marcas_df, key="edit_marcas", hide_index=True, disabled=["id"], use_container_width=True)
                 if st.button("Salvar Alterações de Marcas", use_container_width=True):
-                    original_df = st.session_state[session_key_marcas]; changes_made = False;
+                    original_df = st.session_state[session_key_marcas]; changes_made = False
                     for index, row in edited_marcas_df.iterrows():
                         if index < len(original_df) and not row.equals(original_df.loc[index]):
-                            if atualizar_marca(row['id'], row['nome_marca']): st.toast(f"Marca '{row['nome_marca']}' atualizada!", icon="✅"); changes_made = True
+                            if atualizar_marca(row['id'], row['nome_marca']):
+                                st.toast(f"Marca '{row['nome_marca']}' atualizada!", icon="✅"); changes_made = True
                     if changes_made: st.cache_data.clear(); del st.session_state[session_key_marcas]; st.rerun()
                     else: st.info("Nenhuma alteração detetada.")
         with col2:
-            # (Código de Modelos sem alterações)
-            st.subheader("Modelos"); marcas_df_options = carregar_marcas(); marcas_dict = {row['nome_marca']: row['id'] for index, row in marcas_df_options.iterrows()}
+            st.subheader("Modelos")
+            marcas_df_options = carregar_marcas(); marcas_dict = {row['nome_marca']: row['id'] for index, row in marcas_df_options.iterrows()}
             with st.form("form_novo_modelo", clear_on_submit=True):
                 novo_nome_modelo = st.text_input("Cadastrar novo modelo")
-                marca_selecionada_nome = st.selectbox("Selecione a Marca", options=marcas_dict.keys(), index=None, placeholder="Selecione...")
+                marca_selecionada_nome = st.selectbox("Selecione a Marca", options=list(marcas_dict.keys()), index=None, placeholder="Selecione...")
                 if st.form_submit_button("Adicionar Modelo", use_container_width=True, type="primary"):
-                    if marca_selecionada_nome and novo_nome_modelo: adicionar_modelo(novo_nome_modelo, marcas_dict[marca_selecionada_nome]); st.rerun()
+                    if marca_selecionada_nome and novo_nome_modelo:
+                        adicionar_modelo(novo_nome_modelo, marcas_dict[marca_selecionada_nome]); st.rerun()
                     else: st.warning("Preencha o nome do modelo e selecione uma marca.")
             with st.expander("Ver e Editar Modelos", expanded=True):
                 modelos_df = carregar_modelos(); session_key_modelos = "original_modelos_df"
@@ -313,19 +330,20 @@ try:
                     original_df = st.session_state[session_key_modelos]; changes_made = False
                     for index, row in edited_modelos_df.iterrows():
                         if index < len(original_df) and not row.equals(original_df.loc[index]):
-                            nova_marca_id = marcas_dict[row['nome_marca']];
-                            if atualizar_modelo(row['id'], row['nome_modelo'], nova_marca_id): st.toast(f"Modelo '{row['nome_modelo']}' atualizado!", icon="✅"); changes_made = True
+                            nova_marca_id = marcas_dict[row['nome_marca']]
+                            if atualizar_modelo(row['id'], row['nome_modelo'], nova_marca_id):
+                                st.toast(f"Modelo '{row['nome_modelo']}' atualizado!", icon="✅"); changes_made = True
                     if changes_made: st.cache_data.clear(); del st.session_state[session_key_modelos]; st.rerun()
                     else: st.info("Nenhuma alteração detetada.")
 
-    with tab4:
-        # (Código de Setores sem alterações)
+    elif option == "Setores":
         col1_setor, col2_setor = st.columns([1, 2])
         with col1_setor:
             st.subheader("Adicionar Setor")
             with st.form("form_novo_setor", clear_on_submit=True):
                 novo_nome_setor = st.text_input("Cadastrar novo setor")
-                if st.form_submit_button("Adicionar Setor", use_container_width=True, type="primary"): adicionar_setor(novo_nome_setor); st.rerun()
+                if st.form_submit_button("Adicionar Setor", use_container_width=True, type="primary"):
+                    adicionar_setor(novo_nome_setor); st.rerun()
         with col2_setor:
             st.subheader("Setores Registrados")
             with st.expander("Ver e Editar Setores", expanded=True):
@@ -336,10 +354,12 @@ try:
                     original_df = st.session_state[session_key_setores]; changes_made = False
                     for index, row in edited_setores_df.iterrows():
                         if index < len(original_df) and not row.equals(original_df.loc[index]):
-                            if atualizar_setor(row['id'], row['nome_setor']): st.toast(f"Setor '{row['nome_setor']}' atualizado!", icon="✅"); changes_made = True
+                            if atualizar_setor(row['id'], row['nome_setor']):
+                                st.toast(f"Setor '{row['nome_setor']}' atualizado!", icon="✅"); changes_made = True
                     if changes_made: st.cache_data.clear(); del st.session_state[session_key_setores]; st.rerun()
                     else: st.info("Nenhuma alteração detetada.")
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de cadastros: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
+
