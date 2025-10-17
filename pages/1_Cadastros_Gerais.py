@@ -218,10 +218,14 @@ def carregar_compras():
         JOIN marcas ma ON mo.marca_id = ma.id
         ORDER BY ca.data_compra DESC;
     """)
+    # Renomeia a coluna para algo mais amigável e inicializa com N/A
+    df['nota_fiscal'] = None
     if not df.empty and 'nota_fiscal_path' in df.columns:
         supabase_client = init_supabase_client()
         if supabase_client:
-            df['link_nota_fiscal'] = df['nota_fiscal_path'].apply(
+            # Gera links de download seguros e temporários para os anexos
+            # E preenche a coluna 'nota_fiscal' com os links
+            df['nota_fiscal'] = df['nota_fiscal_path'].apply(
                 lambda path: supabase_client.storage.from_("notas_fiscais").create_signed_url(path, 60)['signedURL'] if path else None
             )
     return df
@@ -282,14 +286,23 @@ try:
     elif option == "Consultar Compras":
         st.header("Histórico de Compras de Ativos")
         df_compras = carregar_compras()
-        st.dataframe(df_compras, use_container_width=True, hide_index=True,
+        st.data_editor(
+            df_compras, 
+            use_container_width=True, 
+            hide_index=True,
+            disabled=True, # Torna a tabela apenas de leitura
             column_config={
-                "id": "ID", "data_compra": st.column_config.DateColumn("Data da Compra", format="DD/MM/YYYY"),
-                "modelo": "Modelo", "quantidade": "Qtd.", "valor_unitario": st.column_config.NumberColumn("Valor Unit.", format="R$ %.2f"),
-                "comprador_nome": "Comprador", "loja": "Loja",
+                "id": "ID", 
+                "data_compra": st.column_config.DateColumn("Data da Compra", format="DD/MM/YYYY"),
+                "modelo": "Modelo", 
+                "quantidade": "Qtd.", 
+                "valor_unitario": st.column_config.NumberColumn("Valor Unit.", format="R$ %.2f"),
+                "comprador_nome": "Comprador", 
+                "loja": "Loja",
                 "nota_fiscal_path": None, # Oculta a coluna com o caminho do ficheiro
-                "link_nota_fiscal": st.column_config.LinkColumn("Nota Fiscal", display_text="Baixar Anexo")
-            }
+                "nota_fiscal": st.column_config.LinkColumn("Nota Fiscal", display_text="Baixar Anexo")
+            },
+            column_order=("id", "data_compra", "modelo", "quantidade", "valor_unitario", "comprador_nome", "loja", "nota_fiscal")
         )
 
     elif option == "Marcas e Modelos":
@@ -362,4 +375,3 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de cadastros: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
-
