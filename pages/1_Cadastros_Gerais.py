@@ -206,7 +206,7 @@ def registrar_compra(dados, anexo):
 @st.cache_data(ttl=30)
 def carregar_compras():
     conn = get_db_connection()
-    df = conn.query("""
+    return conn.query("""
         SELECT 
             ca.id, ca.data_compra, ma.nome_marca || ' - ' || mo.nome_modelo as modelo, ca.quantidade, 
             ca.valor_unitario, ca.comprador_nome, ca.loja, ca.nota_fiscal_path
@@ -215,14 +215,19 @@ def carregar_compras():
         JOIN marcas ma ON mo.marca_id = ma.id
         ORDER BY ca.data_compra DESC;
     """)
-    df['link_nota_fiscal'] = None
-    if not df.empty and 'nota_fiscal_path' in df.columns:
-        supabase_client = init_supabase_client()
-        if supabase_client:
-            df['link_nota_fiscal'] = df['nota_fiscal_path'].apply(
-                lambda path: supabase_client.storage.from_("notas_fiscais").create_signed_url(path, 60)['signedURL'] if pd.notna(path) and path else None
-            )
-    return df
+
+# --- NOVA FUNÇÃO DE DOWNLOAD ---
+def baixar_anexo(path):
+    supabase_client = init_supabase_client()
+    if not supabase_client or not path:
+        st.error("Cliente de Storage não inicializado ou caminho do ficheiro inválido.")
+        return
+    try:
+        file_bytes = supabase_client.storage.from_("notas_fiscais").download(path)
+        return file_bytes
+    except Exception as e:
+        st.error(f"Erro ao baixar o anexo: {e}")
+        return None
 
 # --- UI ---
 st.title("Cadastros Gerais")
@@ -281,11 +286,22 @@ try:
         st.header("Histórico de Compras de Ativos")
         df_compras = carregar_compras()
         
-        st.data_editor(
+        # Adiciona a coluna de seleção ao dataframe
+        df_compras['Selecionar'] = False
+        
+        # Define a ordem das colunas, com 'Selecionar' no início
+        column_order = [
+            'Selecionar', 'id', 'data_compra', 'modelo', 'quantidade', 
+            'valor_unitario', 'comprador_nome', 'loja'
+        ]
+
+        # Usa st.data_editor para criar a tabela interativa
+        edited_df = st.data_editor(
             df_compras,
             use_container_width=True, 
             hide_index=True,
-            disabled=df_compras.columns, # Desabilita a edição de todas as colunas
+            # Permite editar apenas a coluna 'Selecionar'
+            disabled=[col for col in df_compras.columns if col != 'Selecionar'],
             column_config={
                 "id": "ID", 
                 "data_compra": st.column_config.DateColumn("Data da Compra", format="DD/MM/YYYY"),
@@ -294,15 +310,33 @@ try:
                 "valor_unitario": st.column_config.NumberColumn("Valor Unit.", format="R$ %.2f"),
                 "comprador_nome": "Comprador", 
                 "loja": "Loja",
-                "nota_fiscal_path": None, # Oculta a coluna com o caminho do ficheiro
-                "link_nota_fiscal": st.column_config.LinkColumn(
-                    "Nota Fiscal",
-                    help="Clique para baixar a nota fiscal (link válido por 60 segundos)",
-                    display_text="Baixar Anexo"
-                )
+                "nota_fiscal_path": None, # Oculta a coluna com o caminho
+                "link_nota_fiscal": None, # Oculta a coluna de link
+                "Selecionar": st.column_config.CheckboxColumn("Selecionar", help="Marque para baixar o anexo")
             },
-            column_order=("id", "data_compra", "modelo", "quantidade", "valor_unitario", "comprador_nome", "loja", "link_nota_fiscal")
+            column_order=column_order
         )
+
+        # Filtra as linhas que foram selecionadas pelo utilizador
+        linhas_selecionadas = edited_df[edited_df.Selecionar]
+
+        if not linhas_selecionadas.empty:
+            st.markdown("---")
+            st.subheader("Anexos Selecionados para Download")
+            
+            for index, row in linhas_selecionadas.iterrows():
+                if pd.notna(row['nota_fiscal_path']):
+                    file_bytes = baixar_anexo(row['nota_fiscal_path'])
+                    if file_bytes:
+                        # Para cada linha selecionada, mostra um botão de download
+                        st.download_button(
+                            label=f"Baixar Anexo da Compra ID {row['id']} ({os.path.basename(row['nota_fiscal_path'])})",
+                            data=file_bytes,
+                            file_name=os.path.basename(row['nota_fiscal_path']),
+                            key=f"download_{row['id']}"
+                        )
+                else:
+                    st.warning(f"A Compra ID {row['id']} não possui anexo.")
 
     elif option == "Marcas e Modelos":
         col1, col2 = st.columns(2)
