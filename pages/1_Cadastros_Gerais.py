@@ -216,7 +216,6 @@ def carregar_compras():
         ORDER BY ca.data_compra DESC;
     """)
 
-# --- NOVA FUNÇÃO DE DOWNLOAD ---
 def baixar_anexo(path):
     supabase_client = init_supabase_client()
     if not supabase_client or not path:
@@ -284,23 +283,21 @@ try:
 
     elif option == "Consultar Compras":
         st.header("Histórico de Compras de Ativos")
+        st.info("Para baixar um anexo, marque a caixa de seleção na coluna 'Selecionar'. Os botões para download aparecerão abaixo da tabela.")
+        
         df_compras = carregar_compras()
         
-        # Adiciona a coluna de seleção ao dataframe
         df_compras['Selecionar'] = False
         
-        # Define a ordem das colunas, com 'Selecionar' no início
         column_order = [
             'Selecionar', 'id', 'data_compra', 'modelo', 'quantidade', 
             'valor_unitario', 'comprador_nome', 'loja'
         ]
 
-        # Usa st.data_editor para criar a tabela interativa
         edited_df = st.data_editor(
             df_compras,
             use_container_width=True, 
             hide_index=True,
-            # Permite editar apenas a coluna 'Selecionar'
             disabled=[col for col in df_compras.columns if col != 'Selecionar'],
             column_config={
                 "id": "ID", 
@@ -310,14 +307,12 @@ try:
                 "valor_unitario": st.column_config.NumberColumn("Valor Unit.", format="R$ %.2f"),
                 "comprador_nome": "Comprador", 
                 "loja": "Loja",
-                "nota_fiscal_path": None, # Oculta a coluna com o caminho
-                "link_nota_fiscal": None, # Oculta a coluna de link
+                "nota_fiscal_path": None,
                 "Selecionar": st.column_config.CheckboxColumn("Selecionar", help="Marque para baixar o anexo")
             },
             column_order=column_order
         )
 
-        # Filtra as linhas que foram selecionadas pelo utilizador
         linhas_selecionadas = edited_df[edited_df.Selecionar]
 
         if not linhas_selecionadas.empty:
@@ -328,7 +323,6 @@ try:
                 if pd.notna(row['nota_fiscal_path']):
                     file_bytes = baixar_anexo(row['nota_fiscal_path'])
                     if file_bytes:
-                        # Para cada linha selecionada, mostra um botão de download
                         st.download_button(
                             label=f"Baixar Anexo da Compra ID {row['id']} ({os.path.basename(row['nota_fiscal_path'])})",
                             data=file_bytes,
@@ -408,3 +402,4 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de cadastros: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
+
