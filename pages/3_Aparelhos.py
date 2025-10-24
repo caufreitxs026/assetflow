@@ -139,7 +139,7 @@ def adicionar_aparelho_e_historico(serie, imei1, imei2, valor, modelo_id, status
         return False
 
 @st.cache_data(ttl=30)
-def carregar_inventario_completo(order_by, search_term=None, status_id=None, modelo_id=None, setor_id=None, responsavel_search=None, ns_search=None):
+def carregar_inventario_completo(order_by, status_id=None, modelo_id=None, setor_id=None, responsavel_search=None, ns_search=None):
     """Carrega o inventário com filtros avançados e lógica de responsável corrigida."""
     conn = get_db_connection()
     
@@ -157,9 +157,9 @@ def carregar_inventario_completo(order_by, search_term=None, status_id=None, mod
         where_clauses.append("c.setor_id = :setor_id AND s.nome_status = 'Em uso'")
         params["setor_id"] = setor_id
     
-    # Filtro específico para N/S
+    # --- ALTERAÇÃO AQUI: Filtro específico para N/S ou IMEI ---
     if ns_search:
-        where_clauses.append("a.numero_serie ILIKE :ns_search")
+        where_clauses.append("(a.numero_serie ILIKE :ns_search OR a.imei1 ILIKE :ns_search OR a.imei2 ILIKE :ns_search)")
         params["ns_search"] = f"%{ns_search}%"
         
     # Filtro específico para Responsável (Código ou Nome)
@@ -169,17 +169,6 @@ def carregar_inventario_completo(order_by, search_term=None, status_id=None, mod
              (c.codigo ILIKE :responsavel_search OR COALESCE(ur.colaborador_snapshot, c.nome_completo) ILIKE :responsavel_search))
         """)
         params["responsavel_search"] = f"%{responsavel_search}%"
-
-    # Filtro de pesquisa geral (mantido se os específicos não forem usados)
-    if search_term and not responsavel_search and not ns_search:
-        search_like = f"%{search_term}%"
-        where_clauses.append("""
-            (a.numero_serie ILIKE :search OR 
-             a.imei1 ILIKE :search OR 
-             a.imei2 ILIKE :search OR 
-             (s.nome_status = 'Em uso' AND (c.codigo ILIKE :search OR COALESCE(ur.colaborador_snapshot, c.nome_completo) ILIKE :search)))
-        """)
-        params["search"] = search_like
 
     where_sql = ""
     if where_clauses:
@@ -199,12 +188,10 @@ def carregar_inventario_completo(order_by, search_term=None, status_id=None, mod
             a.numero_serie,
             ma.nome_marca || ' - ' || mo.nome_modelo as modelo_completo,
             s.nome_status,
-            -- *** ALTERAÇÃO AQUI: Concatena código e nome ***
             CASE 
                 WHEN s.nome_status = 'Em uso' THEN c.codigo || ' - ' || COALESCE(ur.colaborador_snapshot, c.nome_completo)
                 ELSE NULL 
             END as responsavel_atual,
-            -- **********************************************
             CASE 
                 WHEN s.nome_status = 'Em uso' THEN setor.nome_setor
                 ELSE NULL
@@ -330,7 +317,8 @@ try:
 
         filter_cols2 = st.columns(2)
         with filter_cols2[0]:
-            ns_pesquisa = st.text_input("Pesquisar por N/S:", placeholder="Digite parte do N/S...", key="ns_filter")
+            # --- ALTERAÇÃO AQUI: Label atualizado ---
+            ns_pesquisa = st.text_input("Pesquisar por N/S ou IMEI:", placeholder="Digite N/S ou IMEI...", key="ns_filter")
         with filter_cols2[1]:
             responsavel_pesquisa = st.text_input("Pesquisar por Responsável (Código ou Nome):", placeholder="Digite código ou nome...", key="responsavel_filter")
 
