@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
-from auth import show_login_form
+from auth import show_login_form  # Assuming auth.py contains show_login_form
 from sqlalchemy import text
 import numpy as np
 
@@ -68,7 +68,7 @@ with st.sidebar:
     st.write(f"Bem-vindo, **{st.session_state['user_name']}**!")
     st.write(f"Cargo: **{st.session_state['user_role']}**")
     if st.button("Logout", key="aparelhos_logout"):
-        from auth import logout
+        from auth import logout # Import logout here if not already imported globally
         logout()
     st.markdown("---")
     st.markdown(
@@ -139,7 +139,7 @@ def adicionar_aparelho_e_historico(serie, imei1, imei2, valor, modelo_id, status
         return False
 
 @st.cache_data(ttl=30)
-def carregar_inventario_completo(order_by, search_term=None, status_id=None, modelo_id=None, setor_id=None):
+def carregar_inventario_completo(order_by, search_term=None, status_id=None, modelo_id=None, setor_id=None, responsavel_search=None, ns_search=None):
     """Carrega o inventário com filtros avançados e lógica de responsável corrigida."""
     conn = get_db_connection()
     
@@ -153,16 +153,31 @@ def carregar_inventario_completo(order_by, search_term=None, status_id=None, mod
         where_clauses.append("a.modelo_id = :modelo_id")
         params["modelo_id"] = modelo_id
     if setor_id:
+        # Se filtrar por setor, implicitamente busca apenas aparelhos 'Em uso' naquele setor
         where_clauses.append("c.setor_id = :setor_id AND s.nome_status = 'Em uso'")
         params["setor_id"] = setor_id
     
-    if search_term:
+    # Filtro específico para N/S
+    if ns_search:
+        where_clauses.append("a.numero_serie ILIKE :ns_search")
+        params["ns_search"] = f"%{ns_search}%"
+        
+    # Filtro específico para Responsável (Código ou Nome)
+    if responsavel_search:
+        where_clauses.append("""
+            (s.nome_status = 'Em uso' AND 
+             (c.codigo ILIKE :responsavel_search OR COALESCE(ur.colaborador_snapshot, c.nome_completo) ILIKE :responsavel_search))
+        """)
+        params["responsavel_search"] = f"%{responsavel_search}%"
+
+    # Filtro de pesquisa geral (mantido se os específicos não forem usados)
+    if search_term and not responsavel_search and not ns_search:
         search_like = f"%{search_term}%"
         where_clauses.append("""
             (a.numero_serie ILIKE :search OR 
              a.imei1 ILIKE :search OR 
              a.imei2 ILIKE :search OR 
-             (s.nome_status = 'Em uso' AND COALESCE(h_atual.colaborador_snapshot, c.nome_completo) ILIKE :search))
+             (s.nome_status = 'Em uso' AND (c.codigo ILIKE :search OR COALESCE(ur.colaborador_snapshot, c.nome_completo) ILIKE :search)))
         """)
         params["search"] = search_like
 
@@ -184,10 +199,12 @@ def carregar_inventario_completo(order_by, search_term=None, status_id=None, mod
             a.numero_serie,
             ma.nome_marca || ' - ' || mo.nome_modelo as modelo_completo,
             s.nome_status,
+            -- *** ALTERAÇÃO AQUI: Concatena código e nome ***
             CASE 
-                WHEN s.nome_status = 'Em uso' THEN COALESCE(ur.colaborador_snapshot, c.nome_completo)
+                WHEN s.nome_status = 'Em uso' THEN c.codigo || ' - ' || COALESCE(ur.colaborador_snapshot, c.nome_completo)
                 ELSE NULL 
             END as responsavel_atual,
+            -- **********************************************
             CASE 
                 WHEN s.nome_status = 'Em uso' THEN setor.nome_setor
                 ELSE NULL
@@ -203,12 +220,12 @@ def carregar_inventario_completo(order_by, search_term=None, status_id=None, mod
         LEFT JOIN UltimoResponsavel ur ON a.id = ur.aparelho_id AND ur.rn = 1
         LEFT JOIN colaboradores c ON ur.colaborador_id = c.id
         LEFT JOIN setores setor ON c.setor_id = setor.id
-        LEFT JOIN historico_movimentacoes h_atual ON h_atual.aparelho_id = a.id AND h_atual.id = (SELECT MAX(id) FROM historico_movimentacoes WHERE aparelho_id = a.id)
         {where_sql}
         ORDER BY {order_by}
     """
     df = conn.query(query, params=params)
     
+    # Preenche Nulos para exibição
     for col in ['responsavel_atual', 'setor_atual', 'imei1', 'imei2', 'numero_serie', 'modelo_completo', 'nome_status']:
         if col in df.columns:
             df[col] = df[col].fillna('')
@@ -309,9 +326,13 @@ try:
         with filter_cols[1]:
             modelo_filtro_nome = st.selectbox("Filtrar por Modelo:", ["Todos"] + list(modelos_dict.keys()), key="modelo_filter")
         with filter_cols[2]:
-            setor_filtro_nome = st.selectbox("Filtrar por Setor:", ["Todos"] + list(setores_dict.keys()), key="setor_filter")
+            setor_filtro_nome = st.selectbox("Filtrar por Setor (Aparelhos em Uso):", ["Todos"] + list(setores_dict.keys()), key="setor_filter")
 
-        termo_pesquisa = st.text_input("Pesquisar por N/S, IMEI ou Responsável:", placeholder="Digite para buscar...", key="search_filter")
+        filter_cols2 = st.columns(2)
+        with filter_cols2[0]:
+            ns_pesquisa = st.text_input("Pesquisar por N/S:", placeholder="Digite parte do N/S...", key="ns_filter")
+        with filter_cols2[1]:
+            responsavel_pesquisa = st.text_input("Pesquisar por Responsável (Código ou Nome):", placeholder="Digite código ou nome...", key="responsavel_filter")
 
         status_id_filtro = status_dict.get(status_filtro_nome) if status_filtro_nome != "Todos" else None
         modelo_id_filtro = modelos_dict.get(modelo_filtro_nome) if modelo_filtro_nome != "Todos" else None
@@ -330,14 +351,17 @@ try:
 
         inventario_df = carregar_inventario_completo(
             order_by=sort_options[sort_selection],
-            search_term=termo_pesquisa,
             status_id=status_id_filtro,
             modelo_id=modelo_id_filtro,
-            setor_id=setor_id_filtro
+            setor_id=setor_id_filtro,
+            responsavel_search=responsavel_pesquisa,
+            ns_search=ns_pesquisa
         )
         
-        session_state_key = f"original_aparelhos_df_{sort_selection}_{termo_pesquisa}_{status_filtro_nome}_{modelo_filtro_nome}_{setor_filtro_nome}"
+        # Chave única para o session state baseada nos filtros e ordenação
+        session_state_key = f"original_aparelhos_df_{sort_selection}_{status_filtro_nome}_{modelo_filtro_nome}_{setor_filtro_nome}_{ns_pesquisa}_{responsavel_pesquisa}"
         if session_state_key not in st.session_state:
+            # Limpa chaves antigas para evitar acumulação
             for key in list(st.session_state.keys()):
                 if key.startswith('original_aparelhos_df_'):
                     del st.session_state[key]
@@ -350,7 +374,7 @@ try:
                 "numero_serie": st.column_config.TextColumn("N/S", required=True),
                 "modelo_completo": st.column_config.SelectboxColumn("Modelo", options=list(modelos_dict.keys()), required=True),
                 "nome_status": st.column_config.TextColumn("Status", disabled=True),
-                "responsavel_atual": st.column_config.TextColumn("Responsável", disabled=True),
+                "responsavel_atual": st.column_config.TextColumn("Responsável (Cód - Nome)", disabled=True), # Label atualizado
                 "setor_atual": st.column_config.TextColumn("Setor", disabled=True),
                 "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", required=True),
                 "imei1": st.column_config.TextColumn("IMEI 1"),
@@ -381,7 +405,9 @@ try:
                 original_row = original_df_indexed.loc[aparelho_id]
                 edited_row = edited_df_indexed.loc[aparelho_id]
                 
-                if not original_row.equals(edited_row):
+                # Compara colunas editáveis
+                cols_to_compare = ['numero_serie', 'modelo_completo', 'valor', 'imei1', 'imei2']
+                if not original_row[cols_to_compare].equals(edited_row[cols_to_compare]):
                     novo_modelo_id = modelos_dict[edited_row['modelo_completo']]
                     
                     if atualizar_aparelho_completo(
@@ -401,5 +427,3 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de aparelhos: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
-
-
