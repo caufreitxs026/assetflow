@@ -83,12 +83,6 @@ with st.sidebar:
     if st.button("Logout", key="flow_logout"):
         logout()
     st.markdown("---")
-    st.markdown(f"""
-        <div class="sidebar-footer">
-            <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg"></a>
-            <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg"></a>
-        </div>
-        """, unsafe_allow_html=True)
 
 # --- Funções do Executor de Ações ---
 def get_db_connection():
@@ -488,4 +482,5 @@ for message in st.session_state.messages:
 
 if prompt := st.chat_input("Como posso ajudar?"):
     asyncio.run(handle_prompt(prompt))
+
 
