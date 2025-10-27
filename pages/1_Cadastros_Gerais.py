@@ -76,7 +76,6 @@ with st.sidebar:
     if st.button("Logout", key="cadastros_logout"):
         logout()
     st.markdown("---")
-    st.markdown(
 
 # --- Funções de Banco de Dados e Storage ---
 def get_db_connection():
@@ -394,5 +393,6 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de cadastros: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
+
 
 
