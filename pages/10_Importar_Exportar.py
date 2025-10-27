@@ -74,15 +74,6 @@ with st.sidebar:
     if st.button("Logout", key="import_export_logout"):
         logout()
     st.markdown("---")
-    st.markdown(
-        f"""
-        <div class="sidebar-footer">
-            <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg"></a>
-            <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg"></a>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
 # --- Funções do DB ---
 def get_db_connection():
@@ -439,3 +430,4 @@ elif option == "Exportar Relatórios":
     except Exception as e:
         st.error(f"Ocorreu um erro ao gerar os relatórios para exportação: {e}")
         st.info("Verifique se o banco de dados está inicializado na página 'Configurações'.")
+
