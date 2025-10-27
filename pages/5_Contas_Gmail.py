@@ -70,15 +70,6 @@ with st.sidebar:
     if st.button("Logout", key="gmail_logout"):
         logout()
     st.markdown("---")
-    st.markdown(
-        f"""
-        <div class="sidebar-footer">
-            <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg"></a>
-            <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg"></a>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
 # --- Funções do Banco de Dados ---
 def get_db_connection():
@@ -325,4 +316,5 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de contas: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
+
 
