@@ -73,7 +73,6 @@ with st.sidebar:
     st.write(f"Cargo: **{st.session_state['user_role']}**")
     if st.button("Logout", key="import_export_logout"):
         logout()
-    st.markdown("---")
 
 # --- Funções do DB ---
 def get_db_connection():
@@ -430,4 +429,5 @@ elif option == "Exportar Relatórios":
     except Exception as e:
         st.error(f"Ocorreu um erro ao gerar os relatórios para exportação: {e}")
         st.info("Verifique se o banco de dados está inicializado na página 'Configurações'.")
+
 
