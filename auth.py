@@ -256,14 +256,6 @@ def show_login_form():
 
     st.markdown(f"""
         <div class="login-footer">
-            <div class="social-icons">
-                <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub">
-                    <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg">
-                </a>
-                <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn">
-                    <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg">
-                </a>
-            </div>
             <div class="version-badge">V 3.1.1</div>
         </div>
     """, unsafe_allow_html=True)
