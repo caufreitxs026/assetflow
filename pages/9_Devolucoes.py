@@ -4,6 +4,7 @@ from datetime import datetime, date
 import json
 from auth import show_login_form, logout
 from sqlalchemy import text
+from email_utils import enviar_email # Importa a nova função genérica
 
 # --- Verificação de Autenticação ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -61,6 +62,7 @@ with st.sidebar:
     if st.button("Logout", key="devolucoes_logout"):
         logout()
     st.markdown("---")
+    # Adicione o footer da barra lateral se desejar
 
 # --- Funções de Banco de Dados ---
 def get_db_connection():
@@ -69,6 +71,7 @@ def get_db_connection():
 @st.cache_data(ttl=30)
 def carregar_aparelhos_em_uso():
     conn = get_db_connection()
+    # Query ajustada para buscar também marca_id e modelo_id
     query = """
         WITH UltimaMovimentacao AS (
             SELECT
@@ -77,15 +80,18 @@ def carregar_aparelhos_em_uso():
             FROM historico_movimentacoes h
         )
         SELECT
-            a.id as aparelho_id, a.numero_serie, mo.nome_modelo, ma.nome_marca,
-            c.id as colaborador_id, c.nome_completo as colaborador_nome
+            a.id as aparelho_id, a.numero_serie, 
+            mo.id as modelo_id, mo.nome_modelo, 
+            ma.id as marca_id, ma.nome_marca,
+            c.id as colaborador_id, c.nome_completo as colaborador_nome, c.codigo as colaborador_codigo, s.nome_setor as colaborador_setor
         FROM aparelhos a
-        JOIN status s ON a.status_id = s.id
+        JOIN status st ON a.status_id = st.id
         LEFT JOIN UltimaMovimentacao um ON a.id = um.aparelho_id AND um.rn = 1
         LEFT JOIN colaboradores c ON um.colaborador_id = c.id
+        LEFT JOIN setores s ON c.setor_id = s.id
         JOIN modelos mo ON a.modelo_id = mo.id
         JOIN marcas ma ON mo.marca_id = ma.id
-        WHERE s.nome_status = 'Em uso' AND c.id IS NOT NULL
+        WHERE st.nome_status = 'Em uso' AND c.id IS NOT NULL AND c.status = 'Ativo' -- Garante que o colaborador está ativo
         ORDER BY c.nome_completo;
     """
     df = conn.query(query)
@@ -97,6 +103,7 @@ def processar_devolucao(aparelho_id, colaborador_id, nome_colaborador_devolveu, 
         with conn.session as s:
             s.begin()
             localizacao = ""
+            data_movimentacao_atual = datetime.now() # Guarda a data exata
             
             if destino_final == "Devolver ao Estoque":
                 novo_status_nome = "Em estoque"
@@ -117,7 +124,7 @@ def processar_devolucao(aparelho_id, colaborador_id, nome_colaborador_devolveu, 
                 VALUES (:data, :ap_id, NULL, :status_id, :loc, :obs, :checklist, :col_snap)
             """)
             s.execute(query_hist, {
-                "data": datetime.now(), "ap_id": aparelho_id, "status_id": novo_status_id,
+                "data": data_movimentacao_atual, "ap_id": aparelho_id, "status_id": novo_status_id,
                 "loc": localizacao, "obs": observacoes, "checklist": checklist_json, 
                 "col_snap": nome_colaborador_devolveu
             })
@@ -137,15 +144,13 @@ def processar_devolucao(aparelho_id, colaborador_id, nome_colaborador_devolveu, 
                 })
 
             s.commit()
-            st.success(f"Devolução processada com sucesso! Novo status do aparelho: {novo_status_nome}.")
             
-            if destino_final == "Enviar para Manutenção":
-                st.info("Uma Ordem de Serviço preliminar foi aberta. Aceda à página 'Manutenções' para adicionar o fornecedor e outros detalhes.")
-            
-            return True
+            # Retorna dados úteis para o e-mail
+            return True, novo_status_nome, data_movimentacao_atual
     except Exception as e:
         st.error(f"Ocorreu um erro ao processar a devolução: {e}")
-        return False
+        return False, None, None
+
 
 @st.cache_data(ttl=30)
 def carregar_historico_devolucoes(start_date=None, end_date=None, ns_search=None, colaborador_search=None):
@@ -201,6 +206,87 @@ def carregar_historico_devolucoes(start_date=None, end_date=None, ns_search=None
         )
     return df
 
+# --- NOVA FUNÇÃO: Gerar Conteúdo do E-mail de Devolução ---
+def gerar_conteudo_email_devolucao(dados_aparelho, checklist_data, destino_final, observacoes, data_devolucao):
+    assunto = f"Devolução do aparelho - {dados_aparelho.get('colaborador_nome', 'N/A')}"
+
+    # Monta a tabela do checklist em HTML
+    checklist_html_table = "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; width: 100%; font-size: 10pt;'><thead><tr style='background-color: #f2f2f2;'><th>Item</th><th>Entregue</th><th>Estado</th></tr></thead><tbody>"
+    for item, details in checklist_data.items():
+        entregue = "Sim" if details.get('entregue', False) else "Não"
+        estado = details.get('estado', 'N/A')
+        checklist_html_table += f"<tr><td>{item}</td><td>{entregue}</td><td>{estado}</td></tr>"
+    checklist_html_table += "</tbody></table>"
+
+    corpo_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>Notificação de Devolução</title></head>
+    <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f9f9f9; color: #333;">
+        <div style="max-width: 600px; margin: auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden; border: 1px solid #e0e0e0;">
+            <div style="padding: 15px; text-align: center; border-bottom: 1px solid #eeeeee; background-color: #000;">
+                 <div style="font-family: 'Courier New', monospace; font-size: 24px; font-weight: bold;">
+                    <span style="color: #FFFFFF; text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);">ASSET</span><span style="color: #E30613; text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);">FLOW</span>
+                </div>
+            </div>
+            <div style="padding: 25px;">
+                <h2 style="color: #003366; border-bottom: 2px solid #003366; padding-bottom: 5px;">Relatório de Devolução de Ativo</h2>
+                
+                <p><strong>Data da Devolução:</strong> {data_devolucao.strftime('%d/%m/%Y %H:%M')}</p>
+                
+                <h3 style="color: #003366; margin-top: 20px;">Dados do Colaborador</h3>
+                <p><strong>Nome Completo:</strong> {dados_aparelho.get('colaborador_nome', 'N/A')}<br>
+                   <strong>Código:</strong> {dados_aparelho.get('colaborador_codigo', 'N/A')}<br>
+                   <strong>Função (Setor):</strong> {dados_aparelho.get('colaborador_setor', 'N/A')}</p>
+
+                <h3 style="color: #003366; margin-top: 20px;">Dados do Aparelho</h3>
+                <p><strong>Aparelho:</strong> {dados_aparelho.get('nome_marca', '')} {dados_aparelho.get('nome_modelo', '')}<br>
+                   <strong>N°/S do Aparelho:</strong> {dados_aparelho.get('numero_serie', 'N/A')}</p>
+
+                <h3 style="color: #003366; margin-top: 20px;">Informações da Devolução</h3>
+                <p><strong>Destino Final do Aparelho:</strong> {destino_final}<br>
+                   <strong>Observações:</strong> {observacoes if observacoes else 'Nenhuma observação registada.'}</p>
+
+                <h3 style="color: #003366; margin-top: 20px;">Detalhes do Checklist da Devolução</h3>
+                {checklist_html_table}
+
+            </div>
+            <div style="background-color: #f0f2f6; padding: 15px; font-size: 11px; color: #888888; text-align: center; border-top: 1px solid #eeeeee;">
+                <p>&copy; {datetime.now().year} AssetFlow. Este é um e-mail automático.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    # Texto puro como fallback (simplificado)
+    corpo_texto = f"""
+    Relatório de Devolução de Ativo
+
+    Data da Devolução: {data_devolucao.strftime('%d/%m/%Y %H:%M')}
+
+    Dados do Colaborador:
+    Nome Completo: {dados_aparelho.get('colaborador_nome', 'N/A')}
+    Código: {dados_aparelho.get('colaborador_codigo', 'N/A')}
+    Função (Setor): {dados_aparelho.get('colaborador_setor', 'N/A')}
+
+    Dados do Aparelho:
+    Aparelho: {dados_aparelho.get('nome_marca', '')} {dados_aparelho.get('nome_modelo', '')}
+    N°/S do Aparelho: {dados_aparelho.get('numero_serie', 'N/A')}
+
+    Informações da Devolução:
+    Destino Final do Aparelho: {destino_final}
+    Observações: {observacoes if observacoes else 'Nenhuma observação registada.'}
+
+    Checklist: (Ver e-mail em HTML para tabela formatada)
+    """
+    for item, details in checklist_data.items():
+        entregue = "Sim" if details.get('entregue', False) else "Não"
+        estado = details.get('estado', 'N/A')
+        corpo_texto += f"- {item}: Entregue={entregue}, Estado={estado}\n"
+
+    return assunto, corpo_html, corpo_texto
+
 # --- Interface Principal ---
 st.title("Fluxo de Devolução e Triagem")
 st.markdown("---")
@@ -215,63 +301,135 @@ try:
     )
     st.markdown("---")
 
+    # --- Lógica para controlar a exibição do formulário de e-mail ---
+    if 'devolucao_concluida' not in st.session_state:
+        st.session_state.devolucao_concluida = False
+    
     if option == "Registar Devolução":
-        st.subheader("1. Selecione o Aparelho a Ser Devolvido")
-        aparelhos_em_uso = carregar_aparelhos_em_uso()
+        # Se a devolução NÃO foi concluída, mostra o formulário normal
+        if not st.session_state.devolucao_concluida:
+            st.subheader("1. Selecione o Aparelho a Ser Devolvido")
+            aparelhos_em_uso = carregar_aparelhos_em_uso()
 
-        if not aparelhos_em_uso:
-            st.info("Não há aparelhos com o status 'Em uso' para serem devolvidos no momento.")
-        else:
-            aparelhos_dict = {
-                f"{ap['colaborador_nome']} - {ap['nome_marca']} {ap['nome_modelo']} (S/N: {ap['numero_serie']})": ap
-                for ap in aparelhos_em_uso
-            }
-            
-            aparelho_selecionado_str = st.selectbox(
-                "Selecione o aparelho e colaborador:",
-                options=list(aparelhos_dict.keys()),
-                index=None,
-                placeholder="Clique ou digite para pesquisar...",
-                key="sb_aparelho_devolucao"
-            )
-            
-            if aparelho_selecionado_str:
-                aparelho_selecionado_data = aparelhos_dict[aparelho_selecionado_str]
-                aparelho_id = aparelho_selecionado_data['aparelho_id']
-                colaborador_id = aparelho_selecionado_data['colaborador_id']
-                colaborador_nome = aparelho_selecionado_data['colaborador_nome']
-
-                st.markdown("---")
-                st.subheader("2. Realize a Inspeção e Decida o Destino Final")
-                with st.form("form_devolucao"):
-                    st.markdown("##### Checklist de Devolução")
-                    
-                    checklist_data = {}
-                    itens_checklist = ["Tela", "Carcaça", "Bateria", "Botões", "USB", "Chip", "Carregador", "Cabo USB", "Capa", "Película"]
-                    opcoes_estado = ["Bom", "Riscado", "Quebrado", "Faltando", "Permanece"]
-                    
-                    cols = st.columns(2)
-                    for i, item in enumerate(itens_checklist):
-                        with cols[i % 2]:
-                            entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{aparelho_id}")
-                            estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}_{aparelho_id}", label_visibility="collapsed")
-                            checklist_data[item] = {'entregue': entregue, 'estado': estado}
-                    
-                    observacoes = st.text_area("Observações Gerais da Devolução", placeholder="Ex: Tela com risco profundo no canto superior direito.")
+            if not aparelhos_em_uso:
+                st.info("Não há aparelhos com o status 'Em uso' para serem devolvidos no momento.")
+            else:
+                aparelhos_dict = {
+                    f"{ap['colaborador_nome']} - {ap['nome_marca']} {ap['nome_modelo']} (S/N: {ap['numero_serie']})": ap
+                    for ap in aparelhos_em_uso
+                }
+                
+                aparelho_selecionado_str = st.selectbox(
+                    "Selecione o aparelho e colaborador:",
+                    options=list(aparelhos_dict.keys()),
+                    index=None,
+                    placeholder="Clique ou digite para pesquisar...",
+                    key="sb_aparelho_devolucao"
+                )
+                
+                if aparelho_selecionado_str:
+                    aparelho_selecionado_data = aparelhos_dict[aparelho_selecionado_str]
                     
                     st.markdown("---")
-                    st.markdown("##### Destino Final do Aparelho")
-                    destino_final = st.radio(
-                        "Selecione o destino do aparelho após a inspeção:",
-                        ["Devolver ao Estoque", "Enviar para Manutenção", "Baixar/Inutilizado"],
-                        horizontal=True, key="destino_final"
-                    )
+                    st.subheader("2. Realize a Inspeção e Decida o Destino Final")
+                    with st.form("form_devolucao"):
+                        st.markdown("##### Checklist de Devolução")
+                        
+                        checklist_data_input = {}
+                        itens_checklist = ["Tela", "Carcaça", "Bateria", "Botões", "USB", "Chip", "Carregador", "Cabo USB", "Capa", "Película"]
+                        opcoes_estado = ["Bom", "Riscado", "Quebrado", "Faltando", "Permanece"]
+                        
+                        cols = st.columns(2)
+                        for i, item in enumerate(itens_checklist):
+                            with cols[i % 2]:
+                                entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{aparelho_selecionado_data['aparelho_id']}")
+                                estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}_{aparelho_selecionado_data['aparelho_id']}", label_visibility="collapsed")
+                                checklist_data_input[item] = {'entregue': entregue, 'estado': estado}
+                        
+                        observacoes_input = st.text_area("Observações Gerais da Devolução", placeholder="Ex: Tela com risco profundo no canto superior direito.")
+                        
+                        st.markdown("---")
+                        st.markdown("##### Destino Final do Aparelho")
+                        destino_final_input = st.radio(
+                            "Selecione o destino do aparelho após a inspeção:",
+                            ["Devolver ao Estoque", "Enviar para Manutenção", "Baixar/Inutilizado"],
+                            horizontal=True, key="destino_final"
+                        )
 
-                    submitted = st.form_submit_button("Processar Devolução", use_container_width=True, type="primary")
-                    if submitted:
-                        if processar_devolucao(aparelho_id, colaborador_id, colaborador_nome, checklist_data, destino_final, observacoes):
-                            st.cache_data.clear()
-                            st.rerun()
+                        submitted = st.form_submit_button("Processar Devolução", use_container_width=True, type="primary")
+                        if submitted:
+                            sucesso, novo_status, data_mov = processar_devolucao(
+                                aparelho_selecionado_data['aparelho_id'], 
+                                aparelho_selecionado_data['colaborador_id'], 
+                                aparelho_selecionado_data['colaborador_nome'], 
+                                checklist_data_input, 
+                                destino_final_input, 
+                                observacoes_input
+                            )
+                            if sucesso:
+                                st.session_state.devolucao_concluida = True
+                                # Guarda os dados necessários para o e-mail
+                                st.session_state.email_data = {
+                                    "dados_aparelho": aparelho_selecionado_data,
+                                    "checklist_data": checklist_data_input,
+                                    "destino_final": destino_final_input,
+                                    "observacoes": observacoes_input,
+                                    "data_devolucao": data_mov,
+                                    "novo_status": novo_status
+                                }
+                                st.cache_data.clear()
+                                st.rerun() # Recarrega para mostrar a secção de e-mail
+
+        # Se a devolução FOI concluída, mostra a secção de e-mail opcional
+        else:
+            if 'email_data' in st.session_state:
+                email_data = st.session_state.email_data
+                st.success(f"Devolução processada com sucesso! Novo status do aparelho: {email_data['novo_status']}.")
+                if email_data['destino_final'] == "Enviar para Manutenção":
+                     st.info("Uma Ordem de Serviço preliminar foi aberta. Aceda à página 'Manutenções' para adicionar o fornecedor e outros detalhes.")
+
+                st.markdown("---")
+                st.subheader("3. Notificação por E-mail (Opcional)")
+                
+                enviar_agora = st.checkbox("Enviar e-mail de notificação desta devolução?")
+                
+                if enviar_agora:
+                    destinatarios_str = st.text_area("Destinatários (separados por vírgula):", placeholder="exemplo1@email.com, exemplo2@email.com")
+                    
+                    if st.button("Enviar E-mail de Notificação", type="primary", use_container_width=True):
+                        if destinatarios_str:
+                            destinatarios_list = [email.strip() for email in destinatarios_str.split(',') if email.strip()]
+                            if destinatarios_list:
+                                with st.spinner("A gerar e enviar o e-mail..."):
+                                    assunto, corpo_html, corpo_texto = gerar_conteudo_email_devolucao(
+                                        email_data['dados_aparelho'], 
+                                        email_data['checklist_data'], 
+                                        email_data['destino_final'], 
+                                        email_data['observacoes'],
+                                        email_data['data_devolucao']
+                                    )
+                                    if enviar_email(destinatarios_list, assunto, corpo_html, corpo_texto):
+                                        st.success("E-mail de notificação enviado com sucesso!")
+                                        # Limpa o estado após o envio
+                                        del st.session_state.email_data
+                                        st.session_state.devolucao_concluida = False
+                                        # Aguarda um pouco para o utilizador ver a mensagem antes de limpar
+                                        st.write("A recarregar a página...")
+                                        import time
+                                        time.sleep(2)
+                                        st.rerun()
+                                    else:
+                                        st.error("Falha ao enviar o e-mail.")
+                            else:
+                                st.warning("Por favor, insira pelo menos um endereço de e-mail válido.")
+                        else:
+                            st.warning("Por favor, insira os endereços de e-mail dos destinatários.")
+                
+                # Botão para concluir sem enviar e-mail
+                if st.button("Concluir (sem enviar e-mail)", use_container_width=True):
+                    del st.session_state.email_data
+                    st.session_state.devolucao_concluida = False
+                    st.rerun()
 
     elif option == "Histórico de Devoluções":
         st.subheader("Histórico Completo de Devoluções")
@@ -341,4 +499,3 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de devoluções: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
-
