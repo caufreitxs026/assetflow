@@ -4,33 +4,59 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
 
-def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
+def enviar_email(destinatarios, assunto, corpo_html, corpo_texto=""):
     """
-    Envia um e-mail com um layout profissional para o utilizador redefinir a sua senha.
-    Utiliza as credenciais armazenadas nos secrets do Streamlit.
+    Envia um e-mail genérico utilizando as credenciais do Gmail configuradas nos secrets.
+
+    Args:
+        destinatarios (list): Uma lista de endereços de e-mail para quem enviar.
+        assunto (str): O assunto do e-mail.
+        corpo_html (str): O corpo do e-mail em formato HTML.
+        corpo_texto (str, optional): O corpo do e-mail em texto puro (fallback). Defaults to "".
     """
     try:
-        # Carrega as credenciais do ficheiro secrets.toml
         sender_email = st.secrets["email_credentials"]["sender_email"]
         sender_password = st.secrets["email_credentials"]["sender_password"]
     except KeyError:
-        st.error("Credenciais de e-mail não configuradas nos secrets do Streamlit. A funcionalidade de redefinição de senha está desativada.")
+        st.error("Credenciais de e-mail não configuradas nos secrets do Streamlit.")
         return False
 
-    # Monta a mensagem do e-mail
-    message = MIMEMultipart("alternative")
-    message["Subject"] = "AssetFlow - Redefinição de Senha"
-    message["From"] = f"AssetFlow <{sender_email}>"
-    message["To"] = destinatario_email
+    if not destinatarios:
+        st.error("Nenhum destinatário fornecido para o e-mail.")
+        return False
 
-    # --- CORREÇÃO FINAL AQUI ---
-    # Simplificamos o nome da página para evitar erros de interpretação do Streamlit.
-    # O ficheiro agora deve chamar-se 'pages/Resetar_Senha.py'.
+    message = MIMEMultipart("alternative")
+    message["Subject"] = assunto
+    message["From"] = f"AssetFlow <{sender_email}>"
+    message["To"] = ", ".join(destinatarios) # Junta a lista de e-mails
+
+    # Anexa as partes de texto e HTML à mensagem
+    if corpo_texto:
+        part1 = MIMEText(corpo_texto, "plain")
+        message.attach(part1)
+    part2 = MIMEText(corpo_html, "html")
+    message.attach(part2)
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, destinatarios, message.as_string())
+        return True
+    except Exception as e:
+        print(f"Falha ao enviar e-mail: {e}") # Log para debugging
+        st.error(f"Falha ao conectar-se ao servidor de e-mail. Verifique as credenciais e as configurações de segurança da conta Gmail.")
+        return False
+
+# Mantemos a função específica de redefinição para compatibilidade e clareza
+def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
+    """
+    Prepara e envia o e-mail específico para redefinição de senha.
+    """
+    assunto = "AssetFlow - Redefinição de Senha"
     app_url = "https://assetfl0w.streamlit.app/Resetar_Senha" 
     reset_link = f"{app_url}?token={token}"
 
-    # Corpo do e-mail em texto puro (para clientes de e-mail que não suportam HTML)
-    text = f"""
+    corpo_texto = f"""
     Olá, {destinatario_nome},
 
     Recebemos uma solicitação para redefinir a senha da sua conta no AssetFlow.
@@ -43,14 +69,10 @@ def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
     Equipe AssetFlow
     """
 
-    # Corpo do e-mail em HTML com a logo e um design melhorado
-    html = f"""
+    corpo_html = f"""
     <!DOCTYPE html>
     <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>Redefinição de Senha</title>
-    </head>
+    <head> <meta charset="UTF-8"> <title>Redefinição de Senha</title> </head>
     <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #ffffff; color: #333;">
         <div style="max-width: 600px; margin: auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); overflow: hidden; border: 1px solid #e0e0e0;">
             <div style="padding: 20px; text-align: center; border-bottom: 1px solid #eeeeee; background-color: #000;">
@@ -78,21 +100,5 @@ def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
     </html>
     """
 
-    # Anexa as partes de texto e HTML à mensagem
-    part1 = MIMEText(text, "plain")
-    part2 = MIMEText(html, "html")
-    message.attach(part1)
-    message.attach(part2)
-
-    # Conecta-se ao servidor SMTP do Gmail e envia o e-mail
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, destinatario_email, message.as_string())
-        return True
-    except Exception as e:
-        # Fornece um erro mais detalhado no log do Streamlit para debugging
-        print(f"Falha ao enviar e-mail: {e}")
-        st.error(f"Falha ao conectar-se ao servidor de e-mail. Verifique as credenciais e as configurações de segurança da conta Gmail.")
-        return False
+    return enviar_email([destinatario_email], assunto, corpo_html, corpo_texto)
 
