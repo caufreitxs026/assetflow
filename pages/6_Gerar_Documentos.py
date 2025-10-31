@@ -423,7 +423,7 @@ try:
                         
                         checklist_data = {}
                         itens_checklist = ["Tela", "Carcaça", "Bateria", "Botões", "USB", "Chip", "Carregador", "Cabo USB", "Capa", "Película"]
-                        opcoes_estado = ["NOVO", "BOM", "REGULAR", "AVARIADO", "JÁ DISPÕE"]
+                        opcoes_estado = ["NOVO", "BOM", "REGULAR", "AVARIADO", "JÁ DISPÕE", "NÃO ENTREGUE"]
                         
                         cols = st.columns(2)
                         for i, item in enumerate(itens_checklist):
@@ -502,5 +502,3 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página: {e}")
     st.info("Verifique se o banco de dados está inicializado e se há movimentações do tipo 'Em uso' registadas.")
-
-
