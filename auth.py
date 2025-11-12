@@ -256,7 +256,7 @@ def show_login_form():
 
     st.markdown(f"""
         <div class="login-footer">
-            <div class="version-badge">V 3.1.1</div>
+            <div class="version-badge">Copyright © 2025 Mirasol</div>
         </div>
     """, unsafe_allow_html=True)
 
@@ -265,3 +265,4 @@ def logout():
     for key in ['user_login', 'user_role', 'user_name', 'user_id']:
         st.session_state.pop(key, None)
     st.rerun()
+
