@@ -249,7 +249,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             }}
 
             .header h1 {{
-                margin-top: 4.2em; /* ajustável */
+                margin-top: 3em; /* ajustável */
             }}
 
             h1 {{ 
