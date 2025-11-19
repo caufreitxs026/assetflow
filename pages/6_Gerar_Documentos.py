@@ -249,7 +249,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             }}
 
             .header h1 {{
-                margin-top: 2.2em; /* ajustável */
+                margin-top: 4.2em; /* ajustável */
             }}
 
             h1 {{ 
@@ -320,7 +320,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             
             /* Checkboxes */
             .check-item {{ 
-                margin-top: 4px; 
+                margin-top: 8px; 
                 display: flex; 
                 align-items: flex-start; 
                 padding: 2px 0;
