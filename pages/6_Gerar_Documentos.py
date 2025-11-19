@@ -85,7 +85,7 @@ with st.sidebar:
 def get_db_connection():
     return st.connection("supabase", type="sql")
 
-# --- NOVA FUNÇÃO DE LOG ---
+# --- FUNÇÃO DE LOG ---
 def registrar_log(tipo_documento, alvo, detalhes=""):
     """Grava um registo na tabela de logs_documentos."""
     try:
@@ -103,16 +103,29 @@ def registrar_log(tipo_documento, alvo, detalhes=""):
             })
             s.commit()
     except Exception as e:
-        print(f"Erro ao gravar log: {e}") # Apenas printa no console para não travar a UI
+        print(f"Erro ao gravar log: {e}")
+
+@st.cache_data(ttl=5) # Cache curto para atualizar logo após gerar
+def carregar_logs_documentos():
+    """Carrega o histórico de documentos gerados."""
+    conn = get_db_connection()
+    query = """
+        SELECT id, data_geracao, tipo_documento, usuario_responsavel, alvo_documento, detalhes
+        FROM logs_documentos
+        ORDER BY data_geracao DESC
+        LIMIT 100;
+    """
+    df = conn.query(query)
+    return df
 
 @st.cache_data(ttl=3600)
 def carregar_logo_base64():
-    """Lê a string Base64 da logo a partir de um ficheiro para manter o código limpo."""
+    """Lê a string Base64 da logo a partir de um ficheiro."""
     try:
         with open("logo.b64", "r") as f:
             return f.read()
     except FileNotFoundError:
-        st.error("Ficheiro 'logo.b64' não encontrado. Por favor, crie o ficheiro com o código Base64 da sua logo.")
+        st.error("Ficheiro 'logo.b64' não encontrado.")
         return ""
 
 @st.cache_data(ttl=30)
@@ -120,16 +133,11 @@ def carregar_movimentacoes_entrega():
     conn = get_db_connection()
     query = """
         WITH LatestMovements AS (
-            SELECT
-                aparelho_id,
-                MAX(data_movimentacao) as last_move_date
-            FROM
-                historico_movimentacoes
-            GROUP BY
-                aparelho_id
+            SELECT aparelho_id, MAX(data_movimentacao) as last_move_date
+            FROM historico_movimentacoes
+            GROUP BY aparelho_id
         )
-        SELECT
-            h.id, h.data_movimentacao, a.numero_serie, c.nome_completo
+        SELECT h.id, h.data_movimentacao, a.numero_serie, c.nome_completo
         FROM historico_movimentacoes h
         JOIN LatestMovements lm ON h.aparelho_id = lm.aparelho_id AND h.data_movimentacao = lm.last_move_date
         JOIN aparelhos a ON h.aparelho_id = a.id
@@ -145,8 +153,7 @@ def carregar_movimentacoes_entrega():
 def buscar_dados_completos(mov_id):
     conn = get_db_connection()
     query = """
-        SELECT
-            c.nome_completo, c.cpf, s.nome_setor, c.gmail, c.codigo as codigo_colaborador,
+        SELECT c.nome_completo, c.cpf, s.nome_setor, c.gmail, c.codigo as codigo_colaborador,
             ma.nome_marca, mo.nome_modelo, a.imei1, a.imei2, a.numero_serie,
             h.id as protocolo, h.data_movimentacao
         FROM historico_movimentacoes h
@@ -166,9 +173,8 @@ def carregar_setores_nomes():
     df = conn.query("SELECT nome_setor FROM setores ORDER BY nome_setor;")
     return df['nome_setor'].tolist()
 
-
 def gerar_pdf_termo(dados, checklist_data, logo_string):
-    """Gera o PDF do Termo de Responsabilidade a partir de um template HTML."""
+    """Gera o PDF do Termo de Responsabilidade (Compacto)."""
     
     data_mov = dados.get('data_movimentacao')
     if isinstance(data_mov, str):
@@ -189,55 +195,57 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
         estado_str = detalhes['estado']
         checklist_html += f"<tr><td>{item}</td><td>{entregue_str}</td><td>{estado_str}</td></tr>"
 
-    texto_termos_resumido = """
-    Declaro receber o equipamento descrito para uso profissional, sendo responsável pela sua guarda e conservação. 
-    Comprometo-me a devolvê-lo nas mesmas condições em que o recebi. Danos por mau uso serão de minha responsabilidade 
-    (Art. 462, § 1º da CLT). Autorizo o uso dos meus dados para este fim, de acordo com a LGPD.
-    """
-
     html_string = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <meta charset="UTF-8">
         <style>
-            @page {{ size: A4; margin: 1cm; }}
-            body {{ font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.3; color: #333; }}
+            @page {{ size: A4; margin: 0.8cm; }} /* Margem reduzida para caber tudo */
+            body {{ font-family: Arial, sans-serif; font-size: 9pt; line-height: 1.2; color: #333; }}
             
             .header {{ 
                 text-align: center; 
-                margin-bottom: 20px;
-                padding-top: 40px;
+                margin-bottom: 15px;
+                padding-top: 30px;
             }}
-            h1 {{ color: #003366; font-size: 16pt; margin: 0; }}
+            h1 {{ color: #003366; font-size: 14pt; margin: 0; }}
 
             .logo {{
                 position: absolute;
                 top: 0cm;
                 left: 0.2cm; 
-                width: 150px; 
+                width: 130px; 
             }}
             
-            .section {{ margin-bottom: 8px; }}
-            .section-title {{ background-color: #003366; color: white; padding: 4px 8px; font-weight: bold; font-size: 11pt; border-radius: 4px;}}
+            .section {{ margin-bottom: 6px; }}
+            .section-title {{ background-color: #003366; color: white; padding: 3px 6px; font-weight: bold; font-size: 10pt; border-radius: 4px;}}
             
-            .info-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; }}
-            .info-table td {{ padding: 3px; border: none; }}
+            .info-table {{ width: 100%; border-collapse: collapse; margin-top: 3px; }}
+            .info-table td {{ padding: 2px; border: none; font-size: 9pt; }}
             .info-table td:first-child {{ font-weight: bold; width: 25%; }}
             
-            .checklist-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; }}
-            .checklist-table th, .checklist-table td {{ border-bottom: 1px solid #ddd; padding: 4px; text-align: left; }}
+            .checklist-table {{ width: 100%; border-collapse: collapse; margin-top: 3px; }}
+            .checklist-table th, .checklist-table td {{ border-bottom: 1px solid #ddd; padding: 3px; text-align: left; font-size: 9pt; }}
             .checklist-table th {{ background-color: #f2f2f2; text-align: center; border-bottom: 2px solid #ccc;}}
             .checklist-table td:nth-child(2), .checklist-table td:nth-child(3) {{ text-align: center; }}
             
-            .disclaimer {{ font-size: 8pt; text-align: justify; margin-top: 5px; padding: 0 5px; }}
-            
-            /* Estilo para os checkboxes de ciência */
-            .check-item {{ margin-top: 8px; font-size: 9pt; text-align: justify; }}
-            .box {{ display: inline-block; width: 10px; height: 10px; border: 1px solid #000; margin-right: 5px; position: relative; top: 2px; }}
+            /* Estilos compactos para Termos e Checkboxes */
+            .terms-container {{ margin-top: 5px; font-size: 8.5pt; text-align: justify; }}
+            .disclaimer {{ margin-bottom: 8px; }}
+            .check-item {{ margin-top: 4px; display: flex; align-items: flex-start; }}
+            .box {{ 
+                display: inline-block; 
+                width: 10px; height: 10px; 
+                border: 1px solid #000; 
+                margin-right: 8px; 
+                flex-shrink: 0;
+                position: relative; top: 2px;
+            }}
+            .check-text {{ flex-grow: 1; }}
 
-            .signature {{ margin-top: 95px; text-align: center; }} 
-            .signature-line {{ border-top: 1px solid #000; width: 350px; margin: 0 auto; padding-top: 5px; }}
+            .signature {{ margin-top: 40px; text-align: center; page-break-inside: avoid; }} 
+            .signature-line {{ border-top: 1px solid #000; width: 350px; margin: 0 auto; padding-top: 5px; font-size: 9pt; }}
         </style>
     </head>
     <body>
@@ -280,14 +288,20 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
         </div>
         <div class="section">
             <div class="section-title">TERMOS E CONDIÇÕES</div>
-            <p class="disclaimer">{texto_termos_resumido}</p>
-            
-            <!-- NOVAS CLÁUSULAS DE CIÊNCIA -->
-            <div class="check-item">
-                <span class="box"></span> Estou ciente da proibição da utilização da ferramenta de roteamento (hotspot) dos dados móveis corporativos. Em caso de necessidade, entrarei em contato com o setor responsável (TI).
-            </div>
-            <div class="check-item">
-                <span class="box"></span> Estou ciente da proibição de cadastrar contas pessoais (iCloud, Google Pessoal), armazenar dados particulares ou criar vínculos pessoais neste aparelho corporativo. Em caso de dúvidas, contatarei o setor responsável (TI).
+            <div class="terms-container">
+                <p class="disclaimer">
+                    Declaro receber o equipamento descrito para uso profissional, sendo responsável pela sua guarda e conservação. 
+                    Comprometo-me a devolvê-lo nas mesmas condições em que o recebi. Danos por mau uso serão de minha responsabilidade 
+                    (Art. 462, § 1º da CLT). Autorizo o uso dos meus dados para este fim, de acordo com a LGPD.
+                </p>
+                <div class="check-item">
+                    <span class="box"></span> 
+                    <span class="check-text">Estou ciente da proibição da utilização da ferramenta de roteamento (hotspot) dos dados móveis corporativos. Em caso de necessidade, entrarei em contato com o setor responsável (TI).</span>
+                </div>
+                <div class="check-item">
+                    <span class="box"></span> 
+                    <span class="check-text">Estou ciente da proibição de cadastrar contas pessoais (iCloud, Google Pessoal), armazenar dados particulares ou criar vínculos pessoais neste aparelho corporativo. Em caso de dúvidas, contatarei o setor responsável (TI).</span>
+                </div>
             </div>
         </div>
         <div class="signature">
@@ -301,7 +315,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
     return pdf_bytes
 
 def gerar_pdf_etiqueta(dados, logo_string):
-    """Gera o PDF da Etiqueta a partir de um template HTML."""
+    """Gera o PDF da Etiqueta (100x40mm)."""
     data_formatada = dados.get('data_movimentacao').strftime('%d/%m/%Y') if dados.get('data_movimentacao') else "N/A"
 
     html_string = f"""
@@ -310,63 +324,17 @@ def gerar_pdf_etiqueta(dados, logo_string):
     <head>
         <meta charset="UTF-8">
         <style>
-            @page {{
-                size: 100mm 40mm;
-                margin: 0;
-            }}
-            body {{
-                font-family: Arial, sans-serif;
-                font-size: 7.5pt;
-                color: #000;
-                margin: 0;
-                padding: 3mm;
-                box-sizing: border-box;
-                line-height: 1.1;
-            }}
-            .header {{
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-start;
-                padding-bottom: 1.5mm;
-                border-bottom: 1px solid #000;
-                margin-bottom: 1.5mm;
-            }}
-            .logo {{
-                width: 28mm;
-                height: auto;
-            }}
-            .date {{
-                font-size: 8pt;
-                font-weight: bold;
-            }}
-            .content {{
-                margin-top: 2mm;
-                display: flex;
-                width: 100%;
-            }}
-            .column {{
-                width: 50%;
-                padding-right: 2mm;
-            }}
-            .column:last-child {{
-                padding-right: 0;
-                padding-left: 2mm;
-                border-left: 1px solid #ccc;
-            }}
-            .field {{
-                margin-bottom: 1mm;
-            }}
-            .field-label {{
-                font-weight: bold;
-                display: block;
-                font-size: 6.5pt;
-                margin-bottom: 0.3mm;
-                text-transform: uppercase;
-            }}
-            .field-value {{
-                font-size: 7.5pt;
-                word-wrap: break-word;
-            }}
+            @page {{ size: 100mm 40mm; margin: 0; }}
+            body {{ font-family: Arial, sans-serif; font-size: 7.5pt; color: #000; margin: 0; padding: 3mm; box-sizing: border-box; line-height: 1.1; }}
+            .header {{ display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 1.5mm; border-bottom: 1px solid #000; margin-bottom: 1.5mm; }}
+            .logo {{ width: 28mm; height: auto; }}
+            .date {{ font-size: 8pt; font-weight: bold; }}
+            .content {{ display: flex; width: 100%; }}
+            .column {{ width: 50%; padding-right: 2mm; }}
+            .column:last-child {{ padding-right: 0; padding-left: 2mm; border-left: 1px solid #ccc; }}
+            .field {{ margin-bottom: 1mm; }}
+            .field-label {{ font-weight: bold; display: block; font-size: 6.5pt; margin-bottom: 0.3mm; text-transform: uppercase; }}
+            .field-value {{ font-size: 7.5pt; word-wrap: break-word; }}
         </style>
     </head>
     <body>
@@ -395,21 +363,15 @@ def gerar_pdf_etiqueta(dados, logo_string):
     pdf_bytes = HTML(string=html_string).write_pdf()
     return pdf_bytes
 
-# --- UI PRINCIPAL COM RADIO BUTTONS ---
+# --- UI PRINCIPAL COM ABAS ---
 st.title("Geração de Documentos")
 st.markdown("---")
 
-option = st.radio(
-    "Selecione a operação:",
-    ("Termo de Responsabilidade", "Gerar Etiquetas"),
-    horizontal=True,
-    label_visibility="collapsed",
-    key="docs_selector"
-)
-st.markdown("---")
+# Adicionada a terceira aba "Histórico de Documentos"
+tab1, tab2, tab3 = st.tabs(["Termo de Responsabilidade", "Gerar Etiquetas", "Histórico de Documentos"])
 
 try:
-    if option == "Termo de Responsabilidade":
+    with tab1:
         st.header("Gerar Termo de Responsabilidade")
         movimentacoes = carregar_movimentacoes_entrega()
 
@@ -493,7 +455,7 @@ try:
                                 st.session_state['pdf_para_download'] = {"data": pdf_bytes, "filename": pdf_filename, "type": "termo"}
                                 st.rerun()
 
-    elif option == "Gerar Etiquetas":
+    with tab2:
         st.header("Gerar Etiqueta do Ativo")
         movimentacoes_etiqueta = carregar_movimentacoes_entrega() # Reutiliza a mesma função
 
@@ -542,13 +504,40 @@ try:
                             
                             st.session_state['pdf_para_download'] = {"data": pdf_bytes, "filename": pdf_filename, "type": "etiqueta"}
                             st.rerun()
+    
+    with tab3:
+        st.header("Histórico de Documentos Gerados")
+        st.info("Mostrando os últimos 100 documentos gerados.")
+        
+        # Botão para recarregar os logs manualmente
+        if st.button("Atualizar Histórico"):
+            st.cache_data.clear()
+            st.rerun()
+            
+        df_logs = carregar_logs_documentos()
+        if not df_logs.empty:
+             st.dataframe(
+                df_logs,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "data_geracao": st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY HH:mm"),
+                    "tipo_documento": "Tipo de Documento",
+                    "usuario_responsavel": "Gerado por",
+                    "alvo_documento": "Alvo (Colaborador/Ativo)",
+                    "detalhes": "Detalhes"
+                }
+             )
+        else:
+            st.warning("Nenhum histórico encontrado.")
+
 
     # Lógica de download unificada fora das abas
     if 'pdf_para_download' in st.session_state and st.session_state['pdf_para_download']:
         pdf_info = st.session_state.pop('pdf_para_download')
         doc_type = pdf_info.get("type", "documento").capitalize()
         st.download_button(
-            label=f"{doc_type} Gerado! Clique para Baixar",
+            label=f"✅ {doc_type} Gerado! Clique para Baixar",
             data=pdf_info['data'],
             file_name=pdf_info['filename'],
             mime="application/pdf",
