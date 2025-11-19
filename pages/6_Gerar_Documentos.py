@@ -469,7 +469,7 @@ def gerar_pdf_etiqueta(dados, logo_string):
             }}
             .column {{
                 width: 50%;
-                padding-right: 1.5mm;
+                padding-right: 2mm;
             }}
             .column:last-child {{
                 padding-right: 0;
@@ -477,12 +477,12 @@ def gerar_pdf_etiqueta(dados, logo_string):
                 border-left: 0.5px solid #ccc;
             }}
             .field {{
-                margin-bottom: 0.5mm; /* Espaçamento mínimo */
+                margin-bottom: 1mm; /* Espaçamento mínimo */
             }}
             .field-label {{
                 font-weight: bold;
                 display: block;
-                font-size: 5pt; /* Rótulo minúsculo */
+                font-size: 8pt; /* Rótulo minúsculo */
                 margin-bottom: 0.1mm;
                 text-transform: uppercase;
             }}
