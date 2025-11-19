@@ -4,15 +4,64 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
 
-def enviar_email(destinatarios, assunto, corpo_html, corpo_texto=""):
+def montar_layout_base(titulo_cabecalho, conteudo_html_interno):
     """
-    Envia um e-mail genérico utilizando as credenciais do Gmail configuradas nos secrets.
+    Encapsula o conteúdo do e-mail numa estrutura de tabelas HTML robusta
+    compatível com Outlook Desktop e Webmail.
+    """
+    return f"""
+    <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+    <html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+        <title>{titulo_cabecalho}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    </head>
+    <body style="margin: 0; padding: 0; background-color: #f2f2f2;">
+        <!-- Tabela Mãe (Fundo Geral) -->
+        <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f2f2f2;">
+            <tr>
+                <td align="center" style="padding: 20px 0 20px 0;">
+                    <!-- Tabela Filha (O Cartão Centralizado - Largura Fixa 600px) -->
+                    <table border="0" cellpadding="0" cellspacing="0" width="600" style="border-collapse: collapse; background-color: #ffffff; border: 1px solid #dddddd;">
+                        
+                        <!-- Cabeçalho Preto com Logo -->
+                        <tr>
+                            <td align="center" bgcolor="#000000" style="padding: 20px 0 20px 0;">
+                                <span style="font-family: 'Courier New', Courier, monospace; font-size: 28px; font-weight: bold; color: #FFFFFF;">
+                                    ASSET<span style="color: #E30613;">FLOW</span>
+                                </span>
+                            </td>
+                        </tr>
 
-    Args:
-        destinatarios (list): Uma lista de endereços de e-mail para quem enviar.
-        assunto (str): O assunto do e-mail.
-        corpo_html (str): O corpo do e-mail em formato HTML.
-        corpo_texto (str, optional): O corpo do e-mail em texto puro (fallback). Defaults to "".
+                        <!-- Conteúdo Principal -->
+                        <tr>
+                            <td bgcolor="#ffffff" style="padding: 30px 30px 30px 30px;">
+                                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                    {conteudo_html_interno}
+                                </table>
+                            </td>
+                        </tr>
+
+                        <!-- Rodapé -->
+                        <tr>
+                            <td bgcolor="#eeeeee" style="padding: 20px 30px 20px 30px; font-family: Arial, sans-serif; font-size: 12px; color: #888888; text-align: center;">
+                                &copy; {datetime.now().year} AssetFlow.<br/>
+                                Este é um e-mail automático, por favor não responda.
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
+
+def enviar_email(destinatarios, assunto, corpo_html_completo, corpo_texto=""):
+    """
+    Envia o e-mail. Nota: espera receber o HTML JÁ PROCESSADO pelo montar_layout_base
+    ou um HTML completo.
     """
     try:
         sender_email = st.secrets["email_credentials"]["sender_email"]
@@ -28,13 +77,14 @@ def enviar_email(destinatarios, assunto, corpo_html, corpo_texto=""):
     message = MIMEMultipart("alternative")
     message["Subject"] = assunto
     message["From"] = f"AssetFlow <{sender_email}>"
-    message["To"] = ", ".join(destinatarios) # Junta a lista de e-mails
+    message["To"] = ", ".join(destinatarios)
 
-    # Anexa as partes de texto e HTML à mensagem
     if corpo_texto:
         part1 = MIMEText(corpo_texto, "plain")
         message.attach(part1)
-    part2 = MIMEText(corpo_html, "html")
+    
+    # O corpo_html aqui já deve vir com as tabelas montadas
+    part2 = MIMEText(corpo_html_completo, "html")
     message.attach(part2)
 
     try:
@@ -43,62 +93,68 @@ def enviar_email(destinatarios, assunto, corpo_html, corpo_texto=""):
             server.sendmail(sender_email, destinatarios, message.as_string())
         return True
     except Exception as e:
-        print(f"Falha ao enviar e-mail: {e}") # Log para debugging
-        st.error(f"Falha ao conectar-se ao servidor de e-mail. Verifique as credenciais e as configurações de segurança da conta Gmail.")
+        # print(f"Falha ao enviar e-mail: {e}") # Opcional: logs no console
+        st.error(f"Falha ao conectar-se ao servidor de e-mail: {e}")
         return False
 
-# Mantemos a função específica de redefinição para compatibilidade e clareza
 def enviar_email_de_redefinicao(destinatario_email, destinatario_nome, token):
     """
-    Prepara e envia o e-mail específico para redefinição de senha.
+    Envia o e-mail de redefinição usando a nova estrutura de tabelas.
     """
     assunto = "AssetFlow - Redefinição de Senha"
     app_url = "https://assetfl0w.streamlit.app/Resetar_Senha" 
     reset_link = f"{app_url}?token={token}"
 
+    # Conteúdo interno (apenas o recheio, sem html/body/head)
+    miolo_html = f"""
+    <tr>
+        <td style="color: #003366; font-family: Arial, sans-serif; font-size: 20px; font-weight: bold;">
+            Redefinição de Senha
+        </td>
+    </tr>
+    <tr>
+        <td height="20" style="font-size:0px; line-height:0px;">&nbsp;</td>
+    </tr>
+    <tr>
+        <td style="color: #333333; font-family: Arial, sans-serif; font-size: 14px; line-height: 20px;">
+            Olá, <strong>{destinatario_nome}</strong>,<br/><br/>
+            Recebemos uma solicitação para redefinir a senha da sua conta. Se não foi você, ignore este e-mail.
+        </td>
+    </tr>
+    <tr>
+        <td height="30" style="font-size:0px; line-height:0px;">&nbsp;</td>
+    </tr>
+    <tr>
+        <td align="center">
+            <table border="0" cellpadding="0" cellspacing="0">
+                <tr>
+                    <td align="center" bgcolor="#003366" style="border-radius: 5px;">
+                        <a href="{reset_link}" target="_blank" style="font-size: 16px; font-family: Arial, sans-serif; color: #ffffff; text-decoration: none; padding: 12px 25px; border: 1px solid #003366; display: inline-block; border-radius: 5px; font-weight: bold;">
+                            Redefinir Minha Senha
+                        </a>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+    <tr>
+        <td height="30" style="font-size:0px; line-height:0px;">&nbsp;</td>
+    </tr>
+    <tr>
+        <td style="color: #888888; font-family: Arial, sans-serif; font-size: 12px;">
+            O link expira em 15 minutos. Link direto:<br/>
+            <a href="{reset_link}" style="color: #003366;">{reset_link}</a>
+        </td>
+    </tr>
+    """
+
+    # Monta o HTML final usando a função base
+    html_completo = montar_layout_base("Redefinição de Senha", miolo_html)
+
+    # Texto puro para clientes sem HTML
     corpo_texto = f"""
     Olá, {destinatario_nome},
-
-    Recebemos uma solicitação para redefinir a senha da sua conta no AssetFlow.
-    Para criar uma nova senha, copie e cole o seguinte link no seu navegador:
-    {reset_link}
-
-    Por segurança, este link irá expirar em 15 minutos. Se não foi você quem solicitou, pode ignorar este e-mail com segurança.
-
-    Atenciosamente,
-    Equipe AssetFlow
+    Para redefinir sua senha, acesse: {reset_link}
     """
 
-    corpo_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head> <meta charset="UTF-8"> <title>Redefinição de Senha</title> </head>
-    <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #ffffff; color: #333;">
-        <div style="max-width: 600px; margin: auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); overflow: hidden; border: 1px solid #e0e0e0;">
-            <div style="padding: 20px; text-align: center; border-bottom: 1px solid #eeeeee; background-color: #000;">
-                <div style="font-family: 'Courier New', monospace; font-size: 28px; font-weight: bold;">
-                    <span style="color: #FFFFFF; text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);">ASSET</span><span style="color: #E30613; text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);">FLOW</span>
-                </div>
-            </div>
-            <div style="padding: 30px;">
-                <h2 style="color: #003366;">Redefinição de Senha Solicitada</h2>
-                <p>Olá, <strong>{destinatario_nome}</strong>,</p>
-                <p>Recebemos uma solicitação para redefinir a senha da sua conta no AssetFlow. Se não foi você, pode ignorar este e-mail com segurança.</p>
-                <p>Para criar uma nova senha, clique no botão abaixo. Por segurança, este link irá expirar em <strong>15 minutos</strong>.</p>
-                <div style="text-align: center; margin: 30px 0;">
-                    <a href="{reset_link}" target="_blank" style="background-color: #003366; color: #ffffff; padding: 14px 25px; text-align: center; text-decoration: none; display: inline-block; border-radius: 5px; font-weight: bold;">Redefinir a Minha Senha</a>
-                </div>
-                <p style="font-size: 12px; color: #888888;">Se o botão não funcionar, copie e cole o seguinte link no seu navegador:</p>
-                <p style="font-size: 12px; color: #888888; word-break: break-all;">{reset_link}</p>
-            </div>
-            <div style="background-color: #f9f9f9; padding: 20px; font-size: 12px; color: #888888; text-align: center; border-top: 1px solid #eeeeee;">
-                <p>&copy; {datetime.now().year} AssetFlow. Todos os direitos reservados.</p>
-                <p>Este é um e-mail automático, por favor não responda.</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-
-    return enviar_email([destinatario_email], assunto, corpo_html, corpo_texto)
-
+    return enviar_email([destinatario_email], assunto, html_completo, corpo_texto)
