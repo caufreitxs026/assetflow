@@ -244,7 +244,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
 
             .logo {{
                 position: absolute;
-                top: 0.5cm;
+                top: 0cm;
                 left: 0.5cm; 
                 width: 140px; 
             }}
@@ -307,7 +307,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             }}
             .check-text {{ flex-grow: 1; line-height: 1.2; }}
 
-            .signature {{ margin-top: 40px; text-align: center; page-break-inside: avoid; }} 
+            .signature {{ margin-top: 60px; text-align: center; page-break-inside: avoid; }} 
             .signature-line {{ 
                 border-top: 1px solid #333; 
                 width: 350px; 
@@ -399,7 +399,7 @@ def gerar_pdf_etiqueta(dados, logo_string):
             }}
             body {{
                 font-family: Arial, sans-serif;
-                font-size: 6pt; /* Fonte base muito pequena */
+                font-size: 8pt; /* Fonte base muito pequena */
                 color: #000;
                 margin: 0;
                 padding: 1.5mm; /* Margem interna mínima */
