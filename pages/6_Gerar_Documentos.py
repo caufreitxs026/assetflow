@@ -588,12 +588,26 @@ try:
                         itens_checklist = ["Tela", "Carcaça", "Bateria", "Botões", "USB", "Chip", "Carregador", "Cabo USB", "Capa", "Película"]
                         opcoes_estado = ["NOVO", "BOM", "REGULAR", "AVARIADO", "JÁ DISPÕE", "NÃO ENTREGUE"]
                         
-                        cols = st.columns(2)
-                        for i, item in enumerate(itens_checklist):
-                            with cols[i % 2]:
+                        # --- LÓGICA DE 2 COLUNAS NA UI ---
+                        mid = math.ceil(len(itens_checklist) / 2)
+                        items_col1 = itens_checklist[:mid]
+                        items_col2 = itens_checklist[mid:]
+
+                        col1_ui, col2_ui = st.columns(2)
+                        
+                        with col1_ui:
+                            for item in items_col1:
                                 entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{mov_id_termo}")
                                 estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}_{mov_id_termo}")
                                 checklist_data[item] = {'entregue': entregue, 'estado': estado}
+                                st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True) # Espaçador
+
+                        with col2_ui:
+                             for item in items_col2:
+                                entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{mov_id_termo}")
+                                estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}_{mov_id_termo}")
+                                checklist_data[item] = {'entregue': entregue, 'estado': estado}
+                                st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True) # Espaçador
 
                         submitted = st.form_submit_button("Gerar PDF do Termo", use_container_width=True, type="primary")
                         if submitted:
@@ -708,7 +722,7 @@ try:
         pdf_info = st.session_state.pop('pdf_para_download')
         doc_type = pdf_info.get("type", "documento").capitalize()
         st.download_button(
-            label=f" {doc_type} Gerado! Clique para Baixar",
+            label=f"{doc_type} Gerado! Clique para Baixar",
             data=pdf_info['data'],
             file_name=pdf_info['filename'],
             mime="application/pdf",
