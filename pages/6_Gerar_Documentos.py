@@ -225,8 +225,8 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             @page {{ size: A4; margin: 1cm; }}
             body {{ 
                 font-family: Arial, sans-serif; 
-                font-size: 9.5pt; /* Tamanho confortável */
-                line-height: 1.4; /* Espaçamento entre linhas aumentado para leveza */
+                font-size: 9.5pt; 
+                line-height: 1.4; 
                 color: #333; 
             }}
             
@@ -250,7 +250,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             }}
             
             .section {{ 
-                margin-bottom: 15px; /* Mais espaço entre seções */
+                margin-bottom: 15px;
             }}
             .section-title {{ 
                 background-color: #003366; 
@@ -264,8 +264,8 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             
             .info-table {{ width: 100%; border-collapse: collapse; }}
             .info-table td {{ 
-                padding: 5px 8px; /* Padding interno generoso */
-                border-bottom: 1px solid #f0f0f0; /* Linha sutil para guiar o olhar */
+                padding: 5px 8px; 
+                border-bottom: 1px solid #f0f0f0; 
             }}
             .info-table td:first-child {{ 
                 font-weight: bold; 
@@ -287,23 +287,23 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             }}
             .checklist-table td:nth-child(2), .checklist-table td:nth-child(3) {{ text-align: center; }}
             
-            .terms-container {{ margin-top: 10px; font-size: 9pt; text-align: justify; }}
-            .disclaimer {{ margin-bottom: 12px; }}
+            .terms-container {{ margin-top: 10px; font-size: 8.5pt; text-align: justify; }}
+            .disclaimer {{ margin-bottom: 8px; }}
             
             /* Checkboxes */
             .check-item {{ 
-                margin-top: 8px; 
+                margin-top: 6px; 
                 display: flex; 
                 align-items: flex-start; 
-                padding: 4px 0;
+                padding: 2px 0;
             }}
             .box {{ 
                 display: inline-block; 
-                width: 12px; height: 12px; 
+                width: 10px; height: 10px; 
                 border: 1px solid #003366; 
-                margin-right: 10px; 
+                margin-right: 8px; 
                 flex-shrink: 0;
-                position: relative; top: 2px;
+                position: relative; top: 3px;
             }}
             .check-text {{ flex-grow: 1; line-height: 1.3; }}
 
@@ -365,11 +365,11 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
                 </p>
                 <div class="check-item">
                     <span class="box"></span> 
-                    <span class="check-text">Estou ciente da proibição da utilização da ferramenta de roteamento (hotspot) dos dados móveis corporativos. Em caso de necessidade, entrarei em contato com o setor responsável (TI).</span>
+                    <span class="check-text">Ciente da proibição da utilização da ferramenta de roteamento dos dados móveis corporativos.</span>
                 </div>
                 <div class="check-item">
                     <span class="box"></span> 
-                    <span class="check-text">Estou ciente da proibição de cadastrar contas pessoais (iCloud, Google Pessoal), armazenar dados particulares ou criar vínculos pessoais neste aparelho corporativo. Em caso de dúvidas, contatarei o setor responsável (TI).</span>
+                    <span class="check-text">Ciente da proibição de cadastrar contas pessoais, armazenar dados particulares ou vínculos neste aparelho corporativo.</span>
                 </div>
             </div>
         </div>
@@ -384,7 +384,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
     return pdf_bytes
 
 def gerar_pdf_etiqueta(dados, logo_string):
-    """Gera o PDF da Etiqueta (100x40mm) - Layout Original Preservado."""
+    """Gera o PDF da Etiqueta (100x40mm) - Layout Compacto para 1 Página."""
     data_formatada = dados.get('data_movimentacao').strftime('%d/%m/%Y') if dados.get('data_movimentacao') else "N/A"
 
     html_string = f"""
@@ -399,55 +399,61 @@ def gerar_pdf_etiqueta(dados, logo_string):
             }}
             body {{
                 font-family: Arial, sans-serif;
-                font-size: 8pt; /* Voltamos ao tamanho 8pt original */
+                font-size: 6.5pt; /* Fonte base reduzida */
                 color: #000;
                 margin: 0;
-                padding: 5mm; /* Margem interna original */
+                padding: 2mm; /* Margem interna muito reduzida */
                 box-sizing: border-box;
                 height: 40mm;
                 width: 100mm;
+                line-height: 1.1;
+                overflow: hidden; /* Previne qualquer overflow visual */
             }}
             .header {{
                 display: flex;
                 justify-content: space-between;
-                align-items: flex-start;
-                padding-bottom: 2mm;
-                border-bottom: 1px solid #000;
+                align-items: center;
+                padding-bottom: 1mm;
+                border-bottom: 0.5px solid #000;
+                margin-bottom: 1mm;
             }}
             .logo {{
-                width: 30mm;
+                width: 22mm; /* Logo menor */
                 height: auto;
             }}
             .date {{
-                font-size: 9pt;
+                font-size: 7pt;
                 font-weight: bold;
             }}
             .content {{
-                margin-top: 3mm;
                 display: flex;
                 width: 100%;
             }}
             .column {{
                 width: 50%;
-                padding-right: 3mm;
+                padding-right: 1.5mm;
             }}
             .column:last-child {{
                 padding-right: 0;
-                padding-left: 3mm;
-                border-left: 1px solid #ccc;
+                padding-left: 1.5mm;
+                border-left: 0.5px solid #ccc;
             }}
             .field {{
-                margin-bottom: 1.5mm;
+                margin-bottom: 0.5mm; /* Espaçamento mínimo entre campos */
             }}
             .field-label {{
                 font-weight: bold;
                 display: block;
-                font-size: 7pt;
-                margin-bottom: 0.5mm;
+                font-size: 5.5pt; /* Label bem pequeno e uppercase */
+                margin-bottom: 0.1mm;
+                text-transform: uppercase;
             }}
             .field-value {{
-                font-size: 8pt;
+                font-size: 6.5pt;
                 word-wrap: break-word;
+                white-space: nowrap; /* Evita quebra de linha em dados longos */
+                overflow: hidden;
+                text-overflow: ellipsis;
             }}
         </style>
     </head>
@@ -669,7 +675,7 @@ try:
         pdf_info = st.session_state.pop('pdf_para_download')
         doc_type = pdf_info.get("type", "documento").capitalize()
         st.download_button(
-            label=f"{doc_type} Gerado! Clique para Baixar",
+            label=f" {doc_type} Gerado! Clique para Baixar",
             data=pdf_info['data'],
             file_name=pdf_info['filename'],
             mime="application/pdf",
