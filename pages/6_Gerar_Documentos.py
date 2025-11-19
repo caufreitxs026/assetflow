@@ -247,6 +247,11 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
                 margin-bottom: 20px;
                 padding-top: 20px;
             }}
+
+            .header h1 {{
+                margin-top: 2.2em; /* ajustável */
+            }}
+
             h1 {{ 
                 color: #003366; 
                 font-size: 16pt; 
@@ -330,7 +335,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             }}
             .check-text {{ flex-grow: 1; line-height: 1.2; }}
 
-            .signature {{ margin-top: 40px; text-align: center; page-break-inside: avoid; }} 
+            .signature {{ margin-top: 80px; text-align: center; page-break-inside: avoid; }} 
             .signature-line {{ 
                 border-top: 1px solid #333; 
                 width: 350px; 
