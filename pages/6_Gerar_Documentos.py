@@ -456,7 +456,7 @@ def gerar_pdf_etiqueta(dados, logo_string):
                 margin-bottom: 1mm;
             }}
             .logo {{
-                width: 30mm; /* Logo bem pequena */
+                width: 25mm; /* Logo bem pequena */
                 height: auto;
             }}
             .date {{
@@ -477,7 +477,7 @@ def gerar_pdf_etiqueta(dados, logo_string):
                 border-left: 0.5px solid #ccc;
             }}
             .field {{
-                margin-bottom: 2mm; /* Espaçamento mínimo */
+                margin-bottom: 1.5mm; /* Espaçamento mínimo */
             }}
             .field-label {{
                 font-weight: bold;
@@ -487,7 +487,7 @@ def gerar_pdf_etiqueta(dados, logo_string):
                 text-transform: uppercase;
             }}
             .field-value {{
-                font-size: 6pt;
+                font-size: 6.5pt;
                 word-wrap: break-word;
                 white-space: nowrap; 
                 overflow: hidden;
