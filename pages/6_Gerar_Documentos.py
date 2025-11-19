@@ -105,17 +105,38 @@ def registrar_log(tipo_documento, alvo, detalhes=""):
     except Exception as e:
         print(f"Erro ao gravar log: {e}")
 
-@st.cache_data(ttl=5) # Cache curto para atualizar logo após gerar
-def carregar_logs_documentos():
-    """Carrega o histórico de documentos gerados."""
+@st.cache_data(ttl=5) 
+def carregar_logs_documentos(start_date=None, end_date=None, alvo_search=None, detalhes_search=None):
+    """Carrega o histórico de documentos gerados com filtros opcionais."""
     conn = get_db_connection()
+    
     query = """
         SELECT id, data_geracao, tipo_documento, usuario_responsavel, alvo_documento, detalhes
         FROM logs_documentos
-        ORDER BY data_geracao DESC
-        LIMIT 100;
     """
-    df = conn.query(query)
+    
+    conditions = []
+    params = {}
+
+    if start_date:
+        conditions.append("CAST(data_geracao AS DATE) >= :start_date")
+        params['start_date'] = start_date
+    if end_date:
+        conditions.append("CAST(data_geracao AS DATE) <= :end_date")
+        params['end_date'] = end_date
+    if alvo_search:
+        conditions.append("alvo_documento ILIKE :alvo")
+        params['alvo'] = f"%{alvo_search}%"
+    if detalhes_search:
+        conditions.append("detalhes ILIKE :detalhes")
+        params['detalhes'] = f"%{detalhes_search}%"
+    
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    query += " ORDER BY data_geracao DESC LIMIT 200;"
+    
+    df = conn.query(query, params=params)
     return df
 
 @st.cache_data(ttl=3600)
@@ -201,7 +222,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
     <head>
         <meta charset="UTF-8">
         <style>
-            @page {{ size: A4; margin: 0.8cm; }} /* Margem reduzida para caber tudo */
+            @page {{ size: A4; margin: 0.8cm; }}
             body {{ font-family: Arial, sans-serif; font-size: 9pt; line-height: 1.2; color: #333; }}
             
             .header {{ 
@@ -230,7 +251,6 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             .checklist-table th {{ background-color: #f2f2f2; text-align: center; border-bottom: 2px solid #ccc;}}
             .checklist-table td:nth-child(2), .checklist-table td:nth-child(3) {{ text-align: center; }}
             
-            /* Estilos compactos para Termos e Checkboxes */
             .terms-container {{ margin-top: 5px; font-size: 8.5pt; text-align: justify; }}
             .disclaimer {{ margin-bottom: 8px; }}
             .check-item {{ margin-top: 4px; display: flex; align-items: flex-start; }}
@@ -363,15 +383,21 @@ def gerar_pdf_etiqueta(dados, logo_string):
     pdf_bytes = HTML(string=html_string).write_pdf()
     return pdf_bytes
 
-# --- UI PRINCIPAL COM ABAS ---
+# --- UI PRINCIPAL COM RADIO BUTTONS ---
 st.title("Geração de Documentos")
 st.markdown("---")
 
-# Adicionada a terceira aba "Histórico de Documentos"
-tab1, tab2, tab3 = st.tabs(["Termo de Responsabilidade", "Gerar Etiquetas", "Histórico de Documentos"])
+option = st.radio(
+    "Selecione a operação:",
+    ("Termo de Responsabilidade", "Gerar Etiquetas", "Histórico de Documentos"),
+    horizontal=True,
+    label_visibility="collapsed",
+    key="docs_selector"
+)
+st.markdown("---")
 
 try:
-    with tab1:
+    if option == "Termo de Responsabilidade":
         st.header("Gerar Termo de Responsabilidade")
         movimentacoes = carregar_movimentacoes_entrega()
 
@@ -455,9 +481,9 @@ try:
                                 st.session_state['pdf_para_download'] = {"data": pdf_bytes, "filename": pdf_filename, "type": "termo"}
                                 st.rerun()
 
-    with tab2:
+    elif option == "Gerar Etiquetas":
         st.header("Gerar Etiqueta do Ativo")
-        movimentacoes_etiqueta = carregar_movimentacoes_entrega() # Reutiliza a mesma função
+        movimentacoes_etiqueta = carregar_movimentacoes_entrega()
 
         if not movimentacoes_etiqueta:
             st.info("Nenhuma movimentação de 'Em uso' encontrada para gerar etiquetas.")
@@ -504,17 +530,29 @@ try:
                             
                             st.session_state['pdf_para_download'] = {"data": pdf_bytes, "filename": pdf_filename, "type": "etiqueta"}
                             st.rerun()
-    
-    with tab3:
+
+    elif option == "Histórico de Documentos":
         st.header("Histórico de Documentos Gerados")
-        st.info("Mostrando os últimos 100 documentos gerados.")
         
-        # Botão para recarregar os logs manualmente
+        col1, col2 = st.columns(2)
+        with col1:
+            data_inicio = st.date_input("De:", value=None, format="DD/MM/YYYY", key="log_start")
+            alvo_filtro = st.text_input("Filtrar por Alvo (Nome/Serial):", key="log_alvo")
+        with col2:
+            data_fim = st.date_input("Até:", value=None, format="DD/MM/YYYY", key="log_end")
+            detalhes_filtro = st.text_input("Filtrar por Detalhes (ex: ID Movimentação):", key="log_detalhes")
+
         if st.button("Atualizar Histórico"):
             st.cache_data.clear()
             st.rerun()
-            
-        df_logs = carregar_logs_documentos()
+
+        df_logs = carregar_logs_documentos(
+            start_date=data_inicio,
+            end_date=data_fim,
+            alvo_search=alvo_filtro,
+            detalhes_search=detalhes_filtro
+        )
+        
         if not df_logs.empty:
              st.dataframe(
                 df_logs,
