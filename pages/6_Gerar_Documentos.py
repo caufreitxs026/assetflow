@@ -444,7 +444,7 @@ def gerar_pdf_etiqueta(dados, logo_string):
             .field-label {{
                 font-weight: bold;
                 display: block;
-                font-size: 5.5pt; /* Label bem pequeno e uppercase */
+                font-size: 6.0pt; /* Label bem pequeno e uppercase */
                 margin-bottom: 0.1mm;
                 text-transform: uppercase;
             }}
