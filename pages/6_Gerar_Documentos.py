@@ -51,6 +51,11 @@ st.markdown("""
         .sidebar-footer img { filter: grayscale(1) opacity(0.6) invert(1); }
         .sidebar-footer img:hover { filter: opacity(1) invert(1); }
     }
+    /* Ajuste para alinhar checkbox e selectbox */
+    div[data-testid="stHorizontalBlock"] > div {
+        display: flex;
+        align-items: center;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -211,7 +216,6 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
     
     dados['data_movimentacao_formatada'] = data_formatada
 
-    # Dividir os itens do checklist em duas listas para as colunas
     items_list = list(checklist_data.items())
     mid_point = math.ceil(len(items_list) / 2)
     col1_items = items_list[:mid_point]
@@ -430,7 +434,7 @@ def gerar_pdf_etiqueta(dados, logo_string):
     <html>
     <head>
         <meta charset="UTF-8">
-        <style>
+      <style>
             @page {{
                 size: 100mm 40mm;
                 margin: 0;
@@ -593,7 +597,7 @@ try:
                         itens_checklist = ["Tela", "Carcaça", "Bateria", "Botões", "USB", "Chip", "Carregador", "Cabo USB", "Capa", "Película"]
                         opcoes_estado = ["NOVO", "BOM", "REGULAR", "AVARIADO", "JÁ DISPÕE", "NÃO ENTREGUE"]
                         
-                        # --- LÓGICA DE 2 COLUNAS NA UI ---
+                        # --- LÓGICA DE 2 COLUNAS NA UI (LADO A LADO) ---
                         mid = math.ceil(len(itens_checklist) / 2)
                         items_col1 = itens_checklist[:mid]
                         items_col2 = itens_checklist[mid:]
@@ -602,17 +606,24 @@ try:
                         
                         with col1_ui:
                             for item in items_col1:
-                                entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{mov_id_termo}")
-                                estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}_{mov_id_termo}")
+                                # Cria 2 sub-colunas para o item: 1 para Checkbox (Nome), 1 para Selectbox (Estado)
+                                sub_c1, sub_c2 = st.columns([1, 1.5])
+                                with sub_c1:
+                                    entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{mov_id_termo}")
+                                with sub_c2:
+                                    estado = st.selectbox("Estado", options=opcoes_estado, key=f"estado_{item}_{mov_id_termo}", label_visibility="collapsed")
                                 checklist_data[item] = {'entregue': entregue, 'estado': estado}
-                                st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True) # Espaçador
+                                st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True) 
 
                         with col2_ui:
                              for item in items_col2:
-                                entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{mov_id_termo}")
-                                estado = st.selectbox(f"Estado de {item}", options=opcoes_estado, key=f"estado_{item}_{mov_id_termo}")
+                                sub_c1, sub_c2 = st.columns([1, 1.5])
+                                with sub_c1:
+                                    entregue = st.checkbox(f"{item}", value=True, key=f"entregue_{item}_{mov_id_termo}")
+                                with sub_c2:
+                                    estado = st.selectbox("Estado", options=opcoes_estado, key=f"estado_{item}_{mov_id_termo}", label_visibility="collapsed")
                                 checklist_data[item] = {'entregue': entregue, 'estado': estado}
-                                st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True) # Espaçador
+                                st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
 
                         submitted = st.form_submit_button("Gerar PDF do Termo", use_container_width=True, type="primary")
                         if submitted:
