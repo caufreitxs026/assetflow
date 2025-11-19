@@ -222,7 +222,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
     <head>
         <meta charset="UTF-8">
         <style>
-            @page {{ size: A4; margin: 0cm; }}
+            @page {{ size: A4; margin: 0,2cm; }}
             body {{ 
                 font-family: Arial, sans-serif; 
                 font-size: 9pt; /* Tamanho da fonte reduzido para caber tudo */
@@ -448,11 +448,11 @@ def gerar_pdf_etiqueta(dados, logo_string):
                 font-weight: bold;
                 display: block;
                 font-size: 5pt; /* Rótulo minúsculo */
-                margin-bottom: 0.1mm;
+                margin-bottom: 0.5mm;
                 text-transform: uppercase;
             }}
             .field-value {{
-                font-size: 8pt;
+                font-size: 6pt;
                 word-wrap: break-word;
                 white-space: nowrap; 
                 overflow: hidden;
