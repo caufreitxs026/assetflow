@@ -362,9 +362,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             <div class="section-title">TERMOS E CONDIÇÕES</div>
             <div class="terms-container">
                 <p class="disclaimer">
-                    Declaro receber o equipamento descrito para uso profissional, sendo responsável pela sua guarda e conservação. 
-                    Comprometo-me a devolvê-lo nas mesmas condições em que o recebi. Danos por mau uso serão de minha responsabilidade 
-                    (Art. 462, § 1º da CLT). Autorizo o uso dos meus dados para este fim, de acordo com a LGPD.
+                    Recebo o equipamento e me responsabilizo por sua conservação e devolução. Danos por mau uso serão de minha responsabilidade. Autorizo o uso dos meus dados conforme a LGPD.
                 </p>
                 <div class="check-item">
                     <span class="box"></span> 
@@ -372,7 +370,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
                 </div>
                 <div class="check-item">
                     <span class="box"></span> 
-                    <span class="check-text">Ciente da proibição de cadastrar contas pessoais, armazenar dados particulares ou vínculos neste aparelho corporativo.</span>
+                    <span class="check-text">Ciente da proibição de cadastrar contas pessoais, dados particulares ou vínculos neste aparelho corporativo.</span>
                 </div>
             </div>
         </div>
