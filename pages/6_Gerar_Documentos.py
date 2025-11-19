@@ -4,6 +4,7 @@ from datetime import datetime
 from auth import show_login_form, logout
 from sqlalchemy import text
 from weasyprint import HTML, CSS
+import math
 
 # --- Autenticação ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -195,7 +196,7 @@ def carregar_setores_nomes():
     return df['nome_setor'].tolist()
 
 def gerar_pdf_termo(dados, checklist_data, logo_string):
-    """Gera o PDF do Termo de Responsabilidade (Layout Otimizado)."""
+    """Gera o PDF do Termo de Responsabilidade (Layout com Checklist em 2 Colunas)."""
     
     data_mov = dados.get('data_movimentacao')
     if isinstance(data_mov, str):
@@ -210,11 +211,22 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
     
     dados['data_movimentacao_formatada'] = data_formatada
 
-    checklist_html = ""
-    for item, detalhes in checklist_data.items():
-        entregue_str = 'SIM' if detalhes['entregue'] else 'NÃO'
-        estado_str = detalhes['estado']
-        checklist_html += f"<tr><td>{item}</td><td>{entregue_str}</td><td>{estado_str}</td></tr>"
+    # Dividir os itens do checklist em duas listas para as colunas
+    items_list = list(checklist_data.items())
+    mid_point = math.ceil(len(items_list) / 2)
+    col1_items = items_list[:mid_point]
+    col2_items = items_list[mid_point:]
+
+    def build_checklist_rows(items):
+        rows = ""
+        for item, detalhes in items:
+            entregue_str = 'SIM' if detalhes['entregue'] else 'NÃO'
+            estado_str = detalhes['estado']
+            rows += f"<tr><td>{item}</td><td>{entregue_str}</td><td>{estado_str}</td></tr>"
+        return rows
+
+    checklist_html_col1 = build_checklist_rows(col1_items)
+    checklist_html_col2 = build_checklist_rows(col2_items)
 
     html_string = f"""
     <!DOCTYPE html>
@@ -222,10 +234,10 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
     <head>
         <meta charset="UTF-8">
         <style>
-            @page {{ size: A4; margin: 0,1cm; }}
+            @page {{ size: A4; margin: 1cm; }}
             body {{ 
                 font-family: Arial, sans-serif; 
-                font-size: 9pt; /* Tamanho da fonte reduzido para caber tudo */
+                font-size: 9.5pt; 
                 line-height: 1.3; 
                 color: #333; 
             }}
@@ -235,25 +247,22 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
                 margin-bottom: 20px;
                 padding-top: 20px;
             }}
-            .header h1 {{
-            margin-top: 2em; /* equivalente a duas linhas */
-            }}
             h1 {{ 
                 color: #003366; 
-                font-size: 15pt; 
+                font-size: 16pt; 
                 margin: 0; 
                 letter-spacing: 1px;
             }}
 
             .logo {{
                 position: absolute;
-                top: 0cm;
+                top: 0.5cm;
                 left: 0.5cm; 
                 width: 140px; 
             }}
             
             .section {{ 
-                margin-bottom: 12px; /* Espaçamento entre seções ajustado */
+                margin-bottom: 12px; 
             }}
             .section-title {{ 
                 background-color: #003366; 
@@ -276,11 +285,22 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
                 color: #555;
             }}
             
-            .checklist-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; }}
+            /* Estilos para o Checklist em Colunas */
+            .checklist-container {{
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                width: 100%;
+            }}
+            .checklist-column {{
+                width: 49%;
+            }}
+            .checklist-table {{ width: 100%; border-collapse: collapse; margin-top: 0; }}
             .checklist-table th, .checklist-table td {{ 
                 border-bottom: 1px solid #ddd; 
-                padding: 5px; 
+                padding: 4px; 
                 text-align: left; 
+                font-size: 9pt;
             }}
             .checklist-table th {{ 
                 background-color: #f9f9f9; 
@@ -310,7 +330,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             }}
             .check-text {{ flex-grow: 1; line-height: 1.2; }}
 
-            .signature {{ margin-top: 60px; text-align: center; page-break-inside: avoid; }} 
+            .signature {{ margin-top: 40px; text-align: center; page-break-inside: avoid; }} 
             .signature-line {{ 
                 border-top: 1px solid #333; 
                 width: 350px; 
@@ -353,16 +373,28 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
         </div>
         <div class="section">
             <div class="section-title">CHECKLIST DE ITENS ENTREGUES</div>
-            <table class="checklist-table">
-                <thead><tr><th>ITEM</th><th>ENTREGUE</th><th>ESTADO</th></tr></thead>
-                <tbody>{checklist_html}</tbody>
-            </table>
+            <div class="checklist-container">
+                <div class="checklist-column">
+                    <table class="checklist-table">
+                        <thead><tr><th>ITEM</th><th>ENTREGUE</th><th>ESTADO</th></tr></thead>
+                        <tbody>{checklist_html_col1}</tbody>
+                    </table>
+                </div>
+                <div class="checklist-column">
+                    <table class="checklist-table">
+                        <thead><tr><th>ITEM</th><th>ENTREGUE</th><th>ESTADO</th></tr></thead>
+                        <tbody>{checklist_html_col2}</tbody>
+                    </table>
+                </div>
+            </div>
         </div>
         <div class="section">
             <div class="section-title">TERMOS E CONDIÇÕES</div>
             <div class="terms-container">
                 <p class="disclaimer">
-                    Recebo o equipamento e me responsabilizo por sua conservação e devolução. Danos por mau uso serão de minha responsabilidade. Autorizo o uso dos meus dados conforme a LGPD.
+                    Declaro receber o equipamento descrito para uso profissional, sendo responsável pela sua guarda e conservação. 
+                    Comprometo-me a devolvê-lo nas mesmas condições em que o recebi. Danos por mau uso serão de minha responsabilidade 
+                    (Art. 462, § 1º da CLT). Autorizo o uso dos meus dados para este fim, de acordo com a LGPD.
                 </p>
                 <div class="check-item">
                     <span class="box"></span> 
@@ -370,7 +402,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
                 </div>
                 <div class="check-item">
                     <span class="box"></span> 
-                    <span class="check-text">Ciente da proibição de cadastrar contas pessoais, dados particulares ou vínculos neste aparelho corporativo.</span>
+                    <span class="check-text">Ciente da proibição de cadastrar contas pessoais, armazenar dados particulares ou vínculos neste aparelho corporativo.</span>
                 </div>
             </div>
         </div>
@@ -385,7 +417,7 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
     return pdf_bytes
 
 def gerar_pdf_etiqueta(dados, logo_string):
-    """Gera o PDF da Etiqueta (100x40mm) - Super Compacto para 1 Página."""
+    """Gera o PDF da Etiqueta (100x40mm) - Layout Compacto para 1 Página."""
     data_formatada = dados.get('data_movimentacao').strftime('%d/%m/%Y') if dados.get('data_movimentacao') else "N/A"
 
     html_string = f"""
@@ -400,7 +432,7 @@ def gerar_pdf_etiqueta(dados, logo_string):
             }}
             body {{
                 font-family: Arial, sans-serif;
-                font-size: 8pt; /* Fonte base muito pequena */
+                font-size: 6pt; /* Fonte base muito pequena */
                 color: #000;
                 margin: 0;
                 padding: 1.5mm; /* Margem interna mínima */
@@ -446,11 +478,11 @@ def gerar_pdf_etiqueta(dados, logo_string):
                 font-weight: bold;
                 display: block;
                 font-size: 5pt; /* Rótulo minúsculo */
-                margin-bottom: 0.5mm;
+                margin-bottom: 0.1mm;
                 text-transform: uppercase;
             }}
             .field-value {{
-                font-size: 5pt;
+                font-size: 6pt;
                 word-wrap: break-word;
                 white-space: nowrap; 
                 overflow: hidden;
@@ -676,7 +708,7 @@ try:
         pdf_info = st.session_state.pop('pdf_para_download')
         doc_type = pdf_info.get("type", "documento").capitalize()
         st.download_button(
-            label=f"{doc_type} Gerado! Clique para Baixar",
+            label=f" {doc_type} Gerado! Clique para Baixar",
             data=pdf_info['data'],
             file_name=pdf_info['filename'],
             mime="application/pdf",
