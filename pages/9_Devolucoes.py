@@ -4,7 +4,8 @@ from datetime import datetime, date
 import json
 from auth import show_login_form, logout
 from sqlalchemy import text
-from email_utils import enviar_email # Importa a função genérica
+# ATENÇÃO: Adicionamos 'montar_layout_base' à importação
+from email_utils import enviar_email, montar_layout_base 
 
 # --- Verificação de Autenticação ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -62,15 +63,7 @@ with st.sidebar:
     if st.button("Logout", key="devolucoes_logout"):
         logout()
     st.markdown("---")
-    st.markdown(
-        f"""
-        <div class="sidebar-footer">
-            <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg"></a>
-            <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg"></a>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    # Adicione o footer da barra lateral se desejar
 
 # --- Funções de Banco de Dados ---
 def get_db_connection():
@@ -79,7 +72,7 @@ def get_db_connection():
 @st.cache_data(ttl=30)
 def carregar_aparelhos_em_uso():
     conn = get_db_connection()
-    # Query ajustada para buscar também os dados necessários para o e-mail
+    # Query ajustada para buscar também marca_id e modelo_id
     query = """
         WITH UltimaMovimentacao AS (
             SELECT
@@ -99,7 +92,7 @@ def carregar_aparelhos_em_uso():
         LEFT JOIN setores s ON c.setor_id = s.id
         JOIN modelos mo ON a.modelo_id = mo.id
         JOIN marcas ma ON mo.marca_id = ma.id
-        WHERE st.nome_status = 'Em uso' AND c.id IS NOT NULL AND c.status = 'Ativo'
+        WHERE st.nome_status = 'Em uso' AND c.id IS NOT NULL AND c.status = 'Ativo' -- Garante que o colaborador está ativo
         ORDER BY c.nome_completo;
     """
     df = conn.query(query)
@@ -222,67 +215,138 @@ def carregar_historico_devolucoes(start_date=None, end_date=None, ns_search=None
         )
     return df
 
-# --- FUNÇÃO: Gerar Conteúdo do E-mail de Devolução (Movida para cá) ---
+# --- FUNÇÃO ATUALIZADA: Usando montar_layout_base ---
 def gerar_conteudo_email_devolucao(dados_aparelho, checklist_data, destino_final, observacoes, data_devolucao):
     assunto = f"Devolução do aparelho - {dados_aparelho.get('colaborador_nome', 'N/A')}"
 
-    # Monta a tabela do checklist em HTML
-    checklist_html_table = "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; width: 100%; font-size: 10pt;'><thead><tr style='background-color: #f2f2f2;'><th>Item</th><th>Entregue</th><th>Estado</th></tr></thead><tbody>"
+    # Monta as linhas da tabela de checklist em HTML
+    checklist_rows = ""
     if isinstance(checklist_data, dict):
         for item, details in checklist_data.items():
             entregue = "Sim" if details.get('entregue', False) else "Não"
             estado = details.get('estado', 'N/A')
-            checklist_html_table += f"<tr><td>{item}</td><td>{entregue}</td><td>{estado}</td></tr>"
-    checklist_html_table += "</tbody></table>"
+            checklist_rows += f"""
+            <tr>
+                <td style="padding: 6px; border-bottom: 1px solid #eeeeee; font-family: Arial, sans-serif; font-size: 13px; color: #333;">{item}</td>
+                <td style="padding: 6px; border-bottom: 1px solid #eeeeee; font-family: Arial, sans-serif; font-size: 13px; color: #333;">{entregue}</td>
+                <td style="padding: 6px; border-bottom: 1px solid #eeeeee; font-family: Arial, sans-serif; font-size: 13px; color: #333;">{estado}</td>
+            </tr>
+            """
 
-    corpo_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Notificação de Devolução</title></head>
-    <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f9f9f9; color: #333;">
-        <div style="max-width: 600px; margin: auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden; border: 1px solid #e0e0e0;">
-            <div style="padding: 15px; text-align: center; border-bottom: 1px solid #eeeeee; background-color: #000;">
-                 <div style="font-family: 'Courier New', monospace; font-size: 24px; font-weight: bold;">
-                    <span style="color: #FFFFFF; text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);">ASSET</span><span style="color: #E30613; text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);">FLOW</span>
-                </div>
-            </div>
-            <div style="padding: 25px;">
-                <h2 style="color: #003366; border-bottom: 2px solid #003366; padding-bottom: 5px;">Relatório de Devolução de Ativo</h2>
-                
-                <p><strong>Data da Devolução:</strong> {data_devolucao.strftime('%d/%m/%Y %H:%M')}</p>
-                
-                <h3 style="color: #003366; margin-top: 20px;">Dados do Colaborador</h3>
-                <p><strong>Nome Completo:</strong> {dados_aparelho.get('colaborador_nome', 'N/A')}<br>
-                   <strong>Código:</strong> {dados_aparelho.get('colaborador_codigo', 'N/A')}<br>
-                   <strong>Função (Setor):</strong> {dados_aparelho.get('colaborador_setor', 'N/A')}</p>
+    checklist_html_table = f"""
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+        <thead>
+            <tr bgcolor="#f2f2f2">
+                <th align="left" style="padding: 8px; border-bottom: 2px solid #cccccc; font-family: Arial, sans-serif; font-size: 13px; color: #333;">Item</th>
+                <th align="left" style="padding: 8px; border-bottom: 2px solid #cccccc; font-family: Arial, sans-serif; font-size: 13px; color: #333;">Entregue</th>
+                <th align="left" style="padding: 8px; border-bottom: 2px solid #cccccc; font-family: Arial, sans-serif; font-size: 13px; color: #333;">Estado</th>
+            </tr>
+        </thead>
+        <tbody>
+            {checklist_rows}
+        </tbody>
+    </table>
+    """
 
-                <h3 style="color: #003366; margin-top: 20px;">Dados do Aparelho</h3>
-                <p><strong>Aparelho:</strong> {dados_aparelho.get('nome_marca', '')} {dados_aparelho.get('nome_modelo', '')}<br>
-                   <strong>N°/S do Aparelho:</strong> {dados_aparelho.get('numero_serie', 'N/A')}</p>
+    # Constrói o "miolo" do e-mail que será injetado no template base
+    # Usamos tabelas em vez de divs e margins para compatibilidade com Outlook
+    miolo_html = f"""
+    <tr>
+        <td style="color: #003366; font-family: Arial, sans-serif; font-size: 22px; font-weight: bold; padding-bottom: 5px; border-bottom: 2px solid #003366;">
+            Relatório de Devolução de Ativo
+        </td>
+    </tr>
+    <tr><td height="15" style="font-size:0px; line-height:0px;">&nbsp;</td></tr>
+    
+    <tr>
+        <td style="font-family: Arial, sans-serif; font-size: 14px; color: #333333;">
+            <strong>Data da Devolução:</strong> {data_devolucao.strftime('%d/%m/%Y %H:%M')}
+        </td>
+    </tr>
+    <tr><td height="25" style="font-size:0px; line-height:0px;">&nbsp;</td></tr>
 
-                <h3 style="color: #003366; margin-top: 20px;">Informações da Devolução</h3>
-                <p><strong>Destino Final do Aparelho:</strong> {destino_final}<br>
-                   <strong>Observações:</strong> {observacoes if observacoes else 'Nenhuma observação registada.'}</p>
+    <!-- Seção Colaborador -->
+    <tr>
+        <td style="color: #003366; font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; padding-bottom: 5px;">
+            Dados do Colaborador
+        </td>
+    </tr>
+    <tr>
+        <td style="font-family: Arial, sans-serif; font-size: 14px; color: #333333; line-height: 1.6;">
+            <strong>Nome Completo:</strong> {dados_aparelho.get('colaborador_nome', 'N/A')}<br/>
+            <strong>Código:</strong> {dados_aparelho.get('colaborador_codigo', 'N/A')}<br/>
+            <strong>Função (Setor):</strong> {dados_aparelho.get('colaborador_setor', 'N/A')}
+        </td>
+    </tr>
+    <tr><td height="20" style="font-size:0px; line-height:0px;">&nbsp;</td></tr>
 
-                <h3 style="color: #003366; margin-top: 20px;">Detalhes do Checklist da Devolução</h3>
-                {checklist_html_table}
+    <!-- Seção Aparelho -->
+    <tr>
+        <td style="color: #003366; font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; padding-bottom: 5px;">
+            Dados do Aparelho
+        </td>
+    </tr>
+    <tr>
+        <td style="font-family: Arial, sans-serif; font-size: 14px; color: #333333; line-height: 1.6;">
+            <strong>Aparelho:</strong> {dados_aparelho.get('nome_marca', '')} {dados_aparelho.get('nome_modelo', '')}<br/>
+            <strong>N°/S do Aparelho:</strong> {dados_aparelho.get('numero_serie', 'N/A')}
+        </td>
+    </tr>
+    <tr><td height="20" style="font-size:0px; line-height:0px;">&nbsp;</td></tr>
 
-            </div>
-            <div style="background-color: #f0f2f6; padding: 15px; font-size: 11px; color: #888888; text-align: center; border-top: 1px solid #eeeeee;">
-                <p>&copy; {datetime.now().year} AssetFlow. Este é um e-mail automático.</p>
-            </div>
-        </div>
-    </body>
-    </html>
+    <!-- Seção Informações -->
+    <tr>
+        <td style="color: #003366; font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; padding-bottom: 5px;">
+            Informações da Devolução
+        </td>
+    </tr>
+    <tr>
+        <td style="font-family: Arial, sans-serif; font-size: 14px; color: #333333; line-height: 1.6;">
+            <strong>Destino Final do Aparelho:</strong> {destino_final}<br/>
+            <strong>Observações:</strong> {observacoes if observacoes else 'Nenhuma observação registada.'}
+        </td>
+    </tr>
+    <tr><td height="20" style="font-size:0px; line-height:0px;">&nbsp;</td></tr>
+
+    <!-- Seção Checklist -->
+    <tr>
+        <td style="color: #003366; font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; padding-bottom: 10px;">
+            Detalhes do Checklist da Devolução
+        </td>
+    </tr>
+    <tr>
+        <td>
+            {checklist_html_table}
+        </td>
+    </tr>
     """
     
+    # Usa a função base para envolver o miolo na estrutura compatível com Outlook
+    html_completo = montar_layout_base(assunto, miolo_html)
+
+    # Texto puro como fallback
     corpo_texto = f"""
     Relatório de Devolução de Ativo
-    Data da Devolução: {data_devolucao.strftime('%d/%m/%Y %H:%M')}
-    ... (corpo de texto omitido por brevidade) ...
-    """
 
-    return assunto, corpo_html, corpo_texto
+    Data da Devolução: {data_devolucao.strftime('%d/%m/%Y %H:%M')}
+
+    Dados do Colaborador:
+    Nome Completo: {dados_aparelho.get('colaborador_nome', 'N/A')}
+    Código: {dados_aparelho.get('colaborador_codigo', 'N/A')}
+    Função (Setor): {dados_aparelho.get('colaborador_setor', 'N/A')}
+
+    Dados do Aparelho:
+    Aparelho: {dados_aparelho.get('nome_marca', '')} {dados_aparelho.get('nome_modelo', '')}
+    N°/S do Aparelho: {dados_aparelho.get('numero_serie', 'N/A')}
+
+    Informações da Devolução:
+    Destino Final do Aparelho: {destino_final}
+    Observações: {observacoes if observacoes else 'Nenhuma observação registada.'}
+
+    Checklist: (Ver e-mail em HTML para tabela formatada)
+    """
+    
+    return assunto, html_completo, corpo_texto
 
 # --- Interface Principal ---
 st.title("Fluxo de Devolução e Triagem")
@@ -298,10 +362,12 @@ try:
     )
     st.markdown("---")
 
+    # --- Lógica para controlar a exibição do formulário de e-mail ---
     if 'devolucao_concluida' not in st.session_state:
         st.session_state.devolucao_concluida = False
     
     if option == "Registar Devolução":
+        # Se a devolução NÃO foi concluída, mostra o formulário normal
         if not st.session_state.devolucao_concluida:
             st.subheader("1. Selecione o Aparelho a Ser Devolvido")
             aparelhos_em_uso = carregar_aparelhos_em_uso()
@@ -363,6 +429,7 @@ try:
                             )
                             if sucesso:
                                 st.session_state.devolucao_concluida = True
+                                # Guarda os dados necessários para o e-mail
                                 st.session_state.email_data = {
                                     "dados_aparelho": aparelho_selecionado_data,
                                     "checklist_data": checklist_data_input,
@@ -372,8 +439,9 @@ try:
                                     "novo_status": novo_status
                                 }
                                 st.cache_data.clear()
-                                st.rerun()
+                                st.rerun() # Recarrega para mostrar a secção de e-mail
 
+        # Se a devolução FOI concluída, mostra a secção de e-mail opcional
         else:
             if 'email_data' in st.session_state:
                 email_data = st.session_state.email_data
@@ -403,8 +471,10 @@ try:
                                     )
                                     if enviar_email(destinatarios_list, assunto, corpo_html, corpo_texto):
                                         st.success("E-mail de notificação enviado com sucesso!")
+                                        # Limpa o estado após o envio
                                         del st.session_state.email_data
                                         st.session_state.devolucao_concluida = False
+                                        # Aguarda um pouco para o utilizador ver a mensagem antes de limpar
                                         st.write("A recarregar a página...")
                                         import time
                                         time.sleep(2)
@@ -416,6 +486,7 @@ try:
                         else:
                             st.warning("Por favor, insira os endereços de e-mail dos destinatários.")
                 
+                # Botão para concluir sem enviar e-mail
                 if st.button("Concluir (sem enviar e-mail)", use_container_width=True):
                     del st.session_state.email_data
                     st.session_state.devolucao_concluida = False
@@ -442,7 +513,7 @@ try:
         if historico_df.empty:
             st.warning("Nenhum registo de devolução encontrado para os filtros selecionados.")
         else:
-            df_para_exibir = historico_df.drop(columns=['id', 'checklist_devolucao', 'checklist_detalhes', 'nome_marca', 'nome_modelo', 'colaborador_codigo', 'colaborador_setor'], errors='ignore').copy()
+            df_para_exibir = historico_df.drop(columns=['id', 'checklist_devolucao', 'checklist_detalhes'], errors='ignore').copy()
             df_para_exibir.rename(columns={
                 'data_movimentacao': 'Data da Devolução', 'aparelho': 'Aparelho',
                 'numero_serie': 'N/S do Aparelho', 'colaborador_devolveu': 'Devolvido por',
@@ -464,7 +535,7 @@ try:
             ]
             
             linha_selecionada_str = st.selectbox(
-                "Selecione uma devolução para ver os detalhes:", 
+                "Selecione uma devolução para ver os detalhes do checklist:", 
                 options=opcoes_detalhe, 
                 index=None, 
                 placeholder="Escolha um registro da lista..."
@@ -529,4 +600,3 @@ try:
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de devoluções: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
-
