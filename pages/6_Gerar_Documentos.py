@@ -71,10 +71,39 @@ with st.sidebar:
         from auth import logout
         logout()
     st.markdown("---")
+    st.markdown(
+        f"""
+        <div class="sidebar-footer">
+            <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg"></a>
+            <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg"></a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # --- Funções do DB e Auxiliares ---
 def get_db_connection():
     return st.connection("supabase", type="sql")
+
+# --- NOVA FUNÇÃO DE LOG ---
+def registrar_log(tipo_documento, alvo, detalhes=""):
+    """Grava um registo na tabela de logs_documentos."""
+    try:
+        conn = get_db_connection()
+        with conn.session as s:
+            query = text("""
+                INSERT INTO logs_documentos (tipo_documento, usuario_responsavel, alvo_documento, detalhes)
+                VALUES (:tipo, :usuario, :alvo, :detalhes)
+            """)
+            s.execute(query, {
+                "tipo": tipo_documento,
+                "usuario": st.session_state['user_name'],
+                "alvo": alvo,
+                "detalhes": detalhes
+            })
+            s.commit()
+    except Exception as e:
+        print(f"Erro ao gravar log: {e}") # Apenas printa no console para não travar a UI
 
 @st.cache_data(ttl=3600)
 def carregar_logo_base64():
@@ -203,6 +232,10 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
             
             .disclaimer {{ font-size: 8pt; text-align: justify; margin-top: 5px; padding: 0 5px; }}
             
+            /* Estilo para os checkboxes de ciência */
+            .check-item {{ margin-top: 8px; font-size: 9pt; text-align: justify; }}
+            .box {{ display: inline-block; width: 10px; height: 10px; border: 1px solid #000; margin-right: 5px; position: relative; top: 2px; }}
+
             .signature {{ margin-top: 95px; text-align: center; }} 
             .signature-line {{ border-top: 1px solid #000; width: 350px; margin: 0 auto; padding-top: 5px; }}
         </style>
@@ -248,6 +281,14 @@ def gerar_pdf_termo(dados, checklist_data, logo_string):
         <div class="section">
             <div class="section-title">TERMOS E CONDIÇÕES</div>
             <p class="disclaimer">{texto_termos_resumido}</p>
+            
+            <!-- NOVAS CLÁUSULAS DE CIÊNCIA -->
+            <div class="check-item">
+                <span class="box"></span> Estou ciente da proibição da utilização da ferramenta de roteamento (hotspot) dos dados móveis corporativos. Em caso de necessidade, entrarei em contato com o setor responsável (TI).
+            </div>
+            <div class="check-item">
+                <span class="box"></span> Estou ciente da proibição de cadastrar contas pessoais (iCloud, Google Pessoal), armazenar dados particulares ou criar vínculos pessoais neste aparelho corporativo. Em caso de dúvidas, contatarei o setor responsável (TI).
+            </div>
         </div>
         <div class="signature">
             <div class="signature-line">{dados.get('nome_completo', '')}</div>
@@ -275,54 +316,55 @@ def gerar_pdf_etiqueta(dados, logo_string):
             }}
             body {{
                 font-family: Arial, sans-serif;
-                font-size: 7pt; /* Reduzido */
+                font-size: 7.5pt;
                 color: #000;
                 margin: 0;
-                padding: 2.5mm; /* Margem interna reduzida */
+                padding: 3mm;
                 box-sizing: border-box;
                 line-height: 1.1;
             }}
             .header {{
                 display: flex;
                 justify-content: space-between;
-                align-items: center; /* Centraliza verticalmente */
+                align-items: flex-start;
                 padding-bottom: 1.5mm;
-                border-bottom: 0.5px solid #000; /* Linha mais fina */
+                border-bottom: 1px solid #000;
                 margin-bottom: 1.5mm;
             }}
             .logo {{
-                width: 25mm; /* Logo menor */
+                width: 28mm;
                 height: auto;
             }}
             .date {{
-                font-size: 7pt; /* Data menor */
+                font-size: 8pt;
                 font-weight: bold;
             }}
             .content {{
+                margin-top: 2mm;
                 display: flex;
                 width: 100%;
             }}
             .column {{
                 width: 50%;
-                padding-right: 1.5mm; /* Espaçamento menor */
+                padding-right: 2mm;
             }}
             .column:last-child {{
                 padding-right: 0;
-                padding-left: 1.5mm; /* Espaçamento menor */
-                border-left: 0.5px solid #ccc; /* Linha mais fina */
+                padding-left: 2mm;
+                border-left: 1px solid #ccc;
             }}
             .field {{
-                margin-bottom: 1mm; /* Espaçamento menor */
+                margin-bottom: 1mm;
             }}
             .field-label {{
                 font-weight: bold;
                 display: block;
-                font-size: 6pt; /* Rótulo menor */
-                margin-bottom: 0.2mm;
+                font-size: 6.5pt;
+                margin-bottom: 0.3mm;
                 text-transform: uppercase;
             }}
             .field-value {{
-                font-size: 7pt;
+                font-size: 7.5pt;
                 word-wrap: break-word;
             }}
         </style>
@@ -438,6 +480,13 @@ try:
                             if logo_string:
                                 pdf_bytes = gerar_pdf_termo(dados_termo_editaveis, checklist_data, logo_string)
                                 
+                                # --- REGISTAR O LOG DO TERMO ---
+                                registrar_log(
+                                    tipo_documento="Termo de Responsabilidade",
+                                    alvo=dados_termo_editaveis.get('nome_completo', 'Desconhecido'),
+                                    detalhes=f"Movimentação ID {mov_id_termo}"
+                                )
+                                
                                 safe_name = "".join(c for c in dados_termo_editaveis.get('nome_completo', 'termo') if c.isalnum() or c in " ").rstrip()
                                 pdf_filename = f"Termo_{safe_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
                                 
@@ -481,6 +530,13 @@ try:
                         if logo_string:
                             pdf_bytes = gerar_pdf_etiqueta(dados_etiqueta, logo_string)
                             
+                            # --- REGISTAR O LOG DA ETIQUETA ---
+                            registrar_log(
+                                tipo_documento="Etiqueta de Ativo",
+                                alvo=dados_etiqueta.get('numero_serie', 'Desconhecido'),
+                                detalhes=f"Movimentação ID {mov_id_etiqueta}"
+                            )
+
                             safe_ns = "".join(c for c in dados_etiqueta.get('numero_serie', 'etiqueta') if c.isalnum()).rstrip()
                             pdf_filename = f"Etiqueta_{safe_ns}_{datetime.now().strftime('%Y%m%d')}.pdf"
                             
