@@ -267,14 +267,21 @@ def atualizar_manutencao(manutencao_id, fornecedor, defeito):
 @st.cache_data(ttl=30)
 def carregar_historico_manutencoes(status_filter=None, colaborador_filter=None, responsabilidade_filter=None, start_date=None, end_date=None, start_date_retorno=None, end_date_retorno=None):
     conn = get_db_connection()
+    # Query ajustada para trazer Marca e Setor
     query = """
         SELECT 
-            m.id, a.numero_serie, mo.nome_modelo, m.colaborador_snapshot as colaborador,
-            m.data_envio, m.data_retorno, m.custo_reparo, m.responsabilidade_custo, m.status_manutencao, m.fornecedor,
+            m.id, a.numero_serie, ma.nome_marca, mo.nome_modelo, 
+            m.colaborador_snapshot as colaborador,
+            s.nome_setor as setor,
+            m.data_envio, m.data_retorno, m.custo_reparo, m.responsabilidade_custo, 
+            m.status_manutencao, m.fornecedor,
             m.defeito_reportado, m.solucao_aplicada
         FROM manutencoes m
         JOIN aparelhos a ON m.aparelho_id = a.id
         JOIN modelos mo ON a.modelo_id = mo.id
+        JOIN marcas ma ON mo.marca_id = ma.id
+        LEFT JOIN colaboradores c ON m.colaborador_id_no_envio = c.id
+        LEFT JOIN setores s ON c.setor_id = s.id
     """
     params = {}
     where_clauses = []
@@ -315,14 +322,14 @@ def gerar_conteudo_email_manutencao(df_selecionado):
         custo = float(row['custo_reparo']) if pd.notnull(row['custo_reparo']) else 0.0
         total_custo += custo
         
-        # Formatação de datas
-        data_envio = row['data_envio'].strftime('%d/%m/%Y') if pd.notnull(row['data_envio']) else "-"
-        data_retorno = row['data_retorno'].strftime('%d/%m/%Y') if pd.notnull(row['data_retorno']) else "-"
+        aparelho_completo = f"{row['nome_marca']} {row['nome_modelo']} (S/N: {row['numero_serie']})"
+        setor_responsavel = f"{row['setor'] or 'N/A'} - {row['colaborador']}"
 
         linhas_html += f"""
         <tr>
             <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['id']}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['nome_modelo']} (S/N: {row['numero_serie']})</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{aparelho_completo}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{setor_responsavel}</td>
             <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['defeito_reportado']}</td>
             <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['solucao_aplicada'] or '-'}</td>
             <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['responsabilidade_custo'] or '-'}</td>
@@ -350,6 +357,7 @@ def gerar_conteudo_email_manutencao(df_selecionado):
                     <tr bgcolor="#f2f2f2">
                         <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">O.S.</th>
                         <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Aparelho</th>
+                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Setor - Responsável</th>
                         <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Defeito</th>
                         <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Solução</th>
                         <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Resp. Custo</th>
@@ -361,7 +369,7 @@ def gerar_conteudo_email_manutencao(df_selecionado):
                 </tbody>
                 <tfoot>
                     <tr>
-                        <td colspan="5" align="right" style="padding: 10px; font-weight: bold; font-family: Arial; font-size: 13px;">TOTAL:</td>
+                        <td colspan="6" align="right" style="padding: 10px; font-weight: bold; font-family: Arial; font-size: 13px;">TOTAL:</td>
                         <td style="padding: 10px; font-weight: bold; font-family: Arial; font-size: 13px;">R$ {total_custo:.2f}</td>
                     </tr>
                 </tfoot>
@@ -533,7 +541,9 @@ try:
              "id": "O.S. Nº",
              "numero_serie": "N/S",
              "nome_modelo": "Modelo",
+             "nome_marca": "Marca",
              "colaborador": "Colaborador no Envio",
+             "setor": "Setor",
              "data_envio": st.column_config.DateColumn("Data Envio", format="DD/MM/YYYY"),
              "data_retorno": st.column_config.DateColumn("Data Retorno", format="DD/MM/YYYY"),
              "custo_reparo": st.column_config.NumberColumn("Custo", format="R$ %.2f"),
@@ -545,7 +555,7 @@ try:
         }
         
         # Ordem das colunas com 'Selecionar' primeiro
-        cols = ['Selecionar'] + [c for c in historico_df.columns if c != 'Selecionar']
+        cols = ['Selecionar', 'id', 'nome_modelo', 'numero_serie', 'colaborador', 'setor', 'defeito_reportado', 'solucao_aplicada', 'responsabilidade_custo', 'custo_reparo', 'status_manutencao', 'data_envio', 'data_retorno']
         
         edited_df = st.data_editor(
             historico_df,
