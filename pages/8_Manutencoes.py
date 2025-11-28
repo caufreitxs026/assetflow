@@ -267,7 +267,7 @@ def atualizar_manutencao(manutencao_id, fornecedor, defeito):
 @st.cache_data(ttl=30)
 def carregar_historico_manutencoes(status_filter=None, colaborador_filter=None, responsabilidade_filter=None, start_date=None, end_date=None, start_date_retorno=None, end_date_retorno=None):
     conn = get_db_connection()
-    # Query ajustada para trazer Marca e Setor
+    # Query ajustada para trazer Marca e Setor para o relatório completo
     query = """
         SELECT 
             m.id, a.numero_serie, ma.nome_marca, mo.nome_modelo, 
@@ -312,74 +312,82 @@ def carregar_historico_manutencoes(status_filter=None, colaborador_filter=None, 
     df = conn.query(query, params=params)
     return df
 
-# --- NOVA FUNÇÃO: Gerar HTML de Manutenção ---
-def gerar_conteudo_email_manutencao(df_selecionado):
-    # Constrói as linhas da tabela em HTML
-    linhas_html = ""
-    total_custo = 0.0
+# --- FUNÇÃO: Gerar HTML de Manutenção para E-mail ---
+def gerar_conteudo_email_historico_manutencao(df_selecionado):
+    # Calcula o total
+    total_custo = df_selecionado['custo_reparo'].fillna(0).sum()
     
+    linhas_html = ""
     for index, row in df_selecionado.iterrows():
-        custo = float(row['custo_reparo']) if pd.notnull(row['custo_reparo']) else 0.0
-        total_custo += custo
+        # Formata datas e valores
+        data_ida = row['data_envio'].strftime('%d/%m/%Y') if pd.notnull(row['data_envio']) else "-"
+        data_volta = row['data_retorno'].strftime('%d/%m/%Y') if pd.notnull(row['data_retorno']) else "-"
+        valor = f"R$ {float(row['custo_reparo']):.2f}" if pd.notnull(row['custo_reparo']) else "R$ 0.00"
         
-        aparelho_completo = f"{row['nome_marca']} {row['nome_modelo']} (S/N: {row['numero_serie']})"
-        setor_responsavel = f"{row['setor'] or 'N/A'} - {row['colaborador']}"
-
+        # Formata strings compostas
+        aparelho = f"{row['nome_marca']} {row['nome_modelo']} (S/N: {row['numero_serie']})"
+        # Se não houver setor, assume N/A
+        setor_str = row['setor'] if row['setor'] else 'N/A'
+        responsavel = f"{setor_str} - {row['colaborador']}"
+        
+        # Constrói a linha da tabela
         linhas_html += f"""
         <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['id']}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{aparelho_completo}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{setor_responsavel}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['defeito_reportado']}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['solucao_aplicada'] or '-'}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['responsabilidade_custo'] or '-'}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">R$ {custo:.2f}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 11px;">{row['id']}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 11px;">{aparelho}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 11px;">{responsavel}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 11px;">{row['fornecedor'] or '-'}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 11px;">{data_ida}<br/>{data_volta}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 11px;">{row['defeito_reportado']}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 11px;">{row['solucao_aplicada'] or '-'}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 11px;">{row['responsabilidade_custo'] or '-'}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 11px; white-space: nowrap;">{valor}</td>
         </tr>
         """
     
-    # Miolo do e-mail
-    miolo_html = f"""
+    # Miolo da tabela HTML (sem as tags <html>, <body>, pois o montar_layout_base faz isso)
+    miolo_tabela = f"""
+    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+        <thead>
+            <tr bgcolor="#f2f2f2">
+                <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 11px; color: #003366;">O.S.</th>
+                <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 11px; color: #003366;">Aparelho</th>
+                <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 11px; color: #003366;">Setor - Responsável</th>
+                <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 11px; color: #003366;">Prestador</th>
+                <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 11px; color: #003366;">Datas</th>
+                <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 11px; color: #003366;">Defeito</th>
+                <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 11px; color: #003366;">Solução</th>
+                <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 11px; color: #003366;">Resp. Custo</th>
+                <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 11px; color: #003366;">Valor</th>
+            </tr>
+        </thead>
+        <tbody>
+            {linhas_html}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="8" align="right" style="padding: 10px; font-weight: bold; font-family: Arial; font-size: 12px;">TOTAL:</td>
+                <td style="padding: 10px; font-weight: bold; font-family: Arial; font-size: 12px; white-space: nowrap;">R$ {total_custo:.2f}</td>
+            </tr>
+        </tfoot>
+    </table>
+    """
+    
+    # Envolve o miolo no layout padrão (cabeçalho preto, rodapé, etc.)
+    miolo_completo = f"""
     <tr>
-        <td style="color: #003366; font-family: Arial, sans-serif; font-size: 22px; font-weight: bold; padding-bottom: 10px;">
-            Relatório de Manutenções
+        <td style="color: #003366; font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; padding-bottom: 15px;">
+            Relatório de Manutenções Selecionadas
         </td>
     </tr>
-    <tr>
-        <td style="font-family: Arial, sans-serif; font-size: 14px; color: #333333;">
-            Segue abaixo o resumo das Ordens de Serviço selecionadas:
-        </td>
-    </tr>
-    <tr><td height="20">&nbsp;</td></tr>
     <tr>
         <td>
-            <table border="0" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
-                <thead>
-                    <tr bgcolor="#f2f2f2">
-                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">O.S.</th>
-                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Aparelho</th>
-                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Setor - Responsável</th>
-                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Defeito</th>
-                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Solução</th>
-                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Resp. Custo</th>
-                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Valor</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {linhas_html}
-                </tbody>
-                <tfoot>
-                    <tr>
-                        <td colspan="6" align="right" style="padding: 10px; font-weight: bold; font-family: Arial; font-size: 13px;">TOTAL:</td>
-                        <td style="padding: 10px; font-weight: bold; font-family: Arial; font-size: 13px;">R$ {total_custo:.2f}</td>
-                    </tr>
-                </tfoot>
-            </table>
+            {miolo_tabela}
         </td>
     </tr>
     """
     
-    html_final = montar_layout_base("Relatório de Manutenção", miolo_html)
-    return html_final
+    return montar_layout_base("Relatório de Manutenções", miolo_completo)
 
 # --- UI ---
 st.title("Fluxo de Manutenção")
@@ -537,7 +545,7 @@ try:
         
         # Configuração da tabela interativa
         column_config = {
-             "Selecionar": st.column_config.CheckboxColumn("Selecionar", help="Selecione para enviar por e-mail"),
+             "Selecionar": st.column_config.CheckboxColumn("Selecionar", help="Selecione para enviar relatório por e-mail"),
              "id": "O.S. Nº",
              "numero_serie": "N/S",
              "nome_modelo": "Modelo",
@@ -549,13 +557,13 @@ try:
              "custo_reparo": st.column_config.NumberColumn("Custo", format="R$ %.2f"),
              "responsabilidade_custo": "Respons. Custo",
              "status_manutencao": "Status O.S.",
-             "fornecedor": "Fornecedor",
+             "fornecedor": "Prestador", # Renomeado para Prestador na UI
              "defeito_reportado": "Defeito Reportado",
              "solucao_aplicada": "Solução Aplicada"
         }
         
         # Ordem das colunas com 'Selecionar' primeiro
-        cols = ['Selecionar', 'id', 'nome_modelo', 'numero_serie', 'colaborador', 'setor', 'defeito_reportado', 'solucao_aplicada', 'responsabilidade_custo', 'custo_reparo', 'status_manutencao', 'data_envio', 'data_retorno']
+        cols = ['Selecionar', 'id', 'nome_marca', 'nome_modelo', 'numero_serie', 'colaborador', 'setor', 'fornecedor', 'defeito_reportado', 'solucao_aplicada', 'responsabilidade_custo', 'custo_reparo', 'status_manutencao', 'data_envio', 'data_retorno']
         
         edited_df = st.data_editor(
             historico_df,
@@ -580,7 +588,7 @@ try:
                         destinatarios_list = [email.strip() for email in destinatarios_str.split(',') if email.strip()]
                         if destinatarios_list:
                             with st.spinner("A gerar e enviar relatório..."):
-                                html_email = gerar_conteudo_email_manutencao(selecionados)
+                                html_email = gerar_conteudo_email_historico_manutencao(selecionados)
                                 if enviar_email(destinatarios_list, "AssetFlow - Relatório de Manutenções", html_email, "Consulte a versão HTML para ver o relatório."):
                                     st.success("Relatório enviado com sucesso!")
                                 else:
