@@ -5,6 +5,8 @@ from auth import show_login_form, logout
 from sqlalchemy import text, exc
 import traceback
 import numpy as np
+# Importamos as funções de e-mail
+from email_utils import enviar_email, montar_layout_base
 
 # --- Autenticação ---
 if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -72,6 +74,15 @@ with st.sidebar:
         from auth import logout
         logout()
     st.markdown("---")
+    st.markdown(
+        f"""
+        <div class="sidebar-footer">
+            <a href="https://github.com/caufreitxs026" target="_blank" title="GitHub"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/github.svg"></a>
+            <a href="https://linkedin.com/in/cauafreitas" target="_blank" title="LinkedIn"><img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/brands/linkedin.svg"></a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # --- Funções do DB ---
 def get_db_connection():
@@ -294,6 +305,74 @@ def carregar_historico_manutencoes(status_filter=None, colaborador_filter=None, 
     df = conn.query(query, params=params)
     return df
 
+# --- NOVA FUNÇÃO: Gerar HTML de Manutenção ---
+def gerar_conteudo_email_manutencao(df_selecionado):
+    # Constrói as linhas da tabela em HTML
+    linhas_html = ""
+    total_custo = 0.0
+    
+    for index, row in df_selecionado.iterrows():
+        custo = float(row['custo_reparo']) if pd.notnull(row['custo_reparo']) else 0.0
+        total_custo += custo
+        
+        # Formatação de datas
+        data_envio = row['data_envio'].strftime('%d/%m/%Y') if pd.notnull(row['data_envio']) else "-"
+        data_retorno = row['data_retorno'].strftime('%d/%m/%Y') if pd.notnull(row['data_retorno']) else "-"
+
+        linhas_html += f"""
+        <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['id']}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['nome_modelo']} (S/N: {row['numero_serie']})</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['defeito_reportado']}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['solucao_aplicada'] or '-'}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">{row['responsabilidade_custo'] or '-'}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-family: Arial; font-size: 12px;">R$ {custo:.2f}</td>
+        </tr>
+        """
+    
+    # Miolo do e-mail
+    miolo_html = f"""
+    <tr>
+        <td style="color: #003366; font-family: Arial, sans-serif; font-size: 22px; font-weight: bold; padding-bottom: 10px;">
+            Relatório de Manutenções
+        </td>
+    </tr>
+    <tr>
+        <td style="font-family: Arial, sans-serif; font-size: 14px; color: #333333;">
+            Segue abaixo o resumo das Ordens de Serviço selecionadas:
+        </td>
+    </tr>
+    <tr><td height="20">&nbsp;</td></tr>
+    <tr>
+        <td>
+            <table border="0" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+                <thead>
+                    <tr bgcolor="#f2f2f2">
+                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">O.S.</th>
+                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Aparelho</th>
+                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Defeito</th>
+                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Solução</th>
+                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Resp. Custo</th>
+                        <th align="left" style="padding: 8px; border-bottom: 2px solid #003366; font-family: Arial; font-size: 12px; color: #003366;">Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {linhas_html}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="5" align="right" style="padding: 10px; font-weight: bold; font-family: Arial; font-size: 13px;">TOTAL:</td>
+                        <td style="padding: 10px; font-weight: bold; font-family: Arial; font-size: 13px;">R$ {total_custo:.2f}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </td>
+    </tr>
+    """
+    
+    html_final = montar_layout_base("Relatório de Manutenção", miolo_html)
+    return html_final
+
 # --- UI ---
 st.title("Fluxo de Manutenção")
 st.markdown("---")
@@ -423,7 +502,7 @@ try:
         with col_filtro3:
             responsabilidade_filtro = st.selectbox("Filtrar por Respons. Custo:", options=responsabilidade_options)
 
-        st.markdown("---") # Separador visual
+        st.markdown("---") 
 
         col_data1, col_data2 = st.columns(2)
         with col_data1:
@@ -435,7 +514,6 @@ try:
             data_inicio_retorno = st.date_input("De:", value=None, format="DD/MM/YYYY", key="retorno_de")
             data_fim_retorno = st.date_input("Até:", value=None, format="DD/MM/YYYY", key="retorno_ate")
 
-
         historico_df = carregar_historico_manutencoes(
             status_filter=status_filtro, 
             colaborador_filter=colaborador_filtro,
@@ -445,25 +523,64 @@ try:
             start_date_retorno=data_inicio_retorno,
             end_date_retorno=data_fim_retorno
         )
-        st.dataframe(historico_df, hide_index=True, use_container_width=True,
-                      column_config={
-                          "id": "O.S. Nº",
-                          "numero_serie": "N/S",
-                          "nome_modelo": "Modelo",
-                          "colaborador": "Colaborador no Envio",
-                          "data_envio": st.column_config.DateColumn("Data Envio", format="DD/MM/YYYY"),
-                          "data_retorno": st.column_config.DateColumn("Data Retorno", format="DD/MM/YYYY"),
-                          "custo_reparo": st.column_config.NumberColumn("Custo", format="R$ %.2f"),
-                          "responsabilidade_custo": "Respons. Custo",
-                          "status_manutencao": "Status O.S.",
-                          "fornecedor": "Fornecedor",
-                          "defeito_reportado": "Defeito Reportado",
-                          "solucao_aplicada": "Solução Aplicada"
-                      })
+        
+        # Adicionar coluna de Seleção para o E-mail
+        historico_df['Selecionar'] = False
+        
+        # Configuração da tabela interativa
+        column_config = {
+             "Selecionar": st.column_config.CheckboxColumn("Selecionar", help="Selecione para enviar por e-mail"),
+             "id": "O.S. Nº",
+             "numero_serie": "N/S",
+             "nome_modelo": "Modelo",
+             "colaborador": "Colaborador no Envio",
+             "data_envio": st.column_config.DateColumn("Data Envio", format="DD/MM/YYYY"),
+             "data_retorno": st.column_config.DateColumn("Data Retorno", format="DD/MM/YYYY"),
+             "custo_reparo": st.column_config.NumberColumn("Custo", format="R$ %.2f"),
+             "responsabilidade_custo": "Respons. Custo",
+             "status_manutencao": "Status O.S.",
+             "fornecedor": "Fornecedor",
+             "defeito_reportado": "Defeito Reportado",
+             "solucao_aplicada": "Solução Aplicada"
+        }
+        
+        # Ordem das colunas com 'Selecionar' primeiro
+        cols = ['Selecionar'] + [c for c in historico_df.columns if c != 'Selecionar']
+        
+        edited_df = st.data_editor(
+            historico_df,
+            column_config=column_config,
+            column_order=cols,
+            hide_index=True,
+            use_container_width=True,
+            disabled=[c for c in historico_df.columns if c != 'Selecionar'] # Apenas checkboxes editáveis
+        )
+
+        # --- LÓGICA DE ENVIO DE E-MAIL ---
+        selecionados = edited_df[edited_df['Selecionar']]
+        
+        if not selecionados.empty:
+            st.markdown("---")
+            with st.expander("Enviar Relatório por E-mail", expanded=True):
+                st.write(f"**{len(selecionados)} registos selecionados.**")
+                destinatarios_str = st.text_area("Destinatários (separados por vírgula):", placeholder="exemplo1@email.com, exemplo2@email.com")
+                
+                if st.button("Enviar Relatório Selecionado", type="primary"):
+                    if destinatarios_str:
+                        destinatarios_list = [email.strip() for email in destinatarios_str.split(',') if email.strip()]
+                        if destinatarios_list:
+                            with st.spinner("A gerar e enviar relatório..."):
+                                html_email = gerar_conteudo_email_manutencao(selecionados)
+                                if enviar_email(destinatarios_list, "AssetFlow - Relatório de Manutenções", html_email, "Consulte a versão HTML para ver o relatório."):
+                                    st.success("Relatório enviado com sucesso!")
+                                else:
+                                    st.error("Falha ao enviar e-mail.")
+                        else:
+                            st.warning("Insira e-mails válidos.")
+                    else:
+                        st.warning("Preencha o campo de destinatários.")
 
 except Exception as e:
     st.error(f"Ocorreu um erro ao carregar a página de manutenções: {e}")
     st.info("Verifique se o banco de dados está a funcionar corretamente.")
     traceback.print_exc()
-
-
